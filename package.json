@@ -1,0 +1,16 @@
+{
+  "name": "intelligent-quant-analysis-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Monorepo for the intelligent quantitative analysis platform.",
+  "workspaces": ["apps/frontend"],
+  "scripts": {
+    "dev:frontend": "npm run dev --workspace @intelligent-quant/frontend",
+    "build:frontend": "npm run build --workspace @intelligent-quant/frontend",
+    "preview:frontend": "npm run preview --workspace @intelligent-quant/frontend"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0",
+    "npm": ">=10.0.0"
+  }
+}

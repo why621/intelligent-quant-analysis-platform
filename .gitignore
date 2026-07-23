@@ -1,0 +1,56 @@
+# JavaScript
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.local
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Quant data and model artifacts
+data/raw/
+data/processed/
+artifacts/
+/models/
+*.parquet
+*.feather
+*.joblib
+*.pkl
+
+# Test and build output
+htmlcov/
+.coverage
+build/
+*.egg-info/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors and operating systems
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
