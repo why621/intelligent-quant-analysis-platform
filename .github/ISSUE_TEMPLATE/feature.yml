@@ -1,0 +1,53 @@
+name: Feature or team task
+description: Plan a scoped frontend, backend, algorithm, contract, or documentation task.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - Frontend
+        - Backend
+        - Algorithms
+        - API contracts
+        - Documentation or infrastructure
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected outcome
+      description: Describe the user-visible or engineering result, not only the implementation.
+      placeholder: When this issue is complete...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List what is included and explicitly excluded.
+      placeholder: |
+        Included:
+        -
+        Excluded:
+        -
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] Behavior is covered by tests
+        - [ ] Relevant contract or documentation is updated
+        - [ ] CI passes
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and risks
+      description: Link related issues, contracts, data permissions, or blocking decisions.

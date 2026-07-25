@@ -1,0 +1,10 @@
+# Default owner until module owners have accepted repository invitations.
+* @why621
+
+# Add each group member beside the owner after confirming their GitHub username.
+/apps/frontend/ @why621
+/services/backend/ @why621
+/services/algorithms/ @why621
+/packages/contracts/ @why621
+/docs/ @why621
+/.github/ @why621

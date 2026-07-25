@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible defect without including secrets or private trading data.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - Frontend
+        - Backend
+        - Algorithms
+        - API contracts
+        - CI or deployment
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the actual and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: Browser, Node/Python version, branch and commit
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed API keys, account data, private trading records, and other sensitive information.
+          required: true
