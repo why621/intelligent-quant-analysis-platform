@@ -1,0 +1,76 @@
+DataStatus:
+  type: object
+  required: [status, timezone, source, assetCount]
+  properties:
+    status:
+      type: string
+      enum: [ready, updating, stale, failed]
+    timezone: {type: string, const: Asia/Shanghai}
+    source: {type: string, const: AkShare}
+    assetCount: {type: integer, minimum: 0}
+    latestTradeDate: {type: [string, "null"], format: date}
+    updatedAt: {type: [string, "null"], format: date-time}
+    message: {type: [string, "null"]}
+Asset:
+  type: object
+  required: [symbol, name, assetType, exchange, active]
+  properties:
+    symbol: {$ref: "./common.yaml#/Symbol"}
+    name: {type: string, minLength: 1}
+    assetType: {$ref: "./common.yaml#/AssetType"}
+    exchange:
+      type: string
+      enum: [SSE, SZSE, BSE]
+    active: {type: boolean}
+PriceBar:
+  type: object
+  required: [date, open, high, low, close, volume]
+  properties:
+    date: {type: string, format: date}
+    open: {type: number, minimum: 0}
+    high: {type: number, minimum: 0}
+    low: {type: number, minimum: 0}
+    close: {type: number, minimum: 0}
+    volume: {type: number, minimum: 0}
+    amount: {type: [number, "null"], minimum: 0}
+HistoryResponse:
+  type: object
+  required: [symbol, adjust, currency, items]
+  properties:
+    symbol: {$ref: "./common.yaml#/Symbol"}
+    adjust: {$ref: "./common.yaml#/AdjustMode"}
+    currency: {type: string, const: CNY}
+    items:
+      type: array
+      items: {$ref: "#/PriceBar"}
+IndexSnapshot:
+  type: object
+  required: [symbol, name, close, changePct]
+  properties:
+    symbol: {$ref: "./common.yaml#/Symbol"}
+    name: {type: string}
+    close: {type: number, minimum: 0}
+    changePct:
+      type: number
+      description: 百分点；1.25 表示上涨 1.25%
+MarketOverview:
+  type: object
+  required:
+    [tradeDate, advancing, declining, unchanged, limitUp, limitDown,
+     turnoverCny, northboundNetCny, indices]
+  properties:
+    tradeDate: {type: string, format: date}
+    advancing: {type: integer, minimum: 0}
+    declining: {type: integer, minimum: 0}
+    unchanged: {type: integer, minimum: 0}
+    limitUp: {type: integer, minimum: 0}
+    limitDown: {type: integer, minimum: 0}
+    turnoverCny:
+      type: number
+      description: 两市成交额，单位元
+    northboundNetCny:
+      type: [number, "null"]
+      description: 北向资金净流入，单位元；数据源不可用时为 null
+    indices:
+      type: array
+      items: {$ref: "#/IndexSnapshot"}

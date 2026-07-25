@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - services/backend/**
+      - packages/contracts/**
+      - docs/api-contract.md
       - .github/workflows/backend-ci.yml
   pull_request:
     paths:
       - services/backend/**
+      - packages/contracts/**
+      - docs/api-contract.md
       - .github/workflows/backend-ci.yml
 
 permissions:
@@ -16,7 +20,7 @@ permissions:
 
 jobs:
   backend-tests:
-    name: Backend tests
+    name: Backend and contract tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,5 +35,5 @@ jobs:
         run: python -m pip install -e "services/backend[dev]"
       - name: Lint backend
         run: ruff check services/backend
-      - name: Test backend
+      - name: Test backend and OpenAPI references
         run: pytest services/backend

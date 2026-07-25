@@ -1,15 +1,16 @@
 const DEFAULT_API_BASE_URL = '/api'
 
-export const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL)
+export const API_BASE_URL = normalizeBaseUrl(
+  import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
+)
 
 export class ApiError extends Error {
-  constructor(message, { status, code, details, traceId } = {}) {
+  constructor(message, { status, code, details } = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.details = details
-    this.traceId = traceId
   }
 }
 
@@ -17,9 +18,21 @@ function normalizeBaseUrl(baseUrl) {
   return baseUrl.replace(/\/+$/, '') || DEFAULT_API_BASE_URL
 }
 
+function toQuery(params = {}) {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value))
+    }
+  })
+  const result = query.toString()
+  return result ? `?${result}` : ''
+}
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
+      Accept: 'application/json',
       'Content-Type': 'application/json',
       ...options.headers
     },
@@ -27,15 +40,20 @@ async function request(path, options = {}) {
   })
 
   const contentType = response.headers.get('content-type') || ''
-  const payload = contentType.includes('application/json') ? await response.json() : null
+  const payload = contentType.includes('application/json')
+    ? await response.json()
+    : null
 
   if (!response.ok) {
-    throw new ApiError(payload?.message || `Request failed with status ${response.status}`, {
-      status: response.status,
-      code: payload?.code,
-      details: payload?.details,
-      traceId: payload?.traceId
-    })
+    const error = payload?.error || payload
+    throw new ApiError(
+      error?.message || `请求失败（HTTP ${response.status}）`,
+      {
+        status: response.status,
+        code: error?.code,
+        details: error?.details
+      }
+    )
   }
 
   return payload
@@ -53,20 +71,40 @@ export const api = {
     return request('/health')
   },
 
-  getMarketOverview() {
-    return request('/market/overview')
+  getDataStatus() {
+    return request('/data/status')
+  },
+
+  listAssets(params = {}) {
+    return request(`/assets${toQuery(params)}`)
+  },
+
+  getAssetHistory(symbol, params) {
+    return request(`/assets/${encodeURIComponent(symbol)}/history${toQuery(params)}`)
+  },
+
+  getMarketOverview(tradeDate) {
+    return request(`/market/overview${toQuery({ tradeDate })}`)
   },
 
   getCorrelation(payload) {
     return post('/analytics/correlation', payload)
   },
 
-  runBacktest(payload) {
+  getStrategies() {
+    return request('/strategies')
+  },
+
+  getStrategyRanking(period = '30d') {
+    return request(`/strategies/ranking${toQuery({ period })}`)
+  },
+
+  createBacktest(payload) {
     return post('/backtests', payload)
   },
 
-  getStrategyRanking() {
-    return request('/strategies/ranking')
+  getBacktest(jobId) {
+    return request(`/backtests/${encodeURIComponent(jobId)}`)
   },
 
   getAllocationSuggestion(payload) {
