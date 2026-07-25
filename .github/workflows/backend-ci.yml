@@ -1,0 +1,35 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - services/backend/**
+      - .github/workflows/backend-ci.yml
+  pull_request:
+    paths:
+      - services/backend/**
+      - .github/workflows/backend-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/backend/pyproject.toml
+      - name: Install backend dependencies
+        run: python -m pip install -e "services/backend[dev]"
+      - name: Lint backend
+        run: ruff check services/backend
+      - name: Test backend
+        run: pytest services/backend
