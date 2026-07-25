@@ -1,0 +1,237 @@
+openapi: 3.1.0
+info:
+  title: 智能量化分析平台 API
+  version: 0.2.0
+  description: |
+    前端、Flask 后端与算法模块之间唯一具有约束力的 HTTP 契约。
+    平台面向 A 股及场内 ETF，按交易日收盘后更新。配置建议仅用于研究，
+    不连接券商、不提交真实订单。
+servers:
+  - url: /api
+    description: 同域部署
+tags:
+  - {name: System}
+  - {name: Data}
+  - {name: Analytics}
+  - {name: Strategy}
+  - {name: Backtest}
+  - {name: Allocation}
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: 服务健康检查
+      operationId: getHealth
+      responses:
+        "200":
+          description: 服务正常
+          content:
+            application/json:
+              schema: {$ref: "./schemas/common.yaml#/HealthResponse"}
+  /data/status:
+    get:
+      tags: [Data]
+      summary: 获取日更数据状态
+      operationId: getDataStatus
+      responses:
+        "200":
+          description: 最近一次更新情况
+          content:
+            application/json:
+              schema: {$ref: "./schemas/data.yaml#/DataStatus"}
+        default: {$ref: "#/components/responses/Error"}
+  /assets:
+    get:
+      tags: [Data]
+      summary: 查询可用资产
+      operationId: listAssets
+      parameters:
+        - in: query
+          name: query
+          schema: {type: string, maxLength: 30}
+          description: 按六位代码或名称模糊查询
+        - in: query
+          name: assetType
+          schema: {$ref: "./schemas/common.yaml#/AssetType"}
+        - in: query
+          name: limit
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        "200":
+          description: 资产列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: "./schemas/data.yaml#/Asset"}
+                  total: {type: integer, minimum: 0}
+        default: {$ref: "#/components/responses/Error"}
+  /assets/{symbol}/history:
+    get:
+      tags: [Data]
+      summary: 获取复权日线
+      operationId: getAssetHistory
+      parameters:
+        - $ref: "#/components/parameters/Symbol"
+        - $ref: "#/components/parameters/StartDate"
+        - $ref: "#/components/parameters/EndDate"
+        - in: query
+          name: adjust
+          schema: {$ref: "./schemas/common.yaml#/AdjustMode"}
+      responses:
+        "200":
+          description: 按日期升序的日线
+          content:
+            application/json:
+              schema: {$ref: "./schemas/data.yaml#/HistoryResponse"}
+        default: {$ref: "#/components/responses/Error"}
+  /market/overview:
+    get:
+      tags: [Data]
+      summary: 获取市场概况
+      operationId: getMarketOverview
+      parameters:
+        - in: query
+          name: tradeDate
+          schema: {type: string, format: date}
+      responses:
+        "200":
+          description: 市场宽度、指数与资金热度
+          content:
+            application/json:
+              schema: {$ref: "./schemas/data.yaml#/MarketOverview"}
+        default: {$ref: "#/components/responses/Error"}
+  /analytics/correlation:
+    post:
+      tags: [Analytics]
+      summary: 计算资产收益率相关性
+      operationId: calculateCorrelation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "./schemas/analytics.yaml#/CorrelationRequest"}
+      responses:
+        "200":
+          description: 对称相关系数矩阵
+          content:
+            application/json:
+              schema: {$ref: "./schemas/analytics.yaml#/CorrelationResponse"}
+        default: {$ref: "#/components/responses/Error"}
+  /strategies:
+    get:
+      tags: [Strategy]
+      summary: 查询策略目录
+      operationId: listStrategies
+      responses:
+        "200":
+          description: 可用、试验中和规划中的策略
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: "./schemas/strategy.yaml#/Strategy"}
+        default: {$ref: "#/components/responses/Error"}
+  /strategies/ranking:
+    get:
+      tags: [Strategy]
+      summary: 获取策略排行榜
+      operationId: getStrategyRanking
+      parameters:
+        - in: query
+          name: period
+          schema:
+            type: string
+            enum: [1d, 7d, 30d, 1y]
+            default: 30d
+      responses:
+        "200":
+          description: 仅包含有真实计算结果的策略
+          content:
+            application/json:
+              schema: {$ref: "./schemas/strategy.yaml#/RankingResponse"}
+        default: {$ref: "#/components/responses/Error"}
+  /backtests:
+    post:
+      tags: [Backtest]
+      summary: 提交异步回测任务
+      operationId: createBacktest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "./schemas/backtest.yaml#/BacktestRequest"}
+      responses:
+        "202":
+          description: 任务已受理
+          content:
+            application/json:
+              schema: {$ref: "./schemas/backtest.yaml#/BacktestJob"}
+        default: {$ref: "#/components/responses/Error"}
+  /backtests/{jobId}:
+    get:
+      tags: [Backtest]
+      summary: 查询回测任务及结果
+      operationId: getBacktest
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: 任务状态；完成后 result 非空
+          content:
+            application/json:
+              schema: {$ref: "./schemas/backtest.yaml#/BacktestJob"}
+        default: {$ref: "#/components/responses/Error"}
+  /allocation/suggestion:
+    post:
+      tags: [Allocation]
+      summary: 生成下一交易日模拟配置建议
+      operationId: createAllocationSuggestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "./schemas/allocation.yaml#/AllocationRequest"}
+      responses:
+        "200":
+          description: 基于上一交易日收盘数据的研究建议
+          content:
+            application/json:
+              schema: {$ref: "./schemas/allocation.yaml#/AllocationResponse"}
+        default: {$ref: "#/components/responses/Error"}
+components:
+  parameters:
+    Symbol:
+      in: path
+      name: symbol
+      required: true
+      schema: {$ref: "./schemas/common.yaml#/Symbol"}
+    JobId:
+      in: path
+      name: jobId
+      required: true
+      schema: {type: string, format: uuid}
+    StartDate:
+      in: query
+      name: startDate
+      required: true
+      schema: {type: string, format: date}
+    EndDate:
+      in: query
+      name: endDate
+      required: true
+      schema: {type: string, format: date}
+  responses:
+    Error:
+      description: 请求失败
+      content:
+        application/json:
+          schema: {$ref: "./schemas/common.yaml#/ErrorResponse"}

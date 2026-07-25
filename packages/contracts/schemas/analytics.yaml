@@ -1,0 +1,32 @@
+CorrelationRequest:
+  type: object
+  additionalProperties: false
+  required: [symbols, startDate, endDate]
+  properties:
+    symbols:
+      type: array
+      minItems: 2
+      maxItems: 10
+      uniqueItems: true
+      items: {$ref: "./common.yaml#/Symbol"}
+    startDate: {type: string, format: date}
+    endDate: {type: string, format: date}
+    adjust: {$ref: "./common.yaml#/AdjustMode"}
+    returnType:
+      type: string
+      enum: [simple, log]
+      default: simple
+CorrelationResponse:
+  type: object
+  required: [symbols, observationCount, matrix]
+  properties:
+    symbols:
+      type: array
+      items: {$ref: "./common.yaml#/Symbol"}
+    observationCount: {type: integer, minimum: 2}
+    matrix:
+      type: array
+      description: 顺序与 symbols 一致的 N×N 对称矩阵
+      items:
+        type: array
+        items: {type: number, minimum: -1, maximum: 1}

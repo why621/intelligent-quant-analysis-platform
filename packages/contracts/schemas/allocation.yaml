@@ -1,0 +1,52 @@
+AllocationRequest:
+  type: object
+  additionalProperties: false
+  required: [symbols, strategyId]
+  properties:
+    symbols:
+      type: array
+      minItems: 1
+      maxItems: 10
+      uniqueItems: true
+      items: {$ref: "./common.yaml#/Symbol"}
+    strategyId: {type: string}
+    cashPct:
+      type: number
+      minimum: 0
+      maximum: 100
+      default: 0
+AllocationPosition:
+  type: object
+  required: [symbol, weightPct, action]
+  properties:
+    symbol: {$ref: "./common.yaml#/Symbol"}
+    weightPct:
+      type: number
+      minimum: 0
+      maximum: 100
+    action:
+      type: string
+      enum: [increase, hold, decrease, exit]
+    reason: {type: string}
+AllocationResponse:
+  type: object
+  required:
+    [basisDate, targetDate, strategyId, positions, cashPct, advisoryOnly, disclaimer]
+  properties:
+    basisDate:
+      type: string
+      format: date
+      description: 建议所用的最近交易日收盘日期
+    targetDate:
+      type: string
+      format: date
+      description: 建议对应的下一交易日
+    strategyId: {type: string}
+    positions:
+      type: array
+      items: {$ref: "#/AllocationPosition"}
+    cashPct: {type: number, minimum: 0, maximum: 100}
+    advisoryOnly: {type: boolean, const: true}
+    disclaimer:
+      type: string
+      description: 必须明确不构成投资建议且不会提交真实订单

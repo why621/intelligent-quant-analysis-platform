@@ -1,0 +1,125 @@
+TradingCosts:
+  type: object
+  additionalProperties: false
+  properties:
+    commissionPct:
+      type: number
+      minimum: 0
+      default: 0.03
+      description: 单边佣金百分点；0.03 表示 0.03%
+    stampDutyPct:
+      type: number
+      minimum: 0
+      default: 0.05
+      description: 卖出印花税百分点；0.05 表示 0.05%
+    slippagePct:
+      type: number
+      minimum: 0
+      default: 0.02
+      description: 单边滑点百分点
+BacktestRequest:
+  type: object
+  additionalProperties: false
+  required: [symbols, strategyId, startDate, endDate]
+  properties:
+    symbols:
+      type: array
+      minItems: 1
+      maxItems: 10
+      uniqueItems: true
+      items: {$ref: "./common.yaml#/Symbol"}
+    strategyId: {type: string}
+    parameters:
+      type: object
+      default: {}
+      additionalProperties: true
+    startDate: {type: string, format: date}
+    endDate: {type: string, format: date}
+    benchmark:
+      $ref: "./common.yaml#/Symbol"
+    initialCapitalCny:
+      type: number
+      exclusiveMinimum: 0
+      default: 100000
+    adjust: {$ref: "./common.yaml#/AdjustMode"}
+    tradingCosts: {$ref: "#/TradingCosts"}
+BacktestMetrics:
+  type: object
+  required:
+    [totalReturnPct, annualizedReturnPct, maxDrawdownPct, sharpe, alphaPct, beta]
+  properties:
+    totalReturnPct:
+      type: number
+      description: 百分点
+    annualizedReturnPct:
+      type: number
+      description: 年化百分点
+    maxDrawdownPct:
+      type: number
+      minimum: 0
+      description: 非负百分点
+    sharpe:
+      type: number
+      description: 年化夏普，默认无风险利率 0
+    alphaPct:
+      type: [number, "null"]
+      description: 相对基准年化 Alpha 百分点；无基准时为 null
+    beta:
+      type: [number, "null"]
+      description: 相对基准 Beta；无基准时为 null
+EquityPoint:
+  type: object
+  required: [date, equity, benchmarkEquity]
+  properties:
+    date: {type: string, format: date}
+    equity: {type: number}
+    benchmarkEquity: {type: [number, "null"]}
+Trade:
+  type: object
+  required: [date, symbol, side, price, quantity, amountCny, feeCny]
+  properties:
+    date: {type: string, format: date}
+    symbol: {$ref: "./common.yaml#/Symbol"}
+    side: {type: string, enum: [buy, sell]}
+    price: {type: number, exclusiveMinimum: 0}
+    quantity: {type: number, exclusiveMinimum: 0}
+    amountCny: {type: number, minimum: 0}
+    feeCny: {type: number, minimum: 0}
+BacktestResult:
+  type: object
+  required: [metrics, equityCurve, trades, assumptions]
+  properties:
+    metrics: {$ref: "#/BacktestMetrics"}
+    equityCurve:
+      type: array
+      items: {$ref: "#/EquityPoint"}
+    trades:
+      type: array
+      items: {$ref: "#/Trade"}
+    assumptions:
+      type: object
+      required: [signalAt, executeAt, calendar, currency]
+      properties:
+        signalAt: {type: string, const: close}
+        executeAt: {type: string, const: next_open}
+        calendar: {type: string, const: CN}
+        currency: {type: string, const: CNY}
+BacktestJob:
+  type: object
+  required: [jobId, status, createdAt]
+  properties:
+    jobId: {type: string, format: uuid}
+    status:
+      type: string
+      enum: [queued, running, succeeded, failed]
+    createdAt: {type: string, format: date-time}
+    updatedAt: {type: [string, "null"], format: date-time}
+    progressPct: {type: number, minimum: 0, maximum: 100}
+    result:
+      oneOf:
+        - {$ref: "#/BacktestResult"}
+        - {type: "null"}
+    error:
+      oneOf:
+        - {$ref: "./common.yaml#/ErrorResponse"}
+        - {type: "null"}

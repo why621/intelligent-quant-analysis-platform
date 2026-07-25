@@ -1,0 +1,46 @@
+Strategy:
+  type: object
+  required: [id, name, category, status, description, parameterSchema]
+  properties:
+    id:
+      type: string
+      pattern: "^[a-z][a-z0-9_-]{2,49}$"
+      examples: [ma_cross]
+    name: {type: string}
+    category:
+      type: string
+      enum: [traditional, ai]
+    status:
+      type: string
+      description: 只有 available 策略允许提交回测
+      enum: [available, experimental, planned]
+    description: {type: string}
+    parameterSchema:
+      type: object
+      description: JSON Schema 子集，由后端据此校验 parameters
+      additionalProperties: true
+RankingItem:
+  type: object
+  required: [rank, strategyId, strategyName, category, returnPct, maxDrawdownPct, sharpe]
+  properties:
+    rank: {type: integer, minimum: 1}
+    strategyId: {type: string}
+    strategyName: {type: string}
+    category: {type: string, enum: [traditional, ai]}
+    returnPct:
+      type: number
+      description: 百分点
+    maxDrawdownPct:
+      type: number
+      description: 非负百分点
+      minimum: 0
+    sharpe: {type: number}
+RankingResponse:
+  type: object
+  required: [asOfDate, period, items]
+  properties:
+    asOfDate: {type: string, format: date}
+    period: {type: string, enum: [1d, 7d, 30d, 1y]}
+    items:
+      type: array
+      items: {$ref: "#/RankingItem"}

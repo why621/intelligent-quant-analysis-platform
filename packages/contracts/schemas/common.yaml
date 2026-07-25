@@ -1,0 +1,33 @@
+Symbol:
+  type: string
+  pattern: "^[0-9]{6}$"
+  examples: ["510300"]
+AssetType:
+  type: string
+  enum: [stock, etf]
+AdjustMode:
+  type: string
+  enum: [qfq, hfq, none]
+  default: qfq
+HealthResponse:
+  type: object
+  required: [status, service, version]
+  properties:
+    status: {type: string, const: ok}
+    service: {type: string, const: intelligent-quant-backend}
+    version: {type: string}
+ErrorResponse:
+  type: object
+  required: [error]
+  properties:
+    error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          examples: [VALIDATION_ERROR]
+        message: {type: string}
+        details:
+          type: [object, "null"]
+          additionalProperties: true

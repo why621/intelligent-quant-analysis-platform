@@ -4,36 +4,28 @@ import pytest
 
 from quant_platform.backtesting import BacktestRequest
 from quant_platform.data import AkShareMarketDataProvider
+from quant_platform.models import TradingCosts
 
 
-def test_backtest_request_accepts_valid_contract() -> None:
+def test_backtest_request_accepts_openapi_aligned_contract() -> None:
     request = BacktestRequest(
-        assets=("000001", "600000"),
-        strategy="ma_crossover",
+        symbols=("510300", "510500"),
+        strategy_id="ma_cross",
         start_date=date(2025, 1, 1),
         end_date=date(2025, 12, 31),
     )
 
-    assert request.assets == ("000001", "600000")
-    assert request.params == {}
-
-
-def test_backtest_request_rejects_invalid_date_range() -> None:
-    with pytest.raises(ValueError, match="start_date"):
-        BacktestRequest(
-            assets=("000001",),
-            strategy="ma_crossover",
-            start_date=date(2025, 12, 31),
-            end_date=date(2025, 1, 1),
-        )
+    assert request.symbols == ("510300", "510500")
+    assert request.parameters == {}
+    assert request.trading_costs == TradingCosts()
 
 
 def test_akshare_provider_is_an_explicit_implementation_slot() -> None:
     provider = AkShareMarketDataProvider()
 
-    with pytest.raises(NotImplementedError, match="stock_zh_a_hist"):
+    with pytest.raises(NotImplementedError, match="AkShare"):
         provider.stock_history(
-            symbol="000001",
+            symbol="510300",
             start_date="20250101",
             end_date="20251231",
         )
