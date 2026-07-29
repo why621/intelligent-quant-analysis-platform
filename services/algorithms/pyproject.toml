@@ -23,9 +23,12 @@ dev = [
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q -m \"not network\""
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "network: tests that require live AkShare network calls",
+]
 
 [tool.ruff]
 line-length = 100

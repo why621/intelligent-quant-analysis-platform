@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from quant_platform.backtesting import BacktestRequest
 from quant_platform.data import AkShareMarketDataProvider
 from quant_platform.models import TradingCosts
@@ -18,6 +20,7 @@ def test_backtest_request_accepts_openapi_aligned_contract() -> None:
     assert request.trading_costs == TradingCosts()
 
 
+@pytest.mark.network
 def test_akshare_provider_stock_history_returns_dataframe() -> None:
     provider = AkShareMarketDataProvider()
     df = provider.stock_history(

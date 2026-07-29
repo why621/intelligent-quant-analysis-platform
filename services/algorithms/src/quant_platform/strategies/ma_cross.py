@@ -4,8 +4,7 @@ from collections.abc import Mapping
 
 import pandas as pd
 
-from quant_platform.interfaces import Strategy
-from quant_platform.models import StrategyCategory, StrategyInfo
+from quant_platform.models import StrategyInfo
 
 
 class MACrossStrategy:

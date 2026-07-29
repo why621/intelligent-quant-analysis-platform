@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import override
 
 import akshare as ak
 import pandas as pd
 
-from quant_platform.models import AdjustMode, Asset, AssetType, DataState, DataStatus
+from quant_platform.models import AdjustMode, Asset, AssetType, DataStatus
 
 # 30–50 个 A 股/ETF 资产池，代码全部六位字符串
 _DEFAULT_UNIVERSE: list[dict[str, str]] = [
@@ -210,7 +208,11 @@ class AkShareMarketDataProvider:
                 asset_count=len(self._assets),
                 latest_trade_date=latest_date,
                 updated_at=datetime.now(),
-                message=f"已更新 {success}/{len(self._assets)} 个资产" if success else "全部资产拉取失败",
+                message=(
+                    f"已更新 {success}/{len(self._assets)} 个资产"
+                    if success
+                    else "全部资产拉取失败"
+                ),
             )
         except Exception:
             self._status = DataStatus(
@@ -254,7 +256,8 @@ class AkShareMarketDataProvider:
         indices: list[dict[str, object]] = []
         for idx_sym, idx_name in INDEX_SYMBOLS:
             try:
-                idx_df = ak.stock_zh_index_daily(symbol=f"sh{idx_sym}" if idx_sym.startswith("0") else f"sz{idx_sym}")
+                prefix = "sh" if idx_sym.startswith("0") else "sz"
+                idx_df = ak.stock_zh_index_daily(symbol=f"{prefix}{idx_sym}")
                 if not idx_df.empty:
                     latest = idx_df.sort_values("date").iloc[-1]
                     indices.append({
