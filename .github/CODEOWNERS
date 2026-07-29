@@ -4,7 +4,7 @@
 # Add each group member beside the owner after confirming their GitHub username.
 /apps/frontend/ @why621
 /services/backend/ @why621
-/services/algorithms/ @why621
+/services/algorithms/ @why621 @GhostUling
 /packages/contracts/ @why621
 /docs/ @why621
 /.github/ @why621

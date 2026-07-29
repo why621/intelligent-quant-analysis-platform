@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | 前端 | `apps/frontend/` | `frontend/` | 待填写 |
 | 后端 | `services/backend/` | `backend/` | 待填写 |
-| 算法 | `services/algorithms/` | `algorithm/` | 待填写 |
+| 算法 | `services/algorithms/` | `algorithm/` | @GhostUling |
 | 接口契约 | `packages/contracts/`、`docs/api-contract.md` | `docs/` | 待填写 |
 
 ## 每个任务的标准流程
