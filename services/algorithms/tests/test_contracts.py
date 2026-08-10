@@ -20,12 +20,14 @@ def test_backtest_request_accepts_openapi_aligned_contract() -> None:
     assert request.trading_costs == TradingCosts()
 
 
-def test_akshare_provider_is_an_explicit_implementation_slot() -> None:
+@pytest.mark.network
+def test_akshare_provider_stock_history_returns_dataframe() -> None:
     provider = AkShareMarketDataProvider()
-
-    with pytest.raises(NotImplementedError, match="AkShare"):
-        provider.stock_history(
-            symbol="510300",
-            start_date="20250101",
-            end_date="20251231",
-        )
+    df = provider.stock_history(
+        symbol="510300",
+        start_date="2025-01-01",
+        end_date="2025-12-31",
+    )
+    assert df is not None
+    for col in ["date", "open", "high", "low", "close", "volume", "amount"]:
+        assert col in df.columns
