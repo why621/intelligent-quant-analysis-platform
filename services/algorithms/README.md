@@ -30,3 +30,40 @@ pytest services/algorithms
 ```
 
 完整分工与验收标准见 `docs/implementation-guide.md`。
+
+## 行情缓存与服务器日更契约
+
+后端不得在每个 HTTP 请求中直接调用 AkShare。统一使用
+`AkShareMarketDataProvider`：历史行情和市场概览均优先读取
+`data/processed/` 中的本地缓存，只有缓存缺失时才尝试真实数据源。
+
+- A 股和 ETF 日线通过 `stock_zh_a_hist_tx` 使用腾讯数据源；该接口返回的
+  `amount` 实际表示成交量（手），适配层会将其映射为统一契约的 `volume`，
+  无法获得的成交额 `amount` 保持为空，禁止用 0 伪造。
+- 上游失败但存在旧缓存时继续返回旧数据，`update_daily()` 状态为 `stale`；
+  没有任何可用缓存时状态为 `failed`。后端应将无缓存的
+  `UpstreamUnavailableError` 映射为统一的 `503 UPSTREAM_UNAVAILABLE`。
+- 市场概览仍需使用东方财富全市场快照，但只允许日更任务调用一次；普通请求
+  读取 `market_overview.json`。不得在 Flask 路由中循环调用 AkShare。
+- CSV/JSON 使用临时文件原子替换。`data/processed/` 是服务器运行数据目录，
+  已被 Git 忽略；部署时必须放在持久化磁盘，并保证同一时刻只有一个日更任务。
+
+安装算法包后，服务器在每个交易日收盘后执行：
+
+```bash
+quant-data-update
+# 或
+python -m quant_platform.cli
+```
+
+CLI 会输出 JSON 状态，退出码 `0` 表示 `ready`、`2` 表示有缓存可用但数据
+`stale`、`1` 表示 `failed`。Linux 服务器可配置 cron（项目路径按实际部署修改）：
+
+```cron
+20 16 * * 1-5 cd /srv/intelligent-quant-analysis-platform && .venv/bin/quant-data-update >> /var/log/quant-data-update.log 2>&1
+```
+
+首次部署应先手动运行一次并确认至少生成资产 CSV 和
+`market_overview.json`，再启动后端。定时任务与 Flask 进程共享同一个
+`data/processed/` 目录；未来迁移到 SQLite 时保持现有 Python 接口与 OpenAPI
+响应结构不变。
