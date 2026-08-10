@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from time import sleep
 
 import akshare as ak
 import pandas as pd
 
-from quant_platform.data.storage import OHLCVStore
+from quant_platform.data.storage import MarketOverviewStore, OHLCVStore
 from quant_platform.models import AdjustMode, Asset, AssetType, DataStatus
 
 # 30–50 个 A 股/ETF 资产池，代码全部六位字符串
@@ -92,6 +93,10 @@ def _tencent_symbol(symbol: str) -> str:
     return f"sz{symbol}"
 
 
+class UpstreamUnavailableError(RuntimeError):
+    """The live market-data provider failed and no result can be trusted."""
+
+
 class AkShareMarketDataProvider:
     """AkShare 数据适配器——算法模块中唯一允许了解 AkShare API 细节的类。
 
@@ -99,7 +104,12 @@ class AkShareMarketDataProvider:
     update_daily() 收盘后增量拉取并落盘到 CSV。
     """
 
-    def __init__(self, data_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        data_dir: Path | None = None,
+        *,
+        request_interval_seconds: float = 0.2,
+    ) -> None:
         self._assets: dict[str, Asset] = {
             a["symbol"]: Asset(
                 symbol=a["symbol"],
@@ -109,7 +119,10 @@ class AkShareMarketDataProvider:
             )
             for a in _DEFAULT_UNIVERSE
         }
-        self._storage = OHLCVStore(data_dir or _DEFAULT_DATA_DIR)
+        resolved_data_dir = data_dir or _DEFAULT_DATA_DIR
+        self._storage = OHLCVStore(resolved_data_dir)
+        self._overview_storage = MarketOverviewStore(resolved_data_dir)
+        self._request_interval_seconds = max(0.0, request_interval_seconds)
         self._status = DataStatus(
             status="updating",
             source="AkShare",
@@ -151,7 +164,14 @@ class AkShareMarketDataProvider:
             if cached["date"].min() <= lo and cached["date"].max() >= hi:
                 return cached[(cached["date"] >= lo) & (cached["date"] <= hi)]
 
-        raw = self._fetch_tencent(symbol, start_date, end_date, adjust)
+        try:
+            raw = self._fetch_tencent(symbol, start_date, end_date, adjust)
+        except UpstreamUnavailableError:
+            if not cached.empty:
+                lo = pd.Timestamp(start_date)
+                hi = pd.Timestamp(end_date)
+                return cached[(cached["date"] >= lo) & (cached["date"] <= hi)]
+            raise
         if raw.empty:
             # 缓存有部分数据时，返回能覆盖到的部分
             if not cached.empty:
@@ -180,139 +200,94 @@ class AkShareMarketDataProvider:
         return self._status
 
     def update_daily(self) -> DataStatus:
-        """收盘后调用一次：增量拉取所有资产并落盘 CSV。
+        """Incrementally refresh all assets once after market close."""
+        today = _today()
+        available = 0
+        refreshed = 0
+        upstream_errors = 0
+        latest_date: date | None = None
 
-        网络失败保留旧数据，状态标记为 stale/failed。
-        """
-        try:
-            today = _today()
-            success = 0
-            latest_date: date | None = None
-            for sym in self._assets:
-                try:
-                    cached = self._storage.load(sym)
-                    if cached.empty:
-                        start = today - timedelta(days=_LOOKBACK_DAYS)
-                    else:
-                        last = cached["date"].max().date()
-                        start = last + timedelta(days=1)
+        for symbol in self._assets:
+            try:
+                cached = self._storage.load(symbol)
+                if not cached.empty:
+                    available += 1
+                    cached_date = cached["date"].max().date()
+                    if latest_date is None or cached_date > latest_date:
+                        latest_date = cached_date
+                    start = cached_date + timedelta(days=1)
+                else:
+                    start = today - timedelta(days=_LOOKBACK_DAYS)
 
-                    if start > today:
-                        success += 1
-                        continue
-
-                    df = self._fetch_tencent(sym, start, today, "qfq")
-                    if df.empty:
-                        if not cached.empty:
-                            success += 1  # 网络失败但旧数据仍可用
-                        continue
-
-                    merged = (
-                        pd.concat([cached, df], ignore_index=True)
-                        .drop_duplicates(subset="date")
-                        .sort_values("date")
-                    )
-                    self._storage.save(sym, merged)
-                    success += 1
-                    max_date = merged["date"].max().date()
-                    if latest_date is None or max_date > latest_date:
-                        latest_date = max_date
-                except Exception:
+                if start > today:
                     continue
 
-            if success == 0:
-                self._status = DataStatus(
-                    status="failed",
-                    source="AkShare",
-                    asset_count=len(self._assets),
-                    latest_trade_date=None,
-                    updated_at=datetime.now(),
-                    message="全部资产拉取失败",
+                try:
+                    frame = self._fetch_tencent(symbol, start, today, "qfq")
+                finally:
+                    if self._request_interval_seconds:
+                        sleep(self._request_interval_seconds)
+
+                if frame.empty:
+                    continue
+
+                merged = (
+                    pd.concat([cached, frame], ignore_index=True)
+                    .drop_duplicates(subset="date", keep="last")
+                    .sort_values("date")
                 )
-            elif success < len(self._assets):
-                self._status = DataStatus(
-                    status="stale",
-                    source="AkShare",
-                    asset_count=len(self._assets),
-                    latest_trade_date=latest_date,
-                    updated_at=datetime.now(),
-                    message=f"部分更新 {success}/{len(self._assets)} 个资产",
-                )
-            else:
-                self._status = DataStatus(
-                    status="ready",
-                    source="AkShare",
-                    asset_count=len(self._assets),
-                    latest_trade_date=latest_date,
-                    updated_at=datetime.now(),
-                    message=f"已更新 {success}/{len(self._assets)} 个资产",
-                )
-        except Exception:
-            self._status = DataStatus(
-                status="failed",
-                source="AkShare",
-                asset_count=len(self._assets),
-                latest_trade_date=None,
-                updated_at=datetime.now(),
-                message="日更流程异常",
-            )
+                self._storage.save(symbol, merged)
+                if cached.empty:
+                    available += 1
+                refreshed += 1
+                merged_date = merged["date"].max().date()
+                if latest_date is None or merged_date > latest_date:
+                    latest_date = merged_date
+            except Exception:
+                upstream_errors += 1
+
+        try:
+            self.refresh_market_overview()
+        except (OSError, UpstreamUnavailableError, ValueError):
+            upstream_errors += 1
+
+        total = len(self._assets)
+        if available == 0:
+            state = "failed"
+        elif available < total or upstream_errors:
+            state = "stale"
+        else:
+            state = "ready"
+
+        self._status = DataStatus(
+            status=state,
+            source="AkShare",
+            asset_count=total,
+            latest_trade_date=latest_date,
+            updated_at=datetime.now(),
+            message=(
+                f"refreshed={refreshed}, available={available}/{total}, "
+                f"upstreamErrors={upstream_errors}"
+            ),
+        )
         return self._status
 
     def market_overview(self, trade_date: date | None = None) -> dict[str, object]:
-        """获取市场宽度、指数快照与成交额。"""
-        try:
-            spot_df = ak.stock_zh_a_spot_em()
-        except Exception:
-            return _empty_market_overview(trade_date or _today())
+        """Return the local snapshot; call the live provider only on a cold cache."""
+        cached = self._overview_storage.load()
+        if trade_date is not None:
+            requested = trade_date.isoformat()
+            if cached is None or cached.get("tradeDate") != requested:
+                raise ValueError("the requested trade date is not available in the local cache")
+        if cached is not None:
+            return dict(cached)
+        return self.refresh_market_overview()
 
-        advancing = int(spot_df["涨跌幅"].gt(0).sum())
-        declining = int(spot_df["涨跌幅"].lt(0).sum())
-        unchanged = int(spot_df["涨跌幅"].eq(0).sum())
-
-        # 涨停 / 跌停：涨跌幅 >= 9.9% 或 <= -9.9%（粗略估计）
-        limit_up = int(spot_df["涨跌幅"].ge(9.9).sum())
-        limit_down = int(spot_df["涨跌幅"].le(-9.9).sum())
-
-        turnover = float(spot_df["成交额"].sum()) if "成交额" in spot_df.columns else 0.0
-
-        # 北向资金
-        northbound = None
-        try:
-            nb_df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")
-            if not nb_df.empty:
-                nb_df = nb_df.sort_values("date", ascending=False)
-                northbound = float(nb_df.iloc[0]["value"])
-        except Exception:
-            pass
-
-        # 指数快照
-        indices: list[dict[str, object]] = []
-        for idx_sym, idx_name in INDEX_SYMBOLS:
-            try:
-                prefix = "sh" if idx_sym.startswith("0") else "sz"
-                idx_df = ak.stock_zh_index_daily(symbol=f"{prefix}{idx_sym}")
-                if not idx_df.empty:
-                    latest = idx_df.sort_values("date").iloc[-1]
-                    indices.append({
-                        "symbol": idx_sym,
-                        "name": idx_name,
-                        "close": float(latest["close"]),
-                        "changePct": float(latest.get("pct_chg", 0)),
-                    })
-            except Exception:
-                continue
-
-        return {
-            "tradeDate": (trade_date or _today()).isoformat(),
-            "advancing": advancing,
-            "declining": declining,
-            "unchanged": unchanged,
-            "limitUp": limit_up,
-            "limitDown": limit_down,
-            "turnoverCny": turnover,
-            "northboundNetCny": northbound,
-            "indices": indices,
-        }
+    def refresh_market_overview(self) -> dict[str, object]:
+        """Refresh and persist the market snapshot; intended for the daily CLI."""
+        overview = self._fetch_market_overview(_today())
+        self._overview_storage.save(overview)
+        return overview
 
     # ------------------------------------------------------------------
     # 内部
@@ -325,7 +300,7 @@ class AkShareMarketDataProvider:
         end_date: date,
         adjust: AdjustMode,
     ) -> pd.DataFrame:
-        """从腾讯接口拉取并规范化为契约列序。"""
+        """Fetch Tencent history and normalise its volume-only schema."""
         adjust_map = {"qfq": "qfq", "hfq": "hfq", "none": ""}
         try:
             raw: pd.DataFrame = ak.stock_zh_a_hist_tx(
@@ -334,16 +309,106 @@ class AkShareMarketDataProvider:
                 end_date=end_date.strftime("%Y%m%d"),
                 adjust=adjust_map.get(adjust, "qfq"),
             )
-        except Exception:
-            return _empty_ohlcv()
+        except Exception as exc:
+            raise UpstreamUnavailableError(f"Tencent history failed for {symbol}") from exc
 
         if raw is None or raw.empty:
             return _empty_ohlcv()
 
-        needed = ["date", "open", "high", "low", "close", "volume", "amount"]
-        result = raw[needed].copy()
-        result["date"] = pd.to_datetime(result["date"])
-        return result.sort_values("date").drop_duplicates(subset="date")
+        required = ["date", "open", "high", "low", "close"]
+        missing = [column for column in required if column not in raw.columns]
+        if missing:
+            raise UpstreamUnavailableError(f"Tencent history schema missing: {', '.join(missing)}")
+
+        result = raw[required].copy()
+        if "volume" in raw.columns:
+            result["volume"] = raw["volume"]
+            result["amount"] = raw["amount"] if "amount" in raw.columns else float("nan")
+        elif "amount" in raw.columns:
+            # AkShare's Tencent endpoint names trading volume (hands) ``amount``.
+            result["volume"] = raw["amount"]
+            result["amount"] = float("nan")
+        else:
+            raise UpstreamUnavailableError("Tencent history schema has no volume field")
+
+        result["date"] = pd.to_datetime(result["date"], errors="coerce")
+        for column in ["open", "high", "low", "close", "volume", "amount"]:
+            result[column] = pd.to_numeric(result[column], errors="coerce")
+        if result[["date", "open", "high", "low", "close", "volume"]].isna().any().any():
+            raise UpstreamUnavailableError("Tencent history returned invalid required values")
+        return result.sort_values("date").drop_duplicates(subset="date", keep="last")
+
+    def _fetch_market_overview(self, trade_date: date) -> dict[str, object]:
+        try:
+            spot_df = ak.stock_zh_a_spot_em()
+        except Exception as exc:
+            raise UpstreamUnavailableError("market overview upstream failed") from exc
+
+        if spot_df is None or spot_df.empty or "涨跌幅" not in spot_df:
+            raise UpstreamUnavailableError("market overview upstream returned invalid data")
+
+        change = pd.to_numeric(spot_df["涨跌幅"], errors="coerce").dropna()
+        advancing = int(change.gt(0).sum())
+        declining = int(change.lt(0).sum())
+        unchanged = int(change.eq(0).sum())
+        limit_up = int(change.ge(9.9).sum())
+        limit_down = int(change.le(-9.9).sum())
+        turnover = (
+            float(pd.to_numeric(spot_df["成交额"], errors="coerce").fillna(0).sum())
+            if "成交额" in spot_df.columns
+            else 0.0
+        )
+
+        northbound = None
+        try:
+            northbound_df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")
+            if not northbound_df.empty:
+                northbound_df = northbound_df.sort_values("date", ascending=False)
+                northbound = float(northbound_df.iloc[0]["value"])
+        except Exception:
+            pass
+
+        latest_index_date: date | None = None
+        indices: list[dict[str, object]] = []
+        for index_symbol, index_name in INDEX_SYMBOLS:
+            try:
+                prefix = "sh" if index_symbol.startswith("0") else "sz"
+                index_frame = ak.stock_zh_index_daily(symbol=f"{prefix}{index_symbol}")
+                index_frame["date"] = pd.to_datetime(index_frame["date"], errors="coerce")
+                index_frame = index_frame[index_frame["date"] <= pd.Timestamp(trade_date)]
+                index_frame = index_frame.sort_values("date")
+                if index_frame.empty:
+                    continue
+                snapshot_date = index_frame.iloc[-1]["date"].date()
+                if latest_index_date is None or snapshot_date > latest_index_date:
+                    latest_index_date = snapshot_date
+                latest_close = float(index_frame.iloc[-1]["close"])
+                previous_close = (
+                    float(index_frame.iloc[-2]["close"]) if len(index_frame) >= 2 else latest_close
+                )
+                change_pct = (latest_close / previous_close - 1) * 100 if previous_close else 0.0
+                indices.append(
+                    {
+                        "symbol": index_symbol,
+                        "name": index_name,
+                        "close": latest_close,
+                        "changePct": change_pct,
+                    }
+                )
+            except Exception:
+                continue
+
+        return {
+            "tradeDate": (latest_index_date or trade_date).isoformat(),
+            "advancing": advancing,
+            "declining": declining,
+            "unchanged": unchanged,
+            "limitUp": limit_up,
+            "limitDown": limit_down,
+            "turnoverCny": turnover,
+            "northboundNetCny": northbound,
+            "indices": indices,
+        }
 
     # ------------------------------------------------------------------
     # 兼容旧入口
@@ -371,20 +436,4 @@ class AkShareMarketDataProvider:
 
 
 def _empty_ohlcv() -> pd.DataFrame:
-    return pd.DataFrame(
-        columns=["date", "open", "high", "low", "close", "volume", "amount"]
-    )
-
-
-def _empty_market_overview(trade_date: date) -> dict[str, object]:
-    return {
-        "tradeDate": trade_date.isoformat(),
-        "advancing": 0,
-        "declining": 0,
-        "unchanged": 0,
-        "limitUp": 0,
-        "limitDown": 0,
-        "turnoverCny": 0.0,
-        "northboundNetCny": None,
-        "indices": [],
-    }
+    return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume", "amount"])
