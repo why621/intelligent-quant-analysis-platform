@@ -6,6 +6,7 @@ from pathlib import Path
 import akshare as ak
 import pandas as pd
 
+from quant_platform.data.storage import OHLCVStore
 from quant_platform.models import AdjustMode, Asset, AssetType, DataStatus
 
 # 30–50 个 A 股/ETF 资产池，代码全部六位字符串
@@ -65,8 +66,6 @@ _DEFAULT_UNIVERSE: list[dict[str, str]] = [
     {"symbol": "002714", "name": "牧原股份", "asset_type": "stock", "exchange": "SZSE"},
 ]
 
-_CACHE_DIR = Path(__file__).resolve().parents[3] / "tests" / ".cache" / "akshare"
-
 INDEX_SYMBOLS = [
     ("000001", "上证指数"),
     ("399001", "深证成指"),
@@ -76,15 +75,31 @@ INDEX_SYMBOLS = [
     ("000905", "中证500"),
 ]
 
+# 数据落在仓库根目录 data/processed/（已在 .gitignore 中）
+_DEFAULT_DATA_DIR = Path(__file__).resolve().parents[5] / "data" / "processed"
+
+_LOOKBACK_DAYS = 400
+
 
 def _today() -> date:
     return date.today()
 
 
-class AkShareMarketDataProvider:
-    """AkShare 数据适配器——算法模块中唯一允许了解 AkShare API 细节的类。"""
+def _tencent_symbol(symbol: str) -> str:
+    """六位代码 → 腾讯带市场前缀的代码。"""
+    if symbol.startswith(("5", "6", "9")):
+        return f"sh{symbol}"
+    return f"sz{symbol}"
 
-    def __init__(self) -> None:
+
+class AkShareMarketDataProvider:
+    """AkShare 数据适配器——算法模块中唯一允许了解 AkShare API 细节的类。
+
+    history() 优先读取 CSV 缓存，缓存覆盖不了再调用腾讯接口；
+    update_daily() 收盘后增量拉取并落盘到 CSV。
+    """
+
+    def __init__(self, data_dir: Path | None = None) -> None:
         self._assets: dict[str, Asset] = {
             a["symbol"]: Asset(
                 symbol=a["symbol"],
@@ -94,6 +109,7 @@ class AkShareMarketDataProvider:
             )
             for a in _DEFAULT_UNIVERSE
         }
+        self._storage = OHLCVStore(data_dir or _DEFAULT_DATA_DIR)
         self._status = DataStatus(
             status="updating",
             source="AkShare",
@@ -115,11 +131,7 @@ class AkShareMarketDataProvider:
         result = list(self._assets.values())
         if query is not None:
             q = query.strip().lower()
-            result = [
-                a
-                for a in result
-                if q in a.symbol or q in a.name.lower()
-            ]
+            result = [a for a in result if q in a.symbol or q in a.name.lower()]
         if asset_type is not None:
             result = [a for a in result if a.asset_type == asset_type]
         return result[:limit]
@@ -131,89 +143,110 @@ class AkShareMarketDataProvider:
         end_date: date,
         adjust: AdjustMode = "qfq",
     ) -> pd.DataFrame:
-        adjust_map = {"qfq": "qfq", "hfq": "hfq", "none": ""}
-        period = "daily"
+        """先读缓存，缓存覆盖请求范围则直接返回；否则调腾讯接口并更新缓存。"""
+        cached = self._storage.load(symbol)
+        if not cached.empty:
+            lo = pd.Timestamp(start_date)
+            hi = pd.Timestamp(end_date)
+            if cached["date"].min() <= lo and cached["date"].max() >= hi:
+                return cached[(cached["date"] >= lo) & (cached["date"] <= hi)]
 
-        try:
-            raw: pd.DataFrame = ak.stock_zh_a_hist(
-                symbol=symbol,
-                period=period,
-                start_date=start_date.strftime("%Y%m%d"),
-                end_date=end_date.strftime("%Y%m%d"),
-                adjust=adjust_map.get(adjust, "qfq"),
-            )
-        except Exception:
-            return _empty_ohlcv()
-
+        raw = self._fetch_tencent(symbol, start_date, end_date, adjust)
         if raw.empty:
+            # 缓存有部分数据时，返回能覆盖到的部分
+            if not cached.empty:
+                lo = pd.Timestamp(start_date)
+                hi = pd.Timestamp(end_date)
+                return cached[(cached["date"] >= lo) & (cached["date"] <= hi)]
             return _empty_ohlcv()
 
-        raw = raw.rename(
-            columns={
-                "日期": "date",
-                "开盘": "open",
-                "最高": "high",
-                "最低": "low",
-                "收盘": "close",
-                "成交量": "volume",
-                "成交额": "amount",
-            }
-        )
-        raw["date"] = pd.to_datetime(raw["date"]).dt.date
-        raw = raw.sort_values("date").drop_duplicates(subset="date")
+        # 合并缓存与 API 数据，去重后写回缓存
+        if not cached.empty:
+            merged = (
+                pd.concat([cached, raw], ignore_index=True)
+                .drop_duplicates(subset="date")
+                .sort_values("date")
+            )
+        else:
+            merged = raw
+        self._storage.save(symbol, merged)
 
-        needed = ["date", "open", "high", "low", "close", "volume", "amount"]
-        existing = [c for c in needed if c in raw.columns]
-        result = raw[existing].copy()
-
-        for c in needed:
-            if c not in result.columns:
-                result[c] = 0.0 if c != "date" else None
-
-        result = result[needed]
-        result["date"] = pd.to_datetime(result["date"])
-        return result
+        lo = pd.Timestamp(start_date)
+        hi = pd.Timestamp(end_date)
+        return merged[(merged["date"] >= lo) & (merged["date"] <= hi)]
 
     def status(self) -> DataStatus:
-        """返回缓存的日更状态。
-
-        update_daily() 调用后，status 才会变为 ready。
-        """
+        """返回缓存的日更状态。update_daily() 调用后 status 才会变为 ready。"""
         return self._status
 
     def update_daily(self) -> DataStatus:
-        """收盘后调用一次，梳理所有资产的行情并更新状态。
+        """收盘后调用一次：增量拉取所有资产并落盘 CSV。
 
-        网络失败时保留上次成功数据，状态标记为 stale。
+        网络失败保留旧数据，状态标记为 stale/failed。
         """
         try:
-            latest_date: date | None = None
+            today = _today()
             success = 0
+            latest_date: date | None = None
             for sym in self._assets:
                 try:
-                    df = self.history(sym, _today() - timedelta(days=365), _today())
-                    if not df.empty:
+                    cached = self._storage.load(sym)
+                    if cached.empty:
+                        start = today - timedelta(days=_LOOKBACK_DAYS)
+                    else:
+                        last = cached["date"].max().date()
+                        start = last + timedelta(days=1)
+
+                    if start > today:
                         success += 1
-                        max_date = df["date"].max()
-                        if hasattr(max_date, "date"):
-                            max_date = max_date.date()  # type: ignore[union-attr]
-                        if latest_date is None or max_date > latest_date:  # type: ignore[operator]
-                            latest_date = max_date  # type: ignore[assignment]
+                        continue
+
+                    df = self._fetch_tencent(sym, start, today, "qfq")
+                    if df.empty:
+                        if not cached.empty:
+                            success += 1  # 网络失败但旧数据仍可用
+                        continue
+
+                    merged = (
+                        pd.concat([cached, df], ignore_index=True)
+                        .drop_duplicates(subset="date")
+                        .sort_values("date")
+                    )
+                    self._storage.save(sym, merged)
+                    success += 1
+                    max_date = merged["date"].max().date()
+                    if latest_date is None or max_date > latest_date:
+                        latest_date = max_date
                 except Exception:
                     continue
 
-            self._status = DataStatus(
-                status="ready" if success > 0 else "failed",
-                source="AkShare",
-                asset_count=len(self._assets),
-                latest_trade_date=latest_date,
-                updated_at=datetime.now(),
-                message=(
-                    f"已更新 {success}/{len(self._assets)} 个资产"
-                    if success
-                    else "全部资产拉取失败"
-                ),
-            )
+            if success == 0:
+                self._status = DataStatus(
+                    status="failed",
+                    source="AkShare",
+                    asset_count=len(self._assets),
+                    latest_trade_date=None,
+                    updated_at=datetime.now(),
+                    message="全部资产拉取失败",
+                )
+            elif success < len(self._assets):
+                self._status = DataStatus(
+                    status="stale",
+                    source="AkShare",
+                    asset_count=len(self._assets),
+                    latest_trade_date=latest_date,
+                    updated_at=datetime.now(),
+                    message=f"部分更新 {success}/{len(self._assets)} 个资产",
+                )
+            else:
+                self._status = DataStatus(
+                    status="ready",
+                    source="AkShare",
+                    asset_count=len(self._assets),
+                    latest_trade_date=latest_date,
+                    updated_at=datetime.now(),
+                    message=f"已更新 {success}/{len(self._assets)} 个资产",
+                )
         except Exception:
             self._status = DataStatus(
                 status="failed",
@@ -236,7 +269,7 @@ class AkShareMarketDataProvider:
         declining = int(spot_df["涨跌幅"].lt(0).sum())
         unchanged = int(spot_df["涨跌幅"].eq(0).sum())
 
-        # 涨停 / 跌停：涨跌幅 >= 9.9% 或 <= -9.9%（粗略估计，A 股不同板块涨停板不同）
+        # 涨停 / 跌停：涨跌幅 >= 9.9% 或 <= -9.9%（粗略估计）
         limit_up = int(spot_df["涨跌幅"].ge(9.9).sum())
         limit_down = int(spot_df["涨跌幅"].le(-9.9).sum())
 
@@ -280,6 +313,37 @@ class AkShareMarketDataProvider:
             "northboundNetCny": northbound,
             "indices": indices,
         }
+
+    # ------------------------------------------------------------------
+    # 内部
+    # ------------------------------------------------------------------
+
+    def _fetch_tencent(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        adjust: AdjustMode,
+    ) -> pd.DataFrame:
+        """从腾讯接口拉取并规范化为契约列序。"""
+        adjust_map = {"qfq": "qfq", "hfq": "hfq", "none": ""}
+        try:
+            raw: pd.DataFrame = ak.stock_zh_a_hist_tx(
+                symbol=_tencent_symbol(symbol),
+                start_date=start_date.strftime("%Y%m%d"),
+                end_date=end_date.strftime("%Y%m%d"),
+                adjust=adjust_map.get(adjust, "qfq"),
+            )
+        except Exception:
+            return _empty_ohlcv()
+
+        if raw is None or raw.empty:
+            return _empty_ohlcv()
+
+        needed = ["date", "open", "high", "low", "close", "volume", "amount"]
+        result = raw[needed].copy()
+        result["date"] = pd.to_datetime(result["date"])
+        return result.sort_values("date").drop_duplicates(subset="date")
 
     # ------------------------------------------------------------------
     # 兼容旧入口
