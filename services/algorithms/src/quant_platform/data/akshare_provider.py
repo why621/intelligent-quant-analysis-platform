@@ -361,10 +361,18 @@ class AkShareMarketDataProvider:
 
         northbound = None
         try:
-            northbound_df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")
-            if not northbound_df.empty:
-                northbound_df = northbound_df.sort_values("date", ascending=False)
-                northbound = float(northbound_df.iloc[0]["value"])
+            northbound_frame = ak.stock_hsgt_hist_em(symbol="北向资金")
+            if not northbound_frame.empty:
+                northbound_frame["日期"] = pd.to_datetime(northbound_frame["日期"], errors="coerce")
+                northbound_frame = northbound_frame[
+                    northbound_frame["日期"] <= pd.Timestamp(trade_date)
+                ].sort_values("日期")
+                net_buy = pd.to_numeric(
+                    northbound_frame["当日成交净买额"], errors="coerce"
+                ).dropna()
+                if not net_buy.empty:
+                    # AkShare returns this field in 100 million CNY.
+                    northbound = float(net_buy.iloc[-1]) * 100_000_000
         except Exception:
             pass
 

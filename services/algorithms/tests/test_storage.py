@@ -199,10 +199,11 @@ class TestMarketOverviewCache:
                 "close": [100.0, 102.0],
             }
         )
+        northbound_frame = pd.DataFrame({"日期": ["2025-01-03"], "当日成交净买额": [1.5]})
 
         with (
             patch("akshare.stock_zh_a_spot_em", return_value=spot),
-            patch("akshare.stock_hsgt_north_net_flow_in_em", return_value=pd.DataFrame()),
+            patch("akshare.stock_hsgt_hist_em", return_value=northbound_frame),
             patch("akshare.stock_zh_index_daily", return_value=index_frame),
         ):
             result = provider._fetch_market_overview(date(2025, 1, 5))
@@ -213,3 +214,4 @@ class TestMarketOverviewCache:
         assert result["unchanged"] == 1
         assert result["turnoverCny"] == 60.0
         assert result["indices"][0]["changePct"] == pytest.approx(2.0)
+        assert result["northboundNetCny"] == 150_000_000.0
