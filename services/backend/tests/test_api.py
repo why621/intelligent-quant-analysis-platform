@@ -20,7 +20,6 @@ def test_health_matches_contract() -> None:
 def test_all_contract_paths_are_registered_as_explicit_placeholders() -> None:
     client = make_client()
     calls = [
-        client.get("/api/market/overview"),
         client.post(
             "/api/analytics/correlation",
             json={
@@ -212,6 +211,64 @@ def test_asset_history_rejects_invalid_params() -> None:
     )
     assert bad_adjust.status_code == 400
     assert bad_adjust.json["error"]["details"] == {"field": "adjust"}
+
+
+FAKE_OVERVIEW = {
+    "tradeDate": "2026-08-14",
+    "advancing": 3200,
+    "declining": 1800,
+    "unchanged": 120,
+    "limitUp": 45,
+    "limitDown": 8,
+    "turnoverCny": 850000000000.0,
+    "northboundNetCny": 1234567890.0,
+    "indices": [
+        {"symbol": "000001", "name": "上证指数", "close": 3456.78, "changePct": 0.55},
+        {"symbol": "000300", "name": "沪深300", "close": 4123.45, "changePct": 0.82},
+    ],
+}
+
+
+def test_market_overview_matches_contract() -> None:
+    client = make_client_with_fake("market_overview", FAKE_OVERVIEW)
+    response = client.get("/api/market/overview")
+
+    assert response.status_code == 200
+    body = response.json
+    assert set(body) == {
+        "tradeDate", "advancing", "declining", "unchanged",
+        "limitUp", "limitDown", "turnoverCny", "northboundNetCny", "indices",
+    }
+    assert body["tradeDate"] == "2026-08-14"
+    assert body["advancing"] == 3200
+    assert body["turnoverCny"] == 850000000000.0
+    assert body["indices"][0] == {
+        "symbol": "000001", "name": "上证指数", "close": 3456.78, "changePct": 0.55,
+    }
+
+
+def test_market_overview_upstream_error() -> None:
+    from quant_platform.data.akshare_provider import UpstreamUnavailableError
+
+    def failing(*args, **kwargs):
+        raise UpstreamUnavailableError("market overview upstream failed")
+
+    application = create_app({"TESTING": True})
+    service = application.extensions["market_data_service"]
+    service._provider.market_overview = failing
+    response = application.test_client().get("/api/market/overview")
+
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_market_overview_ignores_trade_date_param() -> None:
+    """tradeDate 查询参数被忽略：即使格式非法也正常返回最新快照。"""
+    client = make_client_with_fake("market_overview", FAKE_OVERVIEW)
+    response = client.get("/api/market/overview?tradeDate=not-a-date")
+
+    assert response.status_code == 200
+    assert response.json["tradeDate"] == "2026-08-14"
 
 
 def test_post_interface_rejects_non_json_body() -> None:

@@ -161,7 +161,19 @@ def asset_history(symbol: str) -> tuple[dict[str, object], int]:
 
 @api.get("/market/overview")
 def market_overview() -> tuple[dict[str, object], int]:
-    return pending_response("market-overview")
+    # 忽略 tradeDate 查询参数：只返回最近一次日更的市场概况快照，
+    # 响应中的 tradeDate 字段反映数据实际时间。
+    service = current_app.extensions["market_data_service"]
+    try:
+        result = service.market_overview()
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 200
 
 
 @api.post("/analytics/correlation")

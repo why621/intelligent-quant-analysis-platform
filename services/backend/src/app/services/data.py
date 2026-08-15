@@ -118,6 +118,20 @@ class MarketDataService:
             "items": [_serialize_price_bar(row) for _, row in frame.iterrows()],
         }
 
+    def market_overview(self) -> Mapping[str, object]:
+        """返回市场概况（最新快照），字段与 contracts/schemas/data.yaml#/MarketOverview 一致。
+
+        后端忽略请求中的 tradeDate 查询参数：数据组只维护最近一次日更的快照，
+        响应中的 tradeDate 字段如实反映数据的实际时间。
+        上游失败（冷缓存且数据源不可用）-> UpstreamUnavailableError。
+        """
+        try:
+            return self._provider.market_overview()
+        except ProviderUpstreamError as exc:
+            raise UpstreamUnavailableError(
+                details={"capability": "market-overview"}
+            ) from exc
+
 
 def _serialize_price_bar(row: pd.Series) -> dict[str, object]:
     """把 provider 返回的一行行情翻译成契约 PriceBar（date 转字符串，amount 空值转 null）。"""
