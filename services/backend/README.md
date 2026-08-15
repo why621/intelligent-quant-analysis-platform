@@ -31,3 +31,8 @@ pytest services/backend
 
 异步回测状态必须遵循 `queued → running → succeeded|failed`。服务器密钥、数据库
 密码和真实账户信息只能通过环境变量注入，禁止写入日志、响应或提交历史。
+
+## 开发现状
+| 后端 api | 功能 | 完成状况 | 调用的数据/算法模块 api | 所属开发分支 | 备注 |
+| :-: | :-: | :-: | :-: | :-: | :-: |
+| /data/status/ | 数据状态 | 已完成 | services/algorithms/src/quant_platform/data/akshare_provider.py | backend/api/market/overview | 无 |

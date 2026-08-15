@@ -56,7 +56,8 @@ def health() -> dict[str, object]:
 
 @api.get("/data/status")
 def data_status() -> tuple[dict[str, object], int]:
-    return pending_response("data-status")
+    service = current_app.extensions["market_data_service"]
+    return dict(service.data_status()), 200
 
 
 @api.get("/assets")

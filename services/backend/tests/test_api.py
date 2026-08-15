@@ -20,7 +20,6 @@ def test_health_matches_contract() -> None:
 def test_all_contract_paths_are_registered_as_explicit_placeholders() -> None:
     client = make_client()
     calls = [
-        client.get("/api/data/status"),
         client.get("/api/assets"),
         client.get("/api/assets/510300/history?startDate=2025-01-01&endDate=2025-12-31"),
         client.get("/api/market/overview"),
@@ -44,6 +43,20 @@ def test_all_contract_paths_are_registered_as_explicit_placeholders() -> None:
 
     assert all(response.status_code == 501 for response in calls)
     assert all(response.json["error"]["code"] == "NOT_IMPLEMENTED" for response in calls)
+
+
+def test_data_status_matches_contract() -> None:
+    response = make_client().get("/api/data/status")
+
+    assert response.status_code == 200
+    body = response.json
+    assert body["status"] in {"ready", "updating", "stale", "failed"}
+    assert body["timezone"] == "Asia/Shanghai"
+    assert body["source"] == "AkShare"
+    assert isinstance(body["assetCount"], int) and body["assetCount"] >= 0
+    assert body["latestTradeDate"] is None or isinstance(body["latestTradeDate"], str)
+    assert body["updatedAt"] is None or isinstance(body["updatedAt"], str)
+    assert "message" in body
 
 
 def test_post_interface_rejects_non_json_body() -> None:
