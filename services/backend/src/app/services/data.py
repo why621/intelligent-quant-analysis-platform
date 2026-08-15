@@ -4,7 +4,13 @@ from collections.abc import Mapping
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 from quant_platform.data.akshare_provider import AkShareMarketDataProvider
+from quant_platform.data.akshare_provider import (
+    UpstreamUnavailableError as ProviderUpstreamError,
+)
+
+from app.services.errors import AssetNotFoundError, UpstreamUnavailableError
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
@@ -73,3 +79,55 @@ class MarketDataService:
             ],
             "total": len(result),
         }
+
+    def history(
+        self,
+        *,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        adjust: str,
+    ) -> Mapping[str, object]:
+        """返回复权日线，字段与 contracts/schemas/data.yaml#/HistoryResponse 一致。
+
+        资产不在池 -> AssetNotFoundError；
+        数据源失败且无缓存（provider 抛异常）-> UpstreamUnavailableError；
+        区间真无数据 -> 空 items 的 200 响应（provider 返回空 DataFrame）。
+        """
+        in_pool = any(
+            asset.symbol == symbol
+            for asset in self._provider.list_assets(query=None, asset_type=None, limit=100)
+        )
+        if not in_pool:
+            raise AssetNotFoundError(details={"symbol": symbol})
+
+        try:
+            frame = self._provider.history(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                adjust=adjust,  # type: ignore[arg-type]
+            )
+        except ProviderUpstreamError as exc:
+            raise UpstreamUnavailableError(details={"symbol": symbol}) from exc
+
+        return {
+            "symbol": symbol,
+            "adjust": adjust,
+            "currency": "CNY",
+            "items": [_serialize_price_bar(row) for _, row in frame.iterrows()],
+        }
+
+
+def _serialize_price_bar(row: pd.Series) -> dict[str, object]:
+    """把 provider 返回的一行行情翻译成契约 PriceBar（date 转字符串，amount 空值转 null）。"""
+    amount = row["amount"]
+    return {
+        "date": pd.Timestamp(row["date"]).strftime("%Y-%m-%d"),
+        "open": float(row["open"]),
+        "high": float(row["high"]),
+        "low": float(row["low"]),
+        "close": float(row["close"]),
+        "volume": float(row["volume"]),
+        "amount": None if pd.isna(amount) else float(amount),
+    }

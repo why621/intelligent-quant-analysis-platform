@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import re
+from datetime import date
+
 from flask import Blueprint, current_app, request
+
+from app.services.errors import ServiceError
 
 api = Blueprint("api", __name__)
 
@@ -96,7 +101,62 @@ def list_assets() -> tuple[dict[str, object], int]:
 
 @api.get("/assets/<string:symbol>/history")
 def asset_history(symbol: str) -> tuple[dict[str, object], int]:
-    return pending_response(f"asset-history:{symbol}")
+    if not re.fullmatch(r"[0-9]{6}", symbol):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="symbol 必须是六位数字",
+            status=400,
+            details={"field": "symbol"},
+        )
+
+    try:
+        start_date = date.fromisoformat(request.args["startDate"])
+        end_date = date.fromisoformat(request.args["endDate"])
+    except KeyError:
+        missing = "startDate" if "startDate" not in request.args else "endDate"
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="startDate 和 endDate 为必填参数",
+            status=400,
+            details={"field": missing},
+        )
+    except ValueError:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="日期格式必须是 YYYY-MM-DD",
+            status=400,
+            details={"field": "startDate"},
+        )
+    if start_date > end_date:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="startDate 不能晚于 endDate",
+            status=400,
+            details={"field": "startDate"},
+        )
+
+    adjust = request.args.get("adjust", "qfq")
+    if adjust not in {"qfq", "hfq", "none"}:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="adjust 必须是 qfq、hfq 或 none",
+            status=400,
+            details={"field": "adjust"},
+        )
+
+    service = current_app.extensions["market_data_service"]
+    try:
+        result = service.history(
+            symbol=symbol, start_date=start_date, end_date=end_date, adjust=adjust
+        )
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 200
 
 
 @api.get("/market/overview")
