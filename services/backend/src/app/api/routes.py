@@ -62,7 +62,36 @@ def data_status() -> tuple[dict[str, object], int]:
 
 @api.get("/assets")
 def list_assets() -> tuple[dict[str, object], int]:
-    return pending_response("asset-list")
+    asset_type = request.args.get("assetType")
+    if asset_type is not None and asset_type not in {"stock", "etf"}:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="assetType 必须是 stock 或 etf",
+            status=400,
+            details={"field": "assetType"},
+        )
+
+    raw_limit = request.args.get("limit", "50")
+    if not raw_limit.isdigit() or not 1 <= int(raw_limit) <= 100:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="limit 必须是 1 到 100 的整数",
+            status=400,
+            details={"field": "limit"},
+        )
+    limit = int(raw_limit)
+
+    query = request.args.get("query")
+    if query is not None and len(query) > 30:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="query 长度不能超过 30",
+            status=400,
+            details={"field": "query"},
+        )
+
+    service = current_app.extensions["market_data_service"]
+    return dict(service.list_assets(query=query, asset_type=asset_type, limit=limit)), 200
 
 
 @api.get("/assets/<string:symbol>/history")

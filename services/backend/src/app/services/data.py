@@ -43,3 +43,33 @@ class MarketDataService:
             "updatedAt": _serialize_datetime(status.updated_at),
             "message": status.message,
         }
+
+    def list_assets(
+        self,
+        *,
+        query: str | None,
+        asset_type: str | None,
+        limit: int,
+    ) -> Mapping[str, object]:
+        """返回资产列表，字段与 contracts/schemas/data.yaml#/Asset 一致。
+
+        total 与 items 长度一致（契约未定义匹配总数语义，见 api-contract.md）。
+        """
+        result = self._provider.list_assets(
+            query=query,
+            asset_type=asset_type,  # type: ignore[arg-type]
+            limit=limit,
+        )
+        return {
+            "items": [
+                {
+                    "symbol": asset.symbol,
+                    "name": asset.name,
+                    "assetType": asset.asset_type,
+                    "exchange": asset.exchange,
+                    "active": asset.active,
+                }
+                for asset in result
+            ],
+            "total": len(result),
+        }
