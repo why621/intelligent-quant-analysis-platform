@@ -4,8 +4,10 @@ import os
 from uuid import uuid4
 
 from flask import Flask, Response, g, request
+from quant_platform.data.akshare_provider import AkShareMarketDataProvider
 
 from app.api.routes import api
+from app.services.data import MarketDataService
 
 __version__ = "0.1.0"
 
@@ -39,4 +41,9 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
         return response
 
     application.register_blueprint(api, url_prefix="/api")
+
+    # 装配数据服务：路由通过 current_app.extensions 获取服务。
+    application.extensions["market_data_service"] = MarketDataService(
+        AkShareMarketDataProvider()
+    )
     return application

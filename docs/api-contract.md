@@ -62,7 +62,7 @@
 | `GET /data/status` | 日更任务状态与最新交易日 | 能区分 ready/updating/stale/failed |
 | `GET /assets` | 查询资产池 | 支持代码/名称及 stock/etf 筛选 |
 | `GET /assets/{symbol}/history` | 获取复权日线 | 日期升序，不重复，不含未来数据 |
-| `GET /market/overview` | 市场宽度、指数与资金热度 | 结果带实际交易日 |
+| `GET /market/overview` | 市场宽度、指数与资金热度 | 结果带实际交易日。 |
 | `POST /analytics/correlation` | 2–10 个资产收益率相关矩阵 | 矩阵对称、对角线为 1 |
 | `GET /strategies` | 策略目录和参数说明 | 清楚标记 available/experimental/planned |
 | `GET /strategies/ranking` | 日更策略排行 | 只展示真实跑出的结果 |
