@@ -32,7 +32,9 @@ jobs:
           cache: pip
           cache-dependency-path: services/backend/pyproject.toml
       - name: Install backend dependencies
-        run: python -m pip install -e "services/backend[dev]"
+        run: |
+          python -m pip install -e "services/algorithms[dev]"
+          python -m pip install -e "services/backend[dev]"
       - name: Lint backend
         run: ruff check services/backend
       - name: Test backend and OpenAPI references
