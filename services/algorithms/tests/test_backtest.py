@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from quant_platform.backtesting.engine import BacktestEngine
-from quant_platform.models import AdjustMode, BacktestRequest, DataStatus
+from quant_platform.models import AdjustMode, BacktestRequest, DataStatus, StrategyInfo
 from quant_platform.strategies.ma_cross import MACrossStrategy
 
 
@@ -57,7 +57,72 @@ class FakeProvider:
                           latest_trade_date=None, updated_at=None)
 
 
+class RangeIndexStrategy:
+    id = "range_index"
+
+    def info(self) -> StrategyInfo:
+        return StrategyInfo(
+            strategy_id=self.id,
+            name="Range index test strategy",
+            category="traditional",
+            status="available",
+            description="test",
+        )
+
+    def validate_parameters(self, parameters):
+        pass
+
+    def generate_signals(self, prices, parameters):
+        return pd.Series([1.0, -1.0] + [0.0] * (len(prices) - 2))
+
+
+class InvalidLengthStrategy(RangeIndexStrategy):
+    id = "invalid_length"
+
+    def generate_signals(self, prices, parameters):
+        return pd.Series([1.0])
+
+
 class TestBacktest:
+    def test_range_index_signals_are_aligned_by_position(self):
+        class SmallProvider(FakeProvider):
+            def history(self, symbol, start_date, end_date, adjust="qfq"):
+                return pd.DataFrame({
+                    "date": pd.to_datetime(["2025-01-01", "2025-01-02", "2025-01-03"]),
+                    "open": [10.0, 20.0, 30.0],
+                    "high": [11.0, 21.0, 31.0],
+                    "low": [9.0, 19.0, 29.0],
+                    "close": [10.0, 20.0, 30.0],
+                    "volume": [1000.0] * 3,
+                    "amount": [10000.0] * 3,
+                })
+
+        engine = BacktestEngine(SmallProvider(), {"range_index": RangeIndexStrategy()})
+        result = engine.run(BacktestRequest(
+            symbols=("510300",),
+            strategy_id="range_index",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 1, 3),
+        ))
+
+        assert len(result.trades) == 2
+        assert result.trades[0].side == "buy"
+        assert result.trades[0].price == pytest.approx(20.0 * 1.0002)
+        assert result.trades[0].trade_date == date(2025, 1, 1)
+        assert result.trades[1].side == "sell"
+        assert result.trades[1].price == pytest.approx(30.0 * 0.9998)
+
+    def test_signal_length_must_match_prices(self):
+        engine = BacktestEngine(FakeProvider(), {"invalid_length": InvalidLengthStrategy()})
+
+        with pytest.raises(ValueError, match="one value per price row"):
+            engine.run(BacktestRequest(
+                symbols=("510300",),
+                strategy_id="invalid_length",
+                start_date=date(2025, 1, 1),
+                end_date=date(2025, 3, 31),
+            ))
+
     def test_run_returns_result_with_metrics(self):
         provider = FakeProvider()
         strategy = MACrossStrategy()

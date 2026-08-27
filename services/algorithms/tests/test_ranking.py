@@ -38,8 +38,10 @@ class FakeStrategy:
 class FakeEngine:
     def __init__(self, strategies: dict):
         self._strategies = strategies
+        self.requests: list[BacktestRequest] = []
 
     def run(self, request: BacktestRequest) -> BacktestResult:
+        self.requests.append(request)
         ret = {"ma_cross": 5.0, "momentum_reversal": 12.0, "a": 3.0,
                "b": 8.0, "c": 1.0, "dqn": 3.0, "experiment": 2.0}.get(
             request.strategy_id, 0.0)
@@ -112,6 +114,19 @@ class TestRanking:
 
         items = svc.rank(as_of_date=date(2025, 12, 31), period="30d")
         assert items == []
+
+    def test_one_day_period_uses_one_calendar_day(self):
+        strategies = {
+            "ma_cross": FakeStrategy("ma_cross", "均线交叉", "available", "traditional"),
+        }
+        engine = FakeEngine(strategies)
+        StrategyRankingService(engine).rank(
+            as_of_date=date(2025, 12, 31), period="1d"
+        )
+
+        assert len(engine.requests) == 1
+        assert engine.requests[0].start_date == date(2025, 12, 30)
+        assert engine.requests[0].end_date == date(2025, 12, 31)
 
     def test_correct_rank_numbers(self):
         strategies = {
