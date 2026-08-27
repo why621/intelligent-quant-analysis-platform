@@ -45,8 +45,10 @@ pytest services/algorithms
   `UpstreamUnavailableError` 映射为统一的 `503 UPSTREAM_UNAVAILABLE`。
 - 市场概览仍需使用东方财富全市场快照，但只允许日更任务调用一次；普通请求
   读取 `market_overview.json`。不得在 Flask 路由中循环调用 AkShare。
-- CSV/JSON 使用临时文件原子替换。`data/processed/` 是服务器运行数据目录，
-  已被 Git 忽略；部署时必须放在持久化磁盘，并保证同一时刻只有一个日更任务。
+- OHLCV 和日更状态存放在 `market_data.db`，SQLite 使用 WAL 和短生命周期连接，
+  支持 CLI 与 Flask 跨进程读取同一份缓存；市场概况仍通过临时文件原子替换写入
+  `market_overview.json`。`data/processed/` 是服务器运行数据目录，已被 Git 忽略；
+  部署时必须放在持久化磁盘，并保证同一时刻只有一个日更任务。
 
 安装算法包后，服务器在每个交易日收盘后执行：
 
@@ -63,7 +65,7 @@ CLI 会输出 JSON 状态，退出码 `0` 表示 `ready`、`2` 表示有缓存�
 20 16 * * 1-5 cd /srv/intelligent-quant-analysis-platform && .venv/bin/quant-data-update >> /var/log/quant-data-update.log 2>&1
 ```
 
-首次部署应先手动运行一次并确认至少生成资产 CSV 和
+首次部署应先手动运行一次并确认生成 `market_data.db` 和
 `market_overview.json`，再启动后端。定时任务与 Flask 进程共享同一个
-`data/processed/` 目录；未来迁移到 SQLite 时保持现有 Python 接口与 OpenAPI
-响应结构不变。
+`data/processed/` 目录；SQLite 数据库文件必须放在持久化磁盘，且保持现有
+Python 接口与 OpenAPI 响应结构不变。

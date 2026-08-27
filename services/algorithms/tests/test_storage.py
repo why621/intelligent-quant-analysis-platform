@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -9,7 +10,7 @@ from quant_platform.data.akshare_provider import (
     AkShareMarketDataProvider,
     UpstreamUnavailableError,
 )
-from quant_platform.data.storage import OHLCVStore
+from quant_platform.data.storage import DataStatusStore, OHLCVStore
 
 
 def _frame(dates: list[str]) -> pd.DataFrame:
@@ -79,6 +80,69 @@ class TestOHLCVStore:
     def test_invalid_symbol_is_rejected(self, tmp_path: Path):
         with pytest.raises(ValueError, match="six-digit"):
             OHLCVStore(tmp_path).load("../../secret")
+
+    def test_data_directories_are_isolated(self, tmp_path: Path):
+        first_dir = tmp_path / "first"
+        second_dir = tmp_path / "second"
+        OHLCVStore(first_dir).save("510300", _frame(["2025-01-01"]))
+
+        assert not OHLCVStore(second_dir).has("510300")
+        assert OHLCVStore(second_dir).load("510300").empty
+
+
+class TestDataStatusStore:
+    def test_initial_status_has_no_update_timestamp(self, tmp_path: Path):
+        status = DataStatusStore(tmp_path).load(fallback_asset_count=1)
+
+        assert status.status == "updating"
+        assert status.updated_at is None
+        assert status.latest_trade_date is None
+
+    def test_status_is_visible_to_another_store_instance(self, tmp_path: Path):
+        first = DataStatusStore(tmp_path)
+        second = DataStatusStore(tmp_path)
+
+        first.save("ready", date(2025, 1, 3), "complete")
+        status = second.load(fallback_asset_count=2)
+
+        assert status.status == "ready"
+        assert status.latest_trade_date == date(2025, 1, 3)
+        assert status.updated_at is not None
+        assert status.message == "complete"
+
+    def test_legacy_status_schema_is_migrated(self, tmp_path: Path):
+        database = tmp_path / "market_data.db"
+        connection = sqlite3.connect(database)
+        connection.execute(
+            """
+            CREATE TABLE data_status_sync (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                status TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                latest_trade_date TEXT,
+                message TEXT
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO data_status_sync VALUES (1, 'updating', ?, NULL, '初始化状态')",
+            ("2025-01-03T09:00:00",),
+        )
+        connection.commit()
+        connection.close()
+
+        status = DataStatusStore(tmp_path).load(fallback_asset_count=1)
+
+        assert status.status == "updating"
+        assert status.updated_at is None
+        with sqlite3.connect(database) as connection:
+            columns = {
+                row[1]: row[3]
+                for row in connection.execute("PRAGMA table_info(data_status_sync)")
+            }
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+        assert columns["updated_at"] == 0
+        assert version == 1
 
 
 class TestHistoryCaching:

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from time import sleep
 
 import akshare as ak
 import pandas as pd
 
-from quant_platform.data.storage import MarketOverviewStore, OHLCVStore
+from quant_platform.data.storage import DataStatusStore, MarketOverviewStore, OHLCVStore
 from quant_platform.models import AdjustMode, Asset, AssetType, DataStatus
 
 # 30–50 个 A 股/ETF 资产池，代码全部六位字符串
@@ -100,8 +100,8 @@ class UpstreamUnavailableError(RuntimeError):
 class AkShareMarketDataProvider:
     """AkShare 数据适配器——算法模块中唯一允许了解 AkShare API 细节的类。
 
-    history() 优先读取 CSV 缓存，缓存覆盖不了再调用腾讯接口；
-    update_daily() 收盘后增量拉取并落盘到 CSV。
+    history() 优先读取 SQLite 行情缓存，缓存覆盖不了再调用腾讯接口；
+    update_daily() 收盘后增量拉取并写入 SQLite，市场概况保存为原子替换的 JSON 快照。
     """
 
     def __init__(
@@ -122,14 +122,8 @@ class AkShareMarketDataProvider:
         resolved_data_dir = data_dir or _DEFAULT_DATA_DIR
         self._storage = OHLCVStore(resolved_data_dir)
         self._overview_storage = MarketOverviewStore(resolved_data_dir)
+        self._status_storage = DataStatusStore(resolved_data_dir)
         self._request_interval_seconds = max(0.0, request_interval_seconds)
-        self._status = DataStatus(
-            status="updating",
-            source="AkShare",
-            asset_count=len(self._assets),
-            latest_trade_date=None,
-            updated_at=None,
-        )
 
     # ------------------------------------------------------------------
     # 公开 API
@@ -196,12 +190,18 @@ class AkShareMarketDataProvider:
         return merged[(merged["date"] >= lo) & (merged["date"] <= hi)]
 
     def status(self) -> DataStatus:
-        """返回缓存的日更状态。update_daily() 调用后 status 才会变为 ready。"""
-        return self._status
+        """返回跨进程的日更状态。包含 fallback 的 asset counts。"""
+        return self._status_storage.load(len(self._assets))
 
     def update_daily(self) -> DataStatus:
         """Incrementally refresh all assets once after market close."""
         today = _today()
+        previous_status = self._status_storage.load(len(self._assets))
+        self._status_storage.save(
+            status="updating",
+            latest_trade_date=previous_status.latest_trade_date,
+            message="日更任务进行中",
+        )
         available = 0
         refreshed = 0
         upstream_errors = 0
@@ -259,18 +259,15 @@ class AkShareMarketDataProvider:
         else:
             state = "ready"
 
-        self._status = DataStatus(
+        self._status_storage.save(
             status=state,
-            source="AkShare",
-            asset_count=total,
             latest_trade_date=latest_date,
-            updated_at=datetime.now(),
             message=(
                 f"refreshed={refreshed}, available={available}/{total}, "
                 f"upstreamErrors={upstream_errors}"
             ),
         )
-        return self._status
+        return self._status_storage.load(total)
 
     def market_overview(self, trade_date: date | None = None) -> dict[str, object]:
         """Return the local snapshot; call the live provider only on a cold cache."""
