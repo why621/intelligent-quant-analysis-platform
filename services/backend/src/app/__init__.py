@@ -4,9 +4,11 @@ import os
 from uuid import uuid4
 
 from flask import Flask, Response, g, request
+from quant_platform.analytics.correlation import CorrelationAnalyzer
 from quant_platform.data.akshare_provider import AkShareMarketDataProvider
 
 from app.api.routes import api
+from app.services.analytics import CorrelationService
 from app.services.data import MarketDataService
 from app.services.strategies import StrategyCatalogService
 
@@ -43,11 +45,15 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
 
     application.register_blueprint(api, url_prefix="/api")
 
-    # 装配数据服务：路由通过 current_app.extensions 获取服务。
-    application.extensions["market_data_service"] = MarketDataService(
-        AkShareMarketDataProvider()
-    )
+    # 装配服务：路由通过 current_app.extensions 获取服务。
+    # provider 复用同一个实例，保证所有接口共享同一份缓存。
+    provider = AkShareMarketDataProvider()
+    application.extensions["market_data_service"] = MarketDataService(provider)
 
     strategy_catalog = StrategyCatalogService()
     application.extensions["strategy_catalog_service"] = strategy_catalog
+
+    application.extensions["correlation_service"] = CorrelationService(
+        CorrelationAnalyzer(provider)
+    )
     return application

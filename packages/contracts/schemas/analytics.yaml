@@ -29,4 +29,8 @@ CorrelationResponse:
       description: 顺序与 symbols 一致的 N×N 对称矩阵
       items:
         type: array
-        items: {type: number, minimum: -1, maximum: 1}
+        items:
+          type: [number, "null"]
+          minimum: -1
+          maximum: 1
+          description: 资产对无有效数据（无波动或观察日不足）时为 null

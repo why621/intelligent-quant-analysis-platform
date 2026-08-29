@@ -20,14 +20,6 @@ def test_health_matches_contract() -> None:
 def test_all_contract_paths_are_registered_as_explicit_placeholders() -> None:
     client = make_client()
     calls = [
-        client.post(
-            "/api/analytics/correlation",
-            json={
-                "symbols": ["510300", "510500"],
-                "startDate": "2025-01-01",
-                "endDate": "2025-12-31",
-            },
-        ),
         client.get("/api/strategies/ranking?period=30d"),
         client.post("/api/backtests", json={"strategyId": "ma_cross"}),
         client.get("/api/backtests/8f316d85-e86b-45c5-8ff6-c8ee2457e71b"),
@@ -313,3 +305,133 @@ def test_strategies_catalog_contains_known_strategies() -> None:
     ma_cross = by_id["ma_cross"]
     assert ma_cross["status"] == "available"
     assert set(ma_cross["parameterSchema"]["required"]) == {"shortWindow", "longWindow"}
+
+
+# ---------------------------------------------------------------------------
+# POST /analytics/correlation
+# ---------------------------------------------------------------------------
+
+
+def make_client_with_correlation(fake_result):
+    """把 correlation 服务的 analyzer.calculate 替换为返回 fake_result 的函数。"""
+    application = create_app({"TESTING": True})
+    service = application.extensions["correlation_service"]
+    service._analyzer.calculate = lambda request: fake_result
+    return application.test_client()
+
+
+CORRELATION_BODY = {
+    "symbols": ["510300", "510500"],
+    "startDate": "2025-01-01",
+    "endDate": "2025-12-31",
+}
+
+
+def test_correlation_matches_contract() -> None:
+    from quant_platform.models import CorrelationResult
+
+    fake = CorrelationResult(
+        symbols=("510300", "510500"),
+        observation_count=245,
+        matrix=((1.0, 0.87), (0.87, 1.0)),
+    )
+    response = make_client_with_correlation(fake).post(
+        "/api/analytics/correlation", json=CORRELATION_BODY
+    )
+
+    assert response.status_code == 200
+    body = response.json
+    assert set(body) == {"symbols", "observationCount", "matrix"}
+    assert body["symbols"] == ["510300", "510500"]
+    assert body["observationCount"] == 245
+    assert body["matrix"] == [[1.0, 0.87], [0.87, 1.0]]
+
+
+def test_correlation_nan_converted_to_null() -> None:
+    from quant_platform.models import CorrelationResult
+
+    fake = CorrelationResult(
+        symbols=("510300", "510500"),
+        observation_count=120,
+        matrix=((1.0, float("nan")), (float("nan"), float("nan"))),
+    )
+    response = make_client_with_correlation(fake).post(
+        "/api/analytics/correlation", json=CORRELATION_BODY
+    )
+
+    assert response.status_code == 200
+    assert response.json["matrix"] == [[1.0, None], [None, None]]
+
+
+def test_correlation_insufficient_data() -> None:
+    from quant_platform.models import CorrelationResult
+
+    for count in (0, 1):
+        fake = CorrelationResult(
+            symbols=("510300", "510500"),
+            observation_count=count,
+            matrix=((0.0, 0.0), (0.0, 0.0)),
+        )
+        response = make_client_with_correlation(fake).post(
+            "/api/analytics/correlation", json=CORRELATION_BODY
+        )
+
+        assert response.status_code == 422
+        assert response.json["error"]["code"] == "INSUFFICIENT_DATA"
+
+
+def test_correlation_upstream_error() -> None:
+    from quant_platform.data.akshare_provider import UpstreamUnavailableError
+
+    def failing(*args, **kwargs):
+        raise UpstreamUnavailableError("Tencent history failed")
+
+    application = create_app({"TESTING": True})
+    service = application.extensions["market_data_service"]
+    # correlation 复用同一个 provider 实例，替换 history 即模拟上游失败
+    service._provider.history = failing
+    response = application.test_client().post(
+        "/api/analytics/correlation", json=CORRELATION_BODY
+    )
+
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_correlation_rejects_invalid_body() -> None:
+    client = make_client()
+
+    bad_symbols = [
+        dict(CORRELATION_BODY, symbols=["510300"]),           # 少于 2 个
+        dict(CORRELATION_BODY, symbols=list(range(11))),      # 超过 10 个
+        dict(CORRELATION_BODY, symbols=["510300", "510300"]),  # 重复
+        dict(CORRELATION_BODY, symbols=["510300", "abc123"]),  # 非六位数字
+        dict(CORRELATION_BODY, symbols=["510300", 510500]),   # 非字符串
+        dict(CORRELATION_BODY, extra="field"),                # 未知字段
+    ]
+    for body in bad_symbols:
+        response = client.post("/api/analytics/correlation", json=body)
+        assert response.status_code == 400
+        assert response.json["error"]["code"] == "VALIDATION_ERROR"
+
+    missing_date = dict(CORRELATION_BODY)
+    del missing_date["startDate"]
+    response = client.post("/api/analytics/correlation", json=missing_date)
+    assert response.status_code == 400
+    assert response.json["error"]["details"] == {"field": "startDate"}
+
+    bad_date = dict(CORRELATION_BODY, startDate="2025/01/01")
+    response = client.post("/api/analytics/correlation", json=bad_date)
+    assert response.status_code == 400
+
+    reversed_range = dict(CORRELATION_BODY, startDate="2025-12-31", endDate="2025-01-01")
+    response = client.post("/api/analytics/correlation", json=reversed_range)
+    assert response.status_code == 400
+
+    for field, value in (("adjust", "xxx"), ("returnType", "linear")):
+        response = client.post(
+            "/api/analytics/correlation",
+            json=dict(CORRELATION_BODY, **{field: value}),
+        )
+        assert response.status_code == 400
+        assert response.json["error"]["details"] == {"field": field}

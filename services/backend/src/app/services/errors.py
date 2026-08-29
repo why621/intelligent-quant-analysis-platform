@@ -28,3 +28,9 @@ class UpstreamUnavailableError(ServiceError):
     code = "UPSTREAM_UNAVAILABLE"
     status = 503
     message = "数据源暂时不可用，请稍后重试"
+
+
+class InsufficientDataError(ServiceError):
+    code = "INSUFFICIENT_DATA"
+    status = 422
+    message = "数据不足以执行计算"
