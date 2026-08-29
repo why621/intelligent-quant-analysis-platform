@@ -19,17 +19,15 @@ def test_health_matches_contract() -> None:
     }
 
 
-def test_all_contract_paths_are_registered_as_explicit_placeholders() -> None:
+def test_all_contract_paths_have_real_implementations() -> None:
+    """契约路径全部真实实现：请求校验先于服务调用生效（而非 501 占位）。"""
     client = make_client()
-    calls = [
-        client.post(
-            "/api/allocation/suggestion",
-            json={"symbols": ["510300"], "strategyId": "ma_cross"},
-        ),
-    ]
-
-    assert all(response.status_code == 501 for response in calls)
-    assert all(response.json["error"]["code"] == "NOT_IMPLEMENTED" for response in calls)
+    response = client.post(
+        "/api/allocation/suggestion",
+        json={"symbols": ["510300"], "strategyId": "ma_cross", "cashPct": 200},
+    )
+    assert response.status_code == 400
+    assert response.json["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_data_status_matches_contract() -> None:
@@ -274,11 +272,6 @@ def test_post_interface_rejects_non_json_body() -> None:
     }
 
 
-# ---------------------------------------------------------------------------
-# GET /strategies
-# ---------------------------------------------------------------------------
-
-
 def test_strategies_matches_contract() -> None:
     response = make_client().get("/api/strategies")
 
@@ -304,11 +297,6 @@ def test_strategies_catalog_contains_known_strategies() -> None:
     ma_cross = by_id["ma_cross"]
     assert ma_cross["status"] == "available"
     assert set(ma_cross["parameterSchema"]["required"]) == {"shortWindow", "longWindow"}
-
-
-# ---------------------------------------------------------------------------
-# POST /analytics/correlation
-# ---------------------------------------------------------------------------
 
 
 def make_client_with_correlation(fake_result):
@@ -434,6 +422,8 @@ def test_correlation_rejects_invalid_body() -> None:
         )
         assert response.status_code == 400
         assert response.json["error"]["details"] == {"field": field}
+
+
 def make_client_with_backtest(engine_run):
     """fake 资产池并替换回测引擎的 run，避免真实计算与网络请求。
 
@@ -704,6 +694,81 @@ def test_backtest_asset_not_in_pool() -> None:
 
     assert response.status_code == 404
     assert response.json["error"]["code"] == "ASSET_NOT_FOUND"
+
+
+def test_backtest_rejects_invalid_body() -> None:
+    client, _ = make_client_with_backtest(lambda request: None)
+
+    bad_bodies = [
+        dict(BACKTEST_BODY, symbols=[]),                            # 空符号列表
+        dict(BACKTEST_BODY, symbols=list(range(11))),               # 超过 10 个
+        dict(BACKTEST_BODY, symbols=["510300", "510300"]),          # 重复
+        dict(BACKTEST_BODY, symbols=["510300", "abc123"]),          # 非六位数字
+        dict(BACKTEST_BODY, symbols=["510300", 510500]),            # 非字符串
+        dict(BACKTEST_BODY, strategyId=""),                         # 空 strategyId
+        dict(BACKTEST_BODY, parameters=["shortWindow"]),            # parameters 非对象
+        dict(BACKTEST_BODY, benchmark="abc"),                       # benchmark 非六位
+        dict(BACKTEST_BODY, initialCapitalCny=0),                   # 本金非正
+        dict(BACKTEST_BODY, initialCapitalCny=-1),                  # 本金负数
+        dict(BACKTEST_BODY, initialCapitalCny="100000"),            # 本金非数字
+        dict(BACKTEST_BODY, adjust="xxx"),                          # 复权方式非法
+        dict(BACKTEST_BODY, tradingCosts=[]),                       # 成本非对象
+        dict(BACKTEST_BODY, tradingCosts={"commission": 0.1}),      # 成本未知字段
+        dict(BACKTEST_BODY, tradingCosts={"commissionPct": -1}),    # 成本负值
+        dict(BACKTEST_BODY, extra="field"),                         # 未知字段
+    ]
+    for body in bad_bodies:
+        response = client.post("/api/backtests", json=body)
+        assert response.status_code == 400
+        assert response.json["error"]["code"] == "VALIDATION_ERROR"
+
+    missing_date = dict(BACKTEST_BODY)
+    del missing_date["startDate"]
+    response = client.post("/api/backtests", json=missing_date)
+    assert response.status_code == 400
+    assert response.json["error"]["details"] == {"field": "startDate"}
+
+    bad_date = dict(BACKTEST_BODY, startDate="2025/01/01")
+    response = client.post("/api/backtests", json=bad_date)
+    assert response.status_code == 400
+
+    reversed_range = dict(BACKTEST_BODY, startDate="2025-12-31", endDate="2025-01-01")
+    response = client.post("/api/backtests", json=reversed_range)
+    assert response.status_code == 400
+
+
+def test_backtest_claim_concurrency() -> None:
+    """并发抢占：5 个线程同时抢 5 个任务，每个任务恰好被抢一次。"""
+    import threading
+
+    client, backtest_service = make_client_with_backtest(lambda request: None)
+    store = backtest_service._store
+    job_ids = [store.create(BACKTEST_BODY) for _ in range(5)]
+
+    barrier = threading.Barrier(5)
+    claimed: list[str] = []
+    lock = threading.Lock()
+
+    def worker() -> None:
+        barrier.wait()
+        job = store.claim()
+        if job:
+            with lock:
+                claimed.append(job["job_id"])
+
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sorted(claimed) == sorted(job_ids)
+
+
+# ---------------------------------------------------------------------------
+# /strategies/ranking
+# ---------------------------------------------------------------------------
+
 def make_ranking_engine_run(returns, nan_strategies=(), calls=None):
     """构造一个可计数的 fake engine.run：按策略返回不同收益，指定策略可给 NaN。"""
 
@@ -984,3 +1049,263 @@ def test_ranking_multi_key_single_flight() -> None:
     late.join()
     assert results["30d"] == results["30d_late"]  # 等待者拿到同一份缓存结果
 
+
+# ---------------------------------------------------------------------------
+# POST /allocation/suggestion
+# ---------------------------------------------------------------------------
+
+
+def fake_allocation_suggestion(*, symbols=("510300",), cash_pct=0.0, strategy_id="ma_cross"):
+    """构造算法组 AllocationSuggestion：basisDate=2026-08-21（周五），targetDate 跳过周末。"""
+    from datetime import date
+
+    from quant_platform.models import AllocationPosition, AllocationSuggestion
+
+    return AllocationSuggestion(
+        basis_date=date(2026, 8, 21),
+        target_date=date(2026, 8, 24),
+        strategy_id=strategy_id,
+        positions=tuple(
+            AllocationPosition(
+                symbol=s, weight_pct=50.0, action="hold", reason="策略信号中性"
+            )
+            for s in symbols
+        ),
+        cash_pct=cash_pct,
+    )
+
+
+def make_client_with_allocation_suggest(suggest):
+    """替换共享 allocation 服务的算法层 suggest，隔离后端校验与序列化逻辑。"""
+    application = create_app({"TESTING": True})
+    application.extensions["allocation_service"]._algorithm.suggest = suggest
+    return application.test_client()
+
+
+def make_allocation_prices(tail_close: float):
+    """30 个工作日，前 29 天收平 100，末日跳变 → 末日恰好形成金叉/死叉。
+
+    ma_cross 默认短窗 5 长窗 20：末日短均线(含跳变)与长均线交叉，
+    且前一日两条均线相等 → 交叉条件成立，信号落在最后一行。
+    tail_close=120 金叉(买入)、100 持平(持有)、80 死叉(卖出)。
+    """
+    from pandas import DataFrame, date_range
+
+    close = [100.0] * 30
+    close[-1] = tail_close
+    dates = date_range(end="2026-08-21", periods=30, freq="B")
+    return DataFrame(
+        {
+            "date": [d.strftime("%Y-%m-%d") for d in dates],
+            "open": close,
+            "high": close,
+            "low": close,
+            "close": close,
+            "volume": [1_000_000.0] * 30,
+            "amount": [1_000_000_000.0] * 30,
+        }
+    )
+
+
+def test_allocation_matches_contract() -> None:
+    """200 形状与契约一致；参数原样透传给算法层。"""
+    calls: list[dict] = []
+
+    def suggest(*, symbols, strategy_id, cash_pct):
+        calls.append(
+            {"symbols": list(symbols), "strategy_id": strategy_id, "cash_pct": cash_pct}
+        )
+        return fake_allocation_suggestion(symbols=symbols, cash_pct=cash_pct)
+
+    client = make_client_with_allocation_suggest(suggest)
+    response = client.post(
+        "/api/allocation/suggestion",
+        json={"symbols": ["510300", "510500"], "strategyId": "ma_cross", "cashPct": 20},
+    )
+
+    assert response.status_code == 200
+    body = response.json
+    assert set(body) == {
+        "basisDate", "targetDate", "strategyId", "positions",
+        "cashPct", "advisoryOnly", "disclaimer",
+    }
+    assert body["basisDate"] == "2026-08-21"
+    assert body["targetDate"] == "2026-08-24"
+    assert body["strategyId"] == "ma_cross"
+    assert body["cashPct"] == 20
+    assert body["advisoryOnly"] is True
+    assert body["disclaimer"]
+    assert [p["symbol"] for p in body["positions"]] == ["510300", "510500"]
+    for position in body["positions"]:
+        assert set(position) == {"symbol", "weightPct", "action", "reason"}
+        assert position["action"] in {"increase", "hold", "decrease", "exit"}
+    assert calls == [
+        {"symbols": ["510300", "510500"], "strategy_id": "ma_cross", "cash_pct": 20}
+    ]
+
+
+def test_allocation_with_real_algorithm() -> None:
+    """真实算法组 AllocationService + fake 价格：信号映射与权重守恒端到端。"""
+    application = create_app({"TESTING": True})
+    algorithm = application.extensions["allocation_service"]._algorithm
+    prices = {
+        "510300": make_allocation_prices(120.0),  # 末日金叉 → 买入
+        "510500": make_allocation_prices(100.0),  # 持平 → 持有
+        "159915": make_allocation_prices(80.0),   # 末日死叉 → 卖出
+    }
+    algorithm._provider.history = lambda symbol, *args, **kwargs: prices[symbol]
+
+    response = application.test_client().post(
+        "/api/allocation/suggestion",
+        json={
+            "symbols": ["510300", "510500", "159915"],
+            "strategyId": "ma_cross",
+            "cashPct": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json
+    by_symbol = {p["symbol"]: p for p in body["positions"]}
+    assert by_symbol["510300"]["action"] == "increase"
+    assert by_symbol["510500"]["action"] == "hold"
+    assert by_symbol["159915"]["action"] == "exit"
+    assert by_symbol["159915"]["weightPct"] == 0
+    # 权重守恒：买入/持有等权分剩余，卖出置零，加现金为 100
+    assert by_symbol["510300"]["weightPct"] == by_symbol["510500"]["weightPct"] == 45
+    total = sum(p["weightPct"] for p in body["positions"])
+    assert total + body["cashPct"] == 100
+
+
+def test_allocation_all_sell_zero_weights() -> None:
+    """全卖出信号：无可投标的，所有仓位权重为 0，建议纯现金。"""
+    application = create_app({"TESTING": True})
+    algorithm = application.extensions["allocation_service"]._algorithm
+    algorithm._provider.history = lambda symbol, *args, **kwargs: make_allocation_prices(80.0)
+
+    response = application.test_client().post(
+        "/api/allocation/suggestion",
+        json={"symbols": ["510300", "510500"], "strategyId": "ma_cross", "cashPct": 0},
+    )
+
+    assert response.status_code == 200
+    body = response.json
+    assert all(p["weightPct"] == 0 for p in body["positions"])
+    assert all(p["action"] == "exit" for p in body["positions"])
+
+
+def test_allocation_insufficient_history_is_hold() -> None:
+    """历史数据不足 10 行：算法组标记为中性信号（hold），后端原样透传。
+
+    数据缺失被伪装成中性信号是算法组行为，问题已转达，后端不修正。
+    """
+    application = create_app({"TESTING": True})
+    algorithm = application.extensions["allocation_service"]._algorithm
+    algorithm._provider.history = (
+        lambda symbol, *args, **kwargs: make_allocation_prices(120.0).tail(5)
+    )
+
+    response = application.test_client().post(
+        "/api/allocation/suggestion",
+        json={"symbols": ["510300"], "strategyId": "ma_cross"},
+    )
+
+    assert response.status_code == 200
+    position = response.json["positions"][0]
+    assert position["action"] == "hold"
+
+
+def test_allocation_unknown_strategy() -> None:
+    client = make_client_with_allocation_suggest(
+        lambda **kwargs: fake_allocation_suggestion()
+    )
+    response = client.post(
+        "/api/allocation/suggestion",
+        json={"symbols": ["510300"], "strategyId": "no-such-strategy"},
+    )
+
+    assert response.status_code == 422
+    assert response.json["error"]["code"] == "STRATEGY_NOT_AVAILABLE"
+    assert response.json["error"]["details"] == {"strategyId": "no-such-strategy"}
+
+
+def test_allocation_algorithm_value_error_maps_to_422() -> None:
+    """算法层抛 ValueError（目录外策略兜底）：统一转 STRATEGY_NOT_AVAILABLE。"""
+
+    def suggest(**kwargs):
+        raise ValueError("未知策略: ghost")
+
+    client = make_client_with_allocation_suggest(suggest)
+    response = client.post(
+        "/api/allocation/suggestion",
+        json={"symbols": ["510300"], "strategyId": "ma_cross"},
+    )
+
+    assert response.status_code == 422
+    assert response.json["error"]["code"] == "STRATEGY_NOT_AVAILABLE"
+
+
+def test_allocation_rejects_invalid_body() -> None:
+    client = make_client_with_allocation_suggest(
+        lambda **kwargs: fake_allocation_suggestion()
+    )
+    cases = [
+        ({"symbols": ["510300"], "strategyId": "ma_cross", "bogus": 1}, "bogus"),
+        ({"strategyId": "ma_cross"}, "symbols"),
+        ({"symbols": [], "strategyId": "ma_cross"}, "symbols"),
+        ({"symbols": ["abc123"], "strategyId": "ma_cross"}, "symbols"),
+        ({"symbols": ["510300", "510300"], "strategyId": "ma_cross"}, "symbols"),
+        ({"symbols": ["510300"], "strategyId": ""}, "strategyId"),
+        ({"symbols": ["510300"], "strategyId": "ma_cross", "cashPct": -1}, "cashPct"),
+        ({"symbols": ["510300"], "strategyId": "ma_cross", "cashPct": 101}, "cashPct"),
+        ({"symbols": ["510300"], "strategyId": "ma_cross", "cashPct": True}, "cashPct"),
+        ({"symbols": ["510300"], "strategyId": "ma_cross", "cashPct": "10"}, "cashPct"),
+    ]
+    for payload, field in cases:
+        response = client.post("/api/allocation/suggestion", json=payload)
+        assert response.status_code == 400, payload
+        assert response.json["error"]["code"] == "VALIDATION_ERROR"
+        assert response.json["error"]["details"] == {"field": field}, payload
+
+    not_object = client.post("/api/allocation/suggestion", json=[1, 2])
+    assert not_object.status_code == 400
+    assert not_object.json["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_allocation_concurrency_isolation() -> None:
+    """并发请求各自独立：不同参数组合并行提交，结果互不污染（无共享状态）。"""
+    import threading
+    import time
+
+    def suggest(*, symbols, strategy_id, cash_pct):
+        time.sleep(0.05)
+        return fake_allocation_suggestion(symbols=symbols, cash_pct=cash_pct)
+
+    client = make_client_with_allocation_suggest(suggest)
+    barrier = threading.Barrier(5)
+    responses: list[tuple[int, int, dict]] = []
+    lock = threading.Lock()
+
+    def worker(index: int) -> None:
+        barrier.wait()
+        response = client.post(
+            "/api/allocation/suggestion",
+            json={
+                "symbols": [f"51030{index}"],
+                "strategyId": "ma_cross",
+                "cashPct": index * 10,
+            },
+        )
+        with lock:
+            responses.append((index, response.status_code, response.json))
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    for index, status, body in responses:
+        assert status == 200
+        assert body["cashPct"] == index * 10
+        assert [p["symbol"] for p in body["positions"]] == [f"51030{index}"]

@@ -489,5 +489,70 @@ def get_backtest(job_id: str) -> tuple[dict[str, object], int]:
 
 @api.post("/allocation/suggestion")
 def allocation_suggestion() -> tuple[dict[str, object], int]:
-    _, validation_error = require_json_object()
-    return validation_error or pending_response("allocation-suggestion")
+    payload, validation_error = require_json_object()
+    if validation_error is not None:
+        return validation_error
+
+    extra_fields = set(payload) - {"symbols", "strategyId", "cashPct"}
+    if extra_fields:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="请求体包含未知字段",
+            status=400,
+            details={"field": sorted(extra_fields)[0]},
+        )
+
+    symbols = payload.get("symbols")
+    if (
+        not isinstance(symbols, list)
+        or not 1 <= len(symbols) <= 10
+        or not all(
+            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol)
+            for symbol in symbols
+        )
+        or len(set(symbols)) != len(symbols)
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="symbols 必须是 1 到 10 个不同的六位数字资产代码",
+            status=400,
+            details={"field": "symbols"},
+        )
+
+    strategy_id = payload.get("strategyId")
+    if not isinstance(strategy_id, str) or not strategy_id:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="strategyId 为必填字符串",
+            status=400,
+            details={"field": "strategyId"},
+        )
+
+    cash_pct = payload.get("cashPct", 0)
+    if (
+        not isinstance(cash_pct, (int, float))
+        or isinstance(cash_pct, bool)
+        or not 0 <= cash_pct <= 100
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="cashPct 必须是 0 到 100 的数字",
+            status=400,
+            details={"field": "cashPct"},
+        )
+
+    service = current_app.extensions["allocation_service"]
+    try:
+        result = service.suggest(
+            symbols=symbols,
+            strategy_id=strategy_id,
+            cash_pct=cash_pct,
+        )
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 200

@@ -5,12 +5,14 @@ import tempfile
 from uuid import uuid4
 
 from flask import Flask, Response, g, request
+from quant_platform.allocation import AllocationService as AlgorithmAllocationService
 from quant_platform.analytics.correlation import CorrelationAnalyzer
 from quant_platform.backtesting.engine import BacktestEngine
 from quant_platform.data.akshare_provider import AkShareMarketDataProvider
 from quant_platform.ranking import StrategyRankingService
 
 from app.api.routes import api
+from app.services.allocation import AllocationService
 from app.services.analytics import CorrelationService
 from app.services.backtests import BacktestJobStore, BacktestService, BacktestWorker
 from app.services.data import MarketDataService
@@ -85,6 +87,12 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
     application.extensions["ranking_service"] = RankingService(
         StrategyRankingService(engine),
         provider,
+        strategy_catalog,
+    )
+    # 配置建议：算法组服务只依赖 provider（只读共享）与策略注册表，无状态
+    # 多线程安全；日期锚点由算法组内部决定（墙钟），后端按约定透传。
+    application.extensions["allocation_service"] = AllocationService(
+        AlgorithmAllocationService(provider, strategy_catalog.registry()),
         strategy_catalog,
     )
     if not application.config.get("TESTING"):
