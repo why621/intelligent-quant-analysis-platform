@@ -9,6 +9,8 @@ from app.services.errors import ServiceError
 
 api = Blueprint("api", __name__)
 
+_RANKING_PERIODS = ("1d", "7d", "30d", "1y")
+
 
 def error_response(
     *,
@@ -279,7 +281,26 @@ def list_strategies() -> tuple[dict[str, object], int]:
 
 @api.get("/strategies/ranking")
 def strategy_ranking() -> tuple[dict[str, object], int]:
-    return pending_response("strategy-ranking")
+    period = request.args.get("period", "30d")
+    if period not in _RANKING_PERIODS:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message=f"period 必须是 {'/'.join(_RANKING_PERIODS)} 之一",
+            status=400,
+            details={"field": "period"},
+        )
+
+    service = current_app.extensions["ranking_service"]
+    try:
+        result = service.get_ranking(period)
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 200
 
 
 @api.post("/backtests")

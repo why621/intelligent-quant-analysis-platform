@@ -22,7 +22,6 @@ def test_health_matches_contract() -> None:
 def test_all_contract_paths_are_registered_as_explicit_placeholders() -> None:
     client = make_client()
     calls = [
-        client.get("/api/strategies/ranking?period=30d"),
         client.post(
             "/api/allocation/suggestion",
             json={"symbols": ["510300"], "strategyId": "ma_cross"},
@@ -705,3 +704,283 @@ def test_backtest_asset_not_in_pool() -> None:
 
     assert response.status_code == 404
     assert response.json["error"]["code"] == "ASSET_NOT_FOUND"
+def make_ranking_engine_run(returns, nan_strategies=(), calls=None):
+    """构造一个可计数的 fake engine.run：按策略返回不同收益，指定策略可给 NaN。"""
+
+    def engine_run(request):
+
+        from pandas import DataFrame
+        from quant_platform.models import BacktestMetrics, BacktestResult
+
+        if calls is not None:
+            calls.append(request.strategy_id)
+        ret = returns.get(request.strategy_id, 0.0)
+        sharpe = float("nan") if request.strategy_id in nan_strategies else 1.0
+        return BacktestResult(
+            metrics=BacktestMetrics(
+                total_return_pct=ret,
+                annualized_return_pct=ret,
+                max_drawdown_pct=2.0,
+                sharpe=sharpe,
+                alpha_pct=None,
+                beta=None,
+            ),
+            equity_curve=DataFrame(
+                {
+                    "date": ["2026-08-20"],
+                    "equity": [100000.0],
+                    "benchmarkEquity": [1.0],
+                }
+            ),
+            trades=(),
+            assumptions={},
+        )
+
+    return engine_run
+
+
+def make_client_with_ranking(engine_run, latest_trade_date="2026-08-21"):
+    """装配 TESTING app：指定 provider.status 的 latest_trade_date（对齐缓存
+    文件状况），替换共享引擎的 run——ranking 的算法层经同一引擎实例调用它。"""
+    from datetime import date
+
+    from quant_platform.models import DataStatus
+
+    application = create_app({"TESTING": True})
+    provider = application.extensions["market_data_service"]._provider
+    provider.status = lambda: DataStatus(
+        status="ready",
+        source="AkShare",
+        asset_count=2,
+        latest_trade_date=(
+            None if latest_trade_date is None else date.fromisoformat(latest_trade_date)
+        ),
+        updated_at=None,
+        message="test fixture",
+    )
+    service = application.extensions["ranking_service"]
+    service._algorithm._engine.run = engine_run
+    return application.test_client()
+
+
+def test_ranking_matches_contract() -> None:
+    client = make_client_with_ranking(
+        make_ranking_engine_run({"ma_cross": 5.0, "momentum_reversal": 8.0})
+    )
+
+    response = client.get("/api/strategies/ranking")
+
+    assert response.status_code == 200
+    body = response.json
+    assert body["asOfDate"] == "2026-08-21"
+    assert body["period"] == "30d"
+    assert [item["strategyId"] for item in body["items"]] == [
+        "momentum_reversal",
+        "ma_cross",
+    ]
+    assert [item["rank"] for item in body["items"]] == [1, 2]
+    for item in body["items"]:
+        assert set(item) == {
+            "rank",
+            "strategyId",
+            "strategyName",
+            "category",
+            "returnPct",
+            "maxDrawdownPct",
+            "sharpe",
+        }
+        assert item["category"] in {"traditional", "ai"}
+        assert item["maxDrawdownPct"] >= 0
+    assert body["items"][0]["returnPct"] > body["items"][1]["returnPct"]
+
+
+def test_ranking_period_echo() -> None:
+    client = make_client_with_ranking(make_ranking_engine_run({"ma_cross": 1.0}))
+
+    assert client.get("/api/strategies/ranking?period=1y").json["period"] == "1y"
+    assert client.get("/api/strategies/ranking?period=7d").json["period"] == "7d"
+
+
+def test_ranking_rejects_invalid_period() -> None:
+    client = make_client_with_ranking(make_ranking_engine_run({}))
+
+    response = client.get("/api/strategies/ranking?period=3d")
+
+    assert response.status_code == 400
+    assert response.json["error"]["code"] == "VALIDATION_ERROR"
+    assert response.json["error"]["details"] == {"field": "period"}
+
+
+def test_ranking_upstream_unavailable_when_no_trade_date() -> None:
+    client = make_client_with_ranking(
+        make_ranking_engine_run({}), latest_trade_date=None
+    )
+
+    response = client.get("/api/strategies/ranking")
+
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_ranking_insufficient_data_on_nan() -> None:
+    """任一指标非有限 → 整体 422，不让残缺条目以 200 出现。"""
+    client = make_client_with_ranking(
+        make_ranking_engine_run(
+            {"ma_cross": 5.0, "momentum_reversal": 8.0},
+            nan_strategies=("momentum_reversal",),
+        )
+    )
+
+    response = client.get("/api/strategies/ranking")
+
+    assert response.status_code == 422
+    body = response.json
+    assert body["error"]["code"] == "INSUFFICIENT_DATA"
+    assert body["error"]["details"] == {
+        "period": "30d",
+        "strategyId": "momentum_reversal",
+        "field": "sharpe",
+    }
+
+
+def _failing_engine_run(request):
+    """引擎全失败：算法组 rank 的 except: continue 会吞掉，返回空列表。"""
+    raise RuntimeError("engine failed")
+
+
+def test_ranking_insufficient_data_on_empty_result() -> None:
+    """无策略产出真实结果（引擎全失败被算法组吞掉）→ 422，而非 200 空排行。"""
+    client = make_client_with_ranking(_failing_engine_run)
+
+    response = client.get("/api/strategies/ranking")
+
+    assert response.status_code == 422
+    body = response.json
+    assert body["error"]["code"] == "INSUFFICIENT_DATA"
+    assert body["error"]["details"] == {"period": "30d", "reason": "rank 返回空"}
+
+
+def test_ranking_cache_hit_avoids_recompute() -> None:
+    calls: list[str] = []
+    client = make_client_with_ranking(
+        make_ranking_engine_run(
+            {"ma_cross": 5.0, "momentum_reversal": 8.0}, calls=calls
+        )
+    )
+
+    client.get("/api/strategies/ranking")
+    client.get("/api/strategies/ranking")
+
+    # 两个策略各算一次；第二次请求命中缓存，不再调用引擎
+    assert sorted(calls) == ["ma_cross", "momentum_reversal"]
+
+
+def test_ranking_single_flight_concurrency() -> None:
+    """并发合并：5 个线程同时请求，引擎只被调用一次（每策略一次）。"""
+    import threading
+
+    calls: list[str] = []
+    client = make_client_with_ranking(
+        make_ranking_engine_run(
+            {"ma_cross": 5.0, "momentum_reversal": 8.0}, calls=calls
+        )
+    )
+    barrier = threading.Barrier(5)
+    statuses: list[int] = []
+    lock = threading.Lock()
+
+    def worker() -> None:
+        barrier.wait()
+        response = client.get("/api/strategies/ranking")
+        with lock:
+            statuses.append(response.status_code)
+
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert statuses == [200] * 5
+    assert sorted(calls) == ["ma_cross", "momentum_reversal"]
+
+
+def test_ranking_multi_key_single_flight() -> None:
+    """多 key 并发互不覆盖：key1 计算中时 key2 插入，新 key1 请求必须等待合并。
+
+    回归场景（单值 inflight 缺陷）：A 算 key1 时 B 把 inflight 顶成 key2，
+    C 再来 key1 会误判"无人算"而重复计算。inflight 改为集合后 C 等待合并。
+    """
+    import threading
+    import time
+    from datetime import date
+
+    from quant_platform.models import DataStatus, RankingItem
+
+    from app.services.ranking import RankingService
+    from app.services.strategies import StrategyCatalogService
+
+    class TimedRank:
+        """fake 算法层：30d 的计算被卡住，直到测试放行；1y 快速返回。"""
+
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+            self.started_30d = threading.Event()
+            self.release_30d = threading.Event()
+
+        def rank(self, *, as_of_date: date, period: str) -> list[RankingItem]:
+            self.calls.append(period)
+            if period == "30d":
+                self.started_30d.set()
+                self.release_30d.wait(5)
+            return [
+                RankingItem(
+                    rank=1,
+                    strategy_id="ma_cross",
+                    strategy_name="均线交叉",
+                    category="traditional",
+                    return_pct=1.0,
+                    max_drawdown_pct=0.5,
+                    sharpe=1.0,
+                )
+            ]
+
+    timed = TimedRank()
+    provider = type(
+        "P",
+        (),
+        {
+            "status": lambda self: DataStatus(
+                status="ready",
+                source="AkShare",
+                asset_count=1,
+                latest_trade_date=date(2026, 8, 21),
+                updated_at=None,
+                message="",
+            )
+        },
+    )()
+    service = RankingService(timed, provider, StrategyCatalogService())
+
+    results: dict[str, object] = {}
+    first = threading.Thread(
+        target=lambda: results.setdefault("30d", service.get_ranking("30d"))
+    )
+    first.start()
+    assert timed.started_30d.wait(2)  # key1 已开始计算
+
+    results.setdefault("1y", service.get_ranking("1y"))  # key2 插队（主线程）
+
+    late = threading.Thread(
+        target=lambda: results.setdefault("30d_late", service.get_ranking("30d"))
+    )
+    late.start()
+    time.sleep(0.2)  # 给 late 进入 _compute 的机会（修复前它会直接开算）
+
+    assert timed.calls.count("30d") == 1  # 关键断言：30d 只算一次
+
+    timed.release_30d.set()
+    first.join()
+    late.join()
+    assert results["30d"] == results["30d_late"]  # 等待者拿到同一份缓存结果
+

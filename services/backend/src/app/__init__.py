@@ -8,11 +8,13 @@ from flask import Flask, Response, g, request
 from quant_platform.analytics.correlation import CorrelationAnalyzer
 from quant_platform.backtesting.engine import BacktestEngine
 from quant_platform.data.akshare_provider import AkShareMarketDataProvider
+from quant_platform.ranking import StrategyRankingService
 
 from app.api.routes import api
 from app.services.analytics import CorrelationService
 from app.services.backtests import BacktestJobStore, BacktestService, BacktestWorker
 from app.services.data import MarketDataService
+from app.services.ranking import RankingService
 from app.services.strategies import StrategyCatalogService
 
 BACKTEST_DB_DEFAULT = os.path.join(
@@ -70,13 +72,21 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
     else:
         db_path = os.environ.get("BACKTEST_DB_PATH", BACKTEST_DB_DEFAULT)
     backtest_store = BacktestJobStore(db_path)
+    # 回测引擎共享单例：无状态设计（run 只读 provider/策略注册表），
+    # worker 线程跑回测与 ranking 请求同步跑引擎互不干扰。
+    engine = BacktestEngine(provider, strategy_catalog.registry())
     backtest_service = BacktestService(
         backtest_store,
         strategy_catalog,
         provider,
-        BacktestEngine(provider, strategy_catalog.registry()),
+        engine,
     )
     application.extensions["backtest_service"] = backtest_service
+    application.extensions["ranking_service"] = RankingService(
+        StrategyRankingService(engine),
+        provider,
+        strategy_catalog,
+    )
     if not application.config.get("TESTING"):
         BacktestWorker(backtest_store, backtest_service).start()
     return application
