@@ -14,7 +14,8 @@ class ServiceError(Exception):
         *,
         details: dict[str, object] | None = None,
     ) -> None:
-        super().__init__(message or self.message)
+        self.message = message or self.message
+        super().__init__(self.message)
         self.details = details or {}
 
 
@@ -34,3 +35,21 @@ class InsufficientDataError(ServiceError):
     code = "INSUFFICIENT_DATA"
     status = 422
     message = "数据不足以执行计算"
+
+
+class ValidationError(ServiceError):
+    code = "VALIDATION_ERROR"
+    status = 400
+    message = "请求参数不合法"
+
+
+class StrategyNotAvailableError(ServiceError):
+    code = "STRATEGY_NOT_AVAILABLE"
+    status = 422
+    message = "策略未完成或不可执行"
+
+
+class JobNotFoundError(ServiceError):
+    code = "JOB_NOT_FOUND"
+    status = 404
+    message = "回测任务不存在"

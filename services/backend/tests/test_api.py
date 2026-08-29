@@ -1,3 +1,5 @@
+import re
+
 from app import create_app
 
 
@@ -21,8 +23,6 @@ def test_all_contract_paths_are_registered_as_explicit_placeholders() -> None:
     client = make_client()
     calls = [
         client.get("/api/strategies/ranking?period=30d"),
-        client.post("/api/backtests", json={"strategyId": "ma_cross"}),
-        client.get("/api/backtests/8f316d85-e86b-45c5-8ff6-c8ee2457e71b"),
         client.post(
             "/api/allocation/suggestion",
             json={"symbols": ["510300"], "strategyId": "ma_cross"},
@@ -435,3 +435,273 @@ def test_correlation_rejects_invalid_body() -> None:
         )
         assert response.status_code == 400
         assert response.json["error"]["details"] == {"field": field}
+def make_client_with_backtest(engine_run):
+    """fake 资产池并替换回测引擎的 run，避免真实计算与网络请求。
+
+    backtest_service 与 market_data_service 共享同一个 provider 实例，
+    替换 list_assets 即同时影响两者的资产池校验。
+    """
+    from quant_platform.models import Asset
+
+    client = make_client_with_fake(
+        "list_assets",
+        [
+            Asset(symbol="510300", name="沪深300ETF", asset_type="etf", exchange="SSE"),
+            Asset(symbol="510500", name="中证500ETF", asset_type="etf", exchange="SSE"),
+        ],
+    )
+    backtest_service = client.application.extensions["backtest_service"]
+    backtest_service._engine.run = engine_run
+    return client, backtest_service
+
+
+BACKTEST_BODY = {
+    "symbols": ["510300"],
+    "strategyId": "ma_cross",
+    "parameters": {"shortWindow": 5, "longWindow": 20},
+    "startDate": "2024-01-01",
+    "endDate": "2025-12-31",
+}
+
+
+def fake_backtest_result():
+    from datetime import date as date_cls
+
+    from pandas import DataFrame
+    from quant_platform.models import BacktestMetrics, BacktestResult, Trade
+
+    return BacktestResult(
+        metrics=BacktestMetrics(
+            total_return_pct=8.5,
+            annualized_return_pct=8.5,
+            max_drawdown_pct=5.2,
+            sharpe=1.1,
+            alpha_pct=None,
+            beta=None,
+        ),
+        equity_curve=DataFrame(
+            {
+                "date": ["2024-01-02", "2024-01-03"],
+                "equity": [100000.0, 100500.0],
+                "benchmarkEquity": [1.0, 1.005],
+            }
+        ),
+        trades=(
+            Trade(
+                trade_date=date_cls(2024, 1, 2),
+                symbol="510300",
+                side="buy",
+                price=3.95,
+                quantity=25250.0,
+                amount_cny=99737.5,
+                fee_cny=29.92,
+            ),
+        ),
+        assumptions={
+            "signalAt": "close",
+            "executeAt": "next_open",
+            "calendar": "CN",
+            "currency": "CNY",
+        },
+    )
+
+
+def test_backtest_create_matches_contract() -> None:
+    client, _ = make_client_with_backtest(lambda request: None)
+    response = client.post("/api/backtests", json=BACKTEST_BODY)
+
+    assert response.status_code == 202
+    body = response.json
+    assert set(body) == {
+        "jobId", "status", "createdAt", "updatedAt", "progressPct", "result", "error",
+    }
+    assert re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        body["jobId"],
+    )
+    assert body["status"] == "queued"
+    assert body["updatedAt"] is None
+    assert body["progressPct"] == 0
+    assert body["result"] is None
+    assert body["error"] is None
+    assert "T" in body["createdAt"]  # ISO 8601 datetime
+
+
+def test_backtest_executes_and_returns_result() -> None:
+    client, backtest_service = make_client_with_backtest(
+        lambda request: fake_backtest_result()
+    )
+    job_id = client.post("/api/backtests", json=BACKTEST_BODY).json["jobId"]
+
+    backtest_service.execute_job(job_id)
+    response = client.get(f"/api/backtests/{job_id}")
+
+    assert response.status_code == 200
+    body = response.json
+    assert body["status"] == "succeeded"
+    assert body["progressPct"] == 100
+    assert body["error"] is None
+    result = body["result"]
+    assert set(result) == {"metrics", "equityCurve", "trades", "assumptions"}
+    assert result["metrics"] == {
+        "totalReturnPct": 8.5,
+        "annualizedReturnPct": 8.5,
+        "maxDrawdownPct": 5.2,
+        "sharpe": 1.1,
+        "alphaPct": None,
+        "beta": None,
+    }
+    assert result["equityCurve"] == [
+        {"date": "2024-01-02", "equity": 100000.0, "benchmarkEquity": 1.0},
+        {"date": "2024-01-03", "equity": 100500.0, "benchmarkEquity": 1.005},
+    ]
+    assert result["trades"] == [
+        {
+            "date": "2024-01-02",
+            "symbol": "510300",
+            "side": "buy",
+            "price": 3.95,
+            "quantity": 25250.0,
+            "amountCny": 99737.5,
+            "feeCny": 29.92,
+        }
+    ]
+    assert result["assumptions"] == {
+        "signalAt": "close",
+        "executeAt": "next_open",
+        "calendar": "CN",
+        "currency": "CNY",
+    }
+
+
+def test_backtest_failed_error() -> None:
+    def failing(request):
+        raise RuntimeError("boom")
+
+    client, backtest_service = make_client_with_backtest(failing)
+    job_id = client.post("/api/backtests", json=BACKTEST_BODY).json["jobId"]
+
+    backtest_service.execute_job(job_id)
+    body = client.get(f"/api/backtests/{job_id}").json
+
+    assert body["status"] == "failed"
+    assert body["result"] is None
+    assert body["error"]["error"]["code"] == "INTERNAL_ERROR"
+
+
+def test_backtest_upstream_error() -> None:
+    from quant_platform.data.akshare_provider import UpstreamUnavailableError
+
+    def failing(request):
+        raise UpstreamUnavailableError("Tencent history failed")
+
+    client, backtest_service = make_client_with_backtest(failing)
+    job_id = client.post("/api/backtests", json=BACKTEST_BODY).json["jobId"]
+
+    backtest_service.execute_job(job_id)
+    body = client.get(f"/api/backtests/{job_id}").json
+
+    assert body["status"] == "failed"
+    assert body["error"]["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_backtest_job_not_found() -> None:
+    response = make_client().get(
+        "/api/backtests/8f316d85-e86b-45c5-8ff6-c8ee2457e71b"
+    )
+
+    assert response.status_code == 404
+    assert response.json["error"]["code"] == "JOB_NOT_FOUND"
+
+
+def test_backtest_rejects_invalid_job_id() -> None:
+    response = make_client().get("/api/backtests/not-a-uuid")
+
+    assert response.status_code == 400
+    assert response.json["error"]["code"] == "VALIDATION_ERROR"
+    assert response.json["error"]["details"] == {"field": "jobId"}
+
+
+def test_backtest_strategy_not_available() -> None:
+    client, _ = make_client_with_backtest(lambda request: None)
+    response = client.post(
+        "/api/backtests", json=dict(BACKTEST_BODY, strategyId="unknown")
+    )
+
+    assert response.status_code == 422
+    assert response.json["error"]["code"] == "STRATEGY_NOT_AVAILABLE"
+
+
+def test_backtest_invalid_parameters() -> None:
+    client, _ = make_client_with_backtest(lambda request: None)
+    response = client.post(
+        "/api/backtests",
+        json=dict(BACKTEST_BODY, parameters={"shortWindow": 20, "longWindow": 5}),
+    )
+
+    assert response.status_code == 400
+    assert response.json["error"]["code"] == "VALIDATION_ERROR"
+    # 策略级语义校验的具体原因必须透出（ServiceError 自定义 message）
+    assert "shortWindow 必须小于 longWindow" in response.json["error"]["message"]
+
+
+def test_backtest_rejects_schema_mismatched_parameters() -> None:
+    """parameters 必须与策略 info() 声明的 parameterSchema 结构一致。"""
+    client, _ = make_client_with_backtest(lambda request: None)
+
+    bad_parameters = [
+        {"shortWindow": 5, "longWindow": 20, "evilField": 1},   # 未知字段
+        {"shortWindow": 5},                                     # 缺 required 字段
+        {},                                                     # 全缺
+        {"shortWindow": "5", "longWindow": 20},                 # 类型错误
+        {"shortWindow": True, "longWindow": 20},                # bool 伪装整数
+        {"shortWindow": 1, "longWindow": 20},                   # 低于 minimum
+        {"shortWindow": 5, "longWindow": 3, "extra": 1},        # 缺字段+未知字段
+    ]
+    for parameters in bad_parameters:
+        response = client.post(
+            "/api/backtests", json=dict(BACKTEST_BODY, parameters=parameters)
+        )
+        assert response.status_code == 400, parameters
+        assert response.json["error"]["code"] == "VALIDATION_ERROR"
+
+    # 合法参数仍通过
+    response = client.post("/api/backtests", json=BACKTEST_BODY)
+    assert response.status_code == 202
+
+
+def test_backtest_momentum_reversal_parameters() -> None:
+    """momentum_reversal 的 number 类型参数按 schema 校验。"""
+    client, _ = make_client_with_backtest(lambda request: None)
+
+    valid = {
+        "symbols": ["510300"],
+        "strategyId": "momentum_reversal",
+        "parameters": {"lookback": 10, "overboughtThreshold": 5.0, "oversoldThreshold": -5.0},
+        "startDate": "2024-01-01",
+        "endDate": "2025-12-31",
+    }
+    assert client.post("/api/backtests", json=valid).status_code == 202
+
+    missing = dict(valid, parameters={"lookback": 10})
+    assert client.post("/api/backtests", json=missing).status_code == 400
+
+    bad_type = dict(
+        valid,
+        parameters={
+            "lookback": 10,
+            "overboughtThreshold": "5",
+            "oversoldThreshold": -5.0,
+        },
+    )
+    assert client.post("/api/backtests", json=bad_type).status_code == 400
+
+
+def test_backtest_asset_not_in_pool() -> None:
+    client, _ = make_client_with_backtest(lambda request: None)
+    response = client.post(
+        "/api/backtests", json=dict(BACKTEST_BODY, symbols=["999999"])
+    )
+
+    assert response.status_code == 404
+    assert response.json["error"]["code"] == "ASSET_NOT_FOUND"

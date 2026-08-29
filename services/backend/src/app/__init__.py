@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from uuid import uuid4
 
 from flask import Flask, Response, g, request
 from quant_platform.analytics.correlation import CorrelationAnalyzer
+from quant_platform.backtesting.engine import BacktestEngine
 from quant_platform.data.akshare_provider import AkShareMarketDataProvider
 
 from app.api.routes import api
 from app.services.analytics import CorrelationService
+from app.services.backtests import BacktestJobStore, BacktestService, BacktestWorker
 from app.services.data import MarketDataService
 from app.services.strategies import StrategyCatalogService
+
+BACKTEST_DB_DEFAULT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "backtests.db"
+)
 
 __version__ = "0.1.0"
 
@@ -56,4 +63,20 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
     application.extensions["correlation_service"] = CorrelationService(
         CorrelationAnalyzer(provider)
     )
+
+    # 回测任务存储：测试用独立临时目录，避免污染 var/ 下的真实任务库。
+    if application.config.get("TESTING"):
+        db_path = os.path.join(tempfile.mkdtemp(prefix="backtest-db-"), "backtests.db")
+    else:
+        db_path = os.environ.get("BACKTEST_DB_PATH", BACKTEST_DB_DEFAULT)
+    backtest_store = BacktestJobStore(db_path)
+    backtest_service = BacktestService(
+        backtest_store,
+        strategy_catalog,
+        provider,
+        BacktestEngine(provider, strategy_catalog.registry()),
+    )
+    application.extensions["backtest_service"] = backtest_service
+    if not application.config.get("TESTING"):
+        BacktestWorker(backtest_store, backtest_service).start()
     return application
