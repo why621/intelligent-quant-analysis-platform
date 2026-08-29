@@ -28,7 +28,6 @@ def test_all_contract_paths_are_registered_as_explicit_placeholders() -> None:
                 "endDate": "2025-12-31",
             },
         ),
-        client.get("/api/strategies"),
         client.get("/api/strategies/ranking?period=30d"),
         client.post("/api/backtests", json={"strategyId": "ma_cross"}),
         client.get("/api/backtests/8f316d85-e86b-45c5-8ff6-c8ee2457e71b"),
@@ -282,3 +281,35 @@ def test_post_interface_rejects_non_json_body() -> None:
             "details": {"field": "body"},
         }
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /strategies
+# ---------------------------------------------------------------------------
+
+
+def test_strategies_matches_contract() -> None:
+    response = make_client().get("/api/strategies")
+
+    assert response.status_code == 200
+    body = response.json
+    assert set(body) == {"items"}
+    items = body["items"]
+    assert len(items) >= 1
+    for item in items:
+        assert set(item) == {
+            "id", "name", "category", "status", "description", "parameterSchema",
+        }
+        assert item["category"] in {"traditional", "ai"}
+        assert item["status"] in {"available", "experimental", "planned"}
+        assert isinstance(item["parameterSchema"], dict)
+
+
+def test_strategies_catalog_contains_known_strategies() -> None:
+    response = make_client().get("/api/strategies")
+
+    by_id = {item["id"]: item for item in response.json["items"]}
+    assert set(by_id) == {"ma_cross", "momentum_reversal"}
+    ma_cross = by_id["ma_cross"]
+    assert ma_cross["status"] == "available"
+    assert set(ma_cross["parameterSchema"]["required"]) == {"shortWindow", "longWindow"}

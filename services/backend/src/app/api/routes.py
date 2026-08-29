@@ -184,7 +184,8 @@ def correlation() -> tuple[dict[str, object], int]:
 
 @api.get("/strategies")
 def list_strategies() -> tuple[dict[str, object], int]:
-    return pending_response("strategy-list")
+    service = current_app.extensions["strategy_catalog_service"]
+    return dict(service.list_strategies()), 200
 
 
 @api.get("/strategies/ranking")

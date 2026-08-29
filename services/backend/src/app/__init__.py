@@ -8,6 +8,7 @@ from quant_platform.data.akshare_provider import AkShareMarketDataProvider
 
 from app.api.routes import api
 from app.services.data import MarketDataService
+from app.services.strategies import StrategyCatalogService
 
 __version__ = "0.1.0"
 
@@ -46,4 +47,7 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
     application.extensions["market_data_service"] = MarketDataService(
         AkShareMarketDataProvider()
     )
+
+    strategy_catalog = StrategyCatalogService()
+    application.extensions["strategy_catalog_service"] = strategy_catalog
     return application
