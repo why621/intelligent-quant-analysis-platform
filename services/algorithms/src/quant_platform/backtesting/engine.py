@@ -109,8 +109,13 @@ class BacktestEngine:
         else:
             commission = stamp = slippage = 0.0
 
+        if len(signals) != len(prices):
+            raise ValueError("strategy signals must have one value per price row")
+
+        prices = prices.copy()
+        prices["_signal"] = signals.to_numpy(copy=False)
         prices = prices.set_index("date").sort_index()
-        signals = signals.reindex(prices.index).fillna(0)
+        signals = prices["_signal"].fillna(0)
 
         cash = capital
         shares = 0.0
@@ -130,7 +135,7 @@ class BacktestEngine:
                 shares = invest / exec_price
                 cash = 0.0
                 trades.append(Trade(
-                    trade_date=current_date,  # type: ignore[arg-type]
+                    trade_date=pd.Timestamp(current_date).date(),
                     symbol=symbol,
                     side="buy",
                     price=exec_price,
@@ -144,7 +149,7 @@ class BacktestEngine:
                 fee = gross * (commission + stamp)
                 cash = gross - fee
                 trades.append(Trade(
-                    trade_date=current_date,  # type: ignore[arg-type]
+                    trade_date=pd.Timestamp(current_date).date(),
                     symbol=symbol,
                     side="sell",
                     price=exec_price,

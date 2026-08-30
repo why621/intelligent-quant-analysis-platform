@@ -77,7 +77,7 @@ class StrategyRankingService:
 
 def _start_date(as_of: date, period: str) -> date:
     return {
-        "1d": as_of - timedelta(days=30),
+        "1d": as_of - timedelta(days=1),
         "7d": as_of - timedelta(days=7),
         "30d": as_of - timedelta(days=30),
         "1y": as_of - timedelta(days=365),
