@@ -9,6 +9,8 @@ from app.services.errors import ServiceError
 
 api = Blueprint("api", __name__)
 
+_RANKING_PERIODS = ("1d", "7d", "30d", "1y")
+
 
 def error_response(
     *,
@@ -178,32 +180,379 @@ def market_overview() -> tuple[dict[str, object], int]:
 
 @api.post("/analytics/correlation")
 def correlation() -> tuple[dict[str, object], int]:
-    _, validation_error = require_json_object()
-    return validation_error or pending_response("asset-correlation")
+    payload, validation_error = require_json_object()
+    if validation_error is not None:
+        return validation_error
+
+    extra_fields = set(payload) - {"symbols", "startDate", "endDate", "adjust", "returnType"}
+    if extra_fields:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="请求体包含未知字段",
+            status=400,
+            details={"field": sorted(extra_fields)[0]},
+        )
+
+    symbols = payload.get("symbols")
+    if (
+        not isinstance(symbols, list)
+        or not 2 <= len(symbols) <= 10
+        or not all(
+            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol)
+            for symbol in symbols
+        )
+        or len(set(symbols)) != len(symbols)
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="symbols 必须是 2 到 10 个不同的六位数字资产代码",
+            status=400,
+            details={"field": "symbols"},
+        )
+
+    try:
+        start_date = date.fromisoformat(payload["startDate"])
+        end_date = date.fromisoformat(payload["endDate"])
+    except KeyError:
+        missing = "startDate" if "startDate" not in payload else "endDate"
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="startDate 和 endDate 为必填字段",
+            status=400,
+            details={"field": missing},
+        )
+    except ValueError:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="日期格式必须是 YYYY-MM-DD",
+            status=400,
+            details={"field": "startDate"},
+        )
+    if start_date > end_date:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="startDate 不能晚于 endDate",
+            status=400,
+            details={"field": "startDate"},
+        )
+
+    adjust = payload.get("adjust", "qfq")
+    if adjust not in {"qfq", "hfq", "none"}:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="adjust 必须是 qfq、hfq 或 none",
+            status=400,
+            details={"field": "adjust"},
+        )
+
+    return_type = payload.get("returnType", "simple")
+    if return_type not in {"simple", "log"}:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="returnType 必须是 simple 或 log",
+            status=400,
+            details={"field": "returnType"},
+        )
+
+    service = current_app.extensions["correlation_service"]
+    try:
+        result = service.calculate(
+            symbols=symbols,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+            return_type=return_type,
+        )
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 200
 
 
 @api.get("/strategies")
 def list_strategies() -> tuple[dict[str, object], int]:
-    return pending_response("strategy-list")
+    service = current_app.extensions["strategy_catalog_service"]
+    return dict(service.list_strategies()), 200
 
 
 @api.get("/strategies/ranking")
 def strategy_ranking() -> tuple[dict[str, object], int]:
-    return pending_response("strategy-ranking")
+    period = request.args.get("period", "30d")
+    if period not in _RANKING_PERIODS:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message=f"period 必须是 {'/'.join(_RANKING_PERIODS)} 之一",
+            status=400,
+            details={"field": "period"},
+        )
+
+    service = current_app.extensions["ranking_service"]
+    try:
+        result = service.get_ranking(period)
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 200
 
 
 @api.post("/backtests")
 def create_backtest() -> tuple[dict[str, object], int]:
-    _, validation_error = require_json_object()
-    return validation_error or pending_response("backtest-submit")
+    payload, validation_error = require_json_object()
+    if validation_error is not None:
+        return validation_error
+
+    extra_fields = set(payload) - {
+        "symbols", "strategyId", "parameters", "startDate", "endDate",
+        "benchmark", "initialCapitalCny", "adjust", "tradingCosts",
+    }
+    if extra_fields:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="请求体包含未知字段",
+            status=400,
+            details={"field": sorted(extra_fields)[0]},
+        )
+
+    symbols = payload.get("symbols")
+    if (
+        not isinstance(symbols, list)
+        or not 1 <= len(symbols) <= 10
+        or not all(
+            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol)
+            for symbol in symbols
+        )
+        or len(set(symbols)) != len(symbols)
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="symbols 必须是 1 到 10 个不同的六位数字资产代码",
+            status=400,
+            details={"field": "symbols"},
+        )
+
+    strategy_id = payload.get("strategyId")
+    if not isinstance(strategy_id, str) or not strategy_id:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="strategyId 为必填字符串",
+            status=400,
+            details={"field": "strategyId"},
+        )
+
+    parameters = payload.get("parameters", {})
+    if not isinstance(parameters, dict):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="parameters 必须是对象",
+            status=400,
+            details={"field": "parameters"},
+        )
+
+    try:
+        start_date = date.fromisoformat(payload["startDate"])
+        end_date = date.fromisoformat(payload["endDate"])
+    except KeyError:
+        missing = "startDate" if "startDate" not in payload else "endDate"
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="startDate 和 endDate 为必填字段",
+            status=400,
+            details={"field": missing},
+        )
+    except ValueError:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="日期格式必须是 YYYY-MM-DD",
+            status=400,
+            details={"field": "startDate"},
+        )
+    if start_date > end_date:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="startDate 不能晚于 endDate",
+            status=400,
+            details={"field": "startDate"},
+        )
+
+    benchmark = payload.get("benchmark")
+    if benchmark is not None and not (
+        isinstance(benchmark, str) and re.fullmatch(r"[0-9]{6}", benchmark)
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="benchmark 必须是六位数字",
+            status=400,
+            details={"field": "benchmark"},
+        )
+
+    initial_capital = payload.get("initialCapitalCny", 100000)
+    if (
+        not isinstance(initial_capital, (int, float))
+        or isinstance(initial_capital, bool)
+        or initial_capital <= 0
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="initialCapitalCny 必须是大于 0 的数字",
+            status=400,
+            details={"field": "initialCapitalCny"},
+        )
+
+    adjust = payload.get("adjust", "qfq")
+    if adjust not in {"qfq", "hfq", "none"}:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="adjust 必须是 qfq、hfq 或 none",
+            status=400,
+            details={"field": "adjust"},
+        )
+
+    trading_costs = payload.get("tradingCosts")
+    if trading_costs is not None:
+        if not isinstance(trading_costs, dict):
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="tradingCosts 必须是对象",
+                status=400,
+                details={"field": "tradingCosts"},
+            )
+        extra_cost_fields = set(trading_costs) - {
+            "commissionPct", "stampDutyPct", "slippagePct"
+        }
+        if extra_cost_fields:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="tradingCosts 包含未知字段",
+                status=400,
+                details={"field": sorted(extra_cost_fields)[0]},
+            )
+        for field in ("commissionPct", "stampDutyPct", "slippagePct"):
+            value = trading_costs.get(field)
+            if value is not None and (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or value < 0
+            ):
+                return error_response(
+                    code="VALIDATION_ERROR",
+                    message=f"{field} 必须是不小于 0 的数字",
+                    status=400,
+                    details={"field": field},
+                )
+
+    service = current_app.extensions["backtest_service"]
+    try:
+        result = service.submit(payload)
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 202
 
 
 @api.get("/backtests/<string:job_id>")
 def get_backtest(job_id: str) -> tuple[dict[str, object], int]:
-    return pending_response(f"backtest-result:{job_id}")
+    if not re.fullmatch(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        job_id,
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="jobId 必须是 UUID 格式",
+            status=400,
+            details={"field": "jobId"},
+        )
+
+    service = current_app.extensions["backtest_service"]
+    try:
+        result = service.get_job(job_id)
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 200
 
 
 @api.post("/allocation/suggestion")
 def allocation_suggestion() -> tuple[dict[str, object], int]:
-    _, validation_error = require_json_object()
-    return validation_error or pending_response("allocation-suggestion")
+    payload, validation_error = require_json_object()
+    if validation_error is not None:
+        return validation_error
+
+    extra_fields = set(payload) - {"symbols", "strategyId", "cashPct"}
+    if extra_fields:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="请求体包含未知字段",
+            status=400,
+            details={"field": sorted(extra_fields)[0]},
+        )
+
+    symbols = payload.get("symbols")
+    if (
+        not isinstance(symbols, list)
+        or not 1 <= len(symbols) <= 10
+        or not all(
+            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol)
+            for symbol in symbols
+        )
+        or len(set(symbols)) != len(symbols)
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="symbols 必须是 1 到 10 个不同的六位数字资产代码",
+            status=400,
+            details={"field": "symbols"},
+        )
+
+    strategy_id = payload.get("strategyId")
+    if not isinstance(strategy_id, str) or not strategy_id:
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="strategyId 为必填字符串",
+            status=400,
+            details={"field": "strategyId"},
+        )
+
+    cash_pct = payload.get("cashPct", 0)
+    if (
+        not isinstance(cash_pct, (int, float))
+        or isinstance(cash_pct, bool)
+        or not 0 <= cash_pct <= 100
+    ):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="cashPct 必须是 0 到 100 的数字",
+            status=400,
+            details={"field": "cashPct"},
+        )
+
+    service = current_app.extensions["allocation_service"]
+    try:
+        result = service.suggest(
+            symbols=symbols,
+            strategy_id=strategy_id,
+            cash_pct=cash_pct,
+        )
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code,
+            message=exc.message,
+            status=exc.status,
+            details=exc.details,
+        )
+    return dict(result), 200

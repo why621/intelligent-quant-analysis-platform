@@ -52,6 +52,7 @@
 - `DATA_NOT_READY`：数据尚未更新完成；
 - `JOB_NOT_FOUND`：回测任务不存在；
 - `UPSTREAM_UNAVAILABLE`：AkShare 或外部数据源暂时不可用；
+- `INSUFFICIENT_DATA`：请求合法但数据不足以计算（422）；
 - `INTERNAL_ERROR`：未预期的服务端错误。
 
 ## 3. 接口总表
