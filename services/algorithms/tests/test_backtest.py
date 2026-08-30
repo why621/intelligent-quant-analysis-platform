@@ -108,10 +108,11 @@ class TestBacktest:
         assert len(result.trades) == 2
         assert result.trades[0].side == "buy"
         assert result.trades[0].price == pytest.approx(20.0 * 1.0002)
-        assert result.trades[0].trade_date == date(2025, 1, 1)
+        assert result.trades[0].trade_date == date(2025, 1, 2)
         assert result.trades[1].side == "sell"
         assert result.trades[1].price == pytest.approx(30.0 * 0.9998)
 
+        assert result.trades[1].trade_date == date(2025, 1, 3)
     def test_signal_length_must_match_prices(self):
         engine = BacktestEngine(FakeProvider(), {"invalid_length": InvalidLengthStrategy()})
 

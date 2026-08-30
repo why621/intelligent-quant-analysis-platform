@@ -774,13 +774,14 @@ def make_ranking_engine_run(returns, nan_strategies=(), calls=None):
 
     def engine_run(request):
 
-        from pandas import DataFrame
+        from pandas import DataFrame, date_range
         from quant_platform.models import BacktestMetrics, BacktestResult
 
         if calls is not None:
             calls.append(request.strategy_id)
         ret = returns.get(request.strategy_id, 0.0)
         sharpe = float("nan") if request.strategy_id in nan_strategies else 1.0
+        dates = date_range(request.start_date, request.end_date, freq="B")
         return BacktestResult(
             metrics=BacktestMetrics(
                 total_return_pct=ret,
@@ -792,9 +793,9 @@ def make_ranking_engine_run(returns, nan_strategies=(), calls=None):
             ),
             equity_curve=DataFrame(
                 {
-                    "date": ["2026-08-20"],
-                    "equity": [100000.0],
-                    "benchmarkEquity": [1.0],
+                    "date": dates,
+                    "equity": [100000.0] * (len(dates) - 1) + [100000 * (1 + ret / 100)],
+                    "benchmarkEquity": [1.0] * len(dates),
                 }
             ),
             trades=(),

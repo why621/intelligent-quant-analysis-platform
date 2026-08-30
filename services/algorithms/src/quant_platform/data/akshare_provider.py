@@ -151,7 +151,7 @@ class AkShareMarketDataProvider:
         adjust: AdjustMode = "qfq",
     ) -> pd.DataFrame:
         """先读缓存，缓存覆盖请求范围则直接返回；否则调腾讯接口并更新缓存。"""
-        cached = self._storage.load(symbol)
+        cached = self._storage.load(symbol, adjust)
         if not cached.empty:
             lo = pd.Timestamp(start_date)
             hi = pd.Timestamp(end_date)
@@ -183,7 +183,7 @@ class AkShareMarketDataProvider:
             )
         else:
             merged = raw
-        self._storage.save(symbol, merged)
+        self._storage.save(symbol, merged, adjust)
 
         lo = pd.Timestamp(start_date)
         hi = pd.Timestamp(end_date)

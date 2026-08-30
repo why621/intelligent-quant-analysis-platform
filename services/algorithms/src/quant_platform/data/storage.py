@@ -86,6 +86,7 @@ class DatabaseConnection:
     def _init_db(cls, conn: sqlite3.Connection) -> None:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         if version >= 1:
+            cls._migrate_v2(conn)
             return
 
         conn.execute("BEGIN IMMEDIATE")
@@ -93,6 +94,7 @@ class DatabaseConnection:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             if version >= 1:
                 conn.commit()
+                cls._migrate_v2(conn)
                 return
 
             conn.execute(
@@ -172,6 +174,66 @@ class DatabaseConnection:
         except Exception:
             conn.rollback()
             raise
+        cls._migrate_v2(conn)
+
+    @classmethod
+    def _migrate_v2(cls, conn: sqlite3.Connection) -> None:
+        """Separate adjusted price caches and add migration metadata."""
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version >= 2:
+            return
+
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if version >= 2:
+                conn.commit()
+                return
+
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(ohlcv)")
+            }
+            if "adjust" not in columns:
+                conn.execute("ALTER TABLE ohlcv RENAME TO ohlcv_v1")
+                conn.execute(
+                    """
+                    CREATE TABLE ohlcv (
+                        symbol TEXT NOT NULL,
+                        adjust TEXT NOT NULL,
+                        trade_date TEXT NOT NULL,
+                        open REAL NOT NULL,
+                        high REAL NOT NULL,
+                        low REAL NOT NULL,
+                        close REAL NOT NULL,
+                        volume REAL NOT NULL,
+                        amount REAL,
+                        PRIMARY KEY (symbol, adjust, trade_date)
+                    ) WITHOUT ROWID;
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO ohlcv
+                        (symbol, adjust, trade_date, open, high, low, close, volume, amount)
+                    SELECT symbol, 'qfq', trade_date, open, high, low, close, volume, amount
+                    FROM ohlcv_v1
+                    """
+                )
+                conn.execute("DROP TABLE ohlcv_v1")
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cache_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                ) WITHOUT ROWID;
+                """
+            )
+            conn.execute("PRAGMA user_version = 2")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 class OHLCVStore:
@@ -179,72 +241,126 @@ class OHLCVStore:
 
     def __init__(self, data_dir: Path) -> None:
         self._data_dir = Path(data_dir)
+        self._migrate_legacy_csvs()
 
     @property
     def data_dir(self) -> Path:
         return self._data_dir
 
-    def has(self, symbol: str) -> bool:
+    def has(self, symbol: str, adjust: str = "qfq") -> bool:
         if not symbol.isdigit() or len(symbol) != 6:
             return False
+        self._validate_adjust(adjust)
         with DatabaseConnection.connection(self._data_dir) as conn:
             cur = conn.execute(
-                "SELECT 1 FROM ohlcv WHERE symbol = ? LIMIT 1", (symbol,)
+                "SELECT 1 FROM ohlcv WHERE symbol = ? AND adjust = ? LIMIT 1",
+                (symbol, adjust),
             )
             return cur.fetchone() is not None
 
-    def load(self, symbol: str) -> pd.DataFrame:
+    def load(self, symbol: str, adjust: str = "qfq") -> pd.DataFrame:
         """Return a complete cached history, or an empty frame when absent."""
         if not symbol.isdigit() or len(symbol) != 6:
             raise ValueError("symbol must be a six-digit string")
 
+        self._validate_adjust(adjust)
         with DatabaseConnection.connection(self._data_dir) as conn:
             df = pd.read_sql_query(
                 """
                 SELECT trade_date AS date, open, high, low, close, volume, amount
                 FROM ohlcv
-                WHERE symbol = ?
+                WHERE symbol = ? AND adjust = ?
                 ORDER BY trade_date ASC
                 """,
                 conn,
-                params=(symbol,),
+                params=(symbol, adjust),
             )
         if df.empty:
             return pd.DataFrame(columns=OHLCV_COLUMNS)
         return _normalise_ohlcv(df)
 
-    def save(self, symbol: str, df: pd.DataFrame) -> None:
+    def save(self, symbol: str, df: pd.DataFrame, adjust: str = "qfq") -> None:
         """Validate, deduplicate, and atomically save asset data to SQLite."""
         if not symbol.isdigit() or len(symbol) != 6:
             raise ValueError("symbol must be a six-digit string")
 
+        self._validate_adjust(adjust)
         normalised = _normalise_ohlcv(df)
         if normalised.empty:
             return
 
+        with DatabaseConnection.connection(self._data_dir) as conn:
+            self._upsert(conn, symbol, adjust, normalised)
+            conn.commit()
+
+    @staticmethod
+    def _validate_adjust(adjust: str) -> None:
+        if adjust not in {"qfq", "hfq", "none"}:
+            raise ValueError("adjust must be one of: qfq, hfq, none")
+
+    @staticmethod
+    def _upsert(
+        conn: sqlite3.Connection,
+        symbol: str,
+        adjust: str,
+        normalised: pd.DataFrame,
+    ) -> None:
         df_save = normalised.copy()
         df_save["symbol"] = symbol
+        df_save["adjust"] = adjust
         df_save["trade_date"] = df_save["date"].dt.strftime("%Y-%m-%d")
         records = df_save[
-            ["symbol", "trade_date", "open", "high", "low", "close", "volume", "amount"]
+            ["symbol", "adjust", "trade_date", "open", "high", "low", "close",
+             "volume", "amount"]
         ].to_dict(orient="records")
+        conn.executemany(
+            """
+            INSERT INTO ohlcv
+                (symbol, adjust, trade_date, open, high, low, close, volume, amount)
+            VALUES (:symbol, :adjust, :trade_date, :open, :high, :low, :close,
+                    :volume, :amount)
+            ON CONFLICT(symbol, adjust, trade_date) DO UPDATE SET
+                open=excluded.open,
+                high=excluded.high,
+                low=excluded.low,
+                close=excluded.close,
+                volume=excluded.volume,
+                amount=excluded.amount;
+            """,
+            records,
+        )
 
+    def _migrate_legacy_csvs(self) -> None:
+        legacy_paths = sorted(
+            path for path in self._data_dir.glob("*.csv")
+            if path.stem.isdigit() and len(path.stem) == 6
+        )
         with DatabaseConnection.connection(self._data_dir) as conn:
-            conn.executemany(
-                """
-                INSERT INTO ohlcv
-                    (symbol, trade_date, open, high, low, close, volume, amount)
-                VALUES (:symbol, :trade_date, :open, :high, :low, :close, :volume, :amount)
-                ON CONFLICT(symbol, trade_date) DO UPDATE SET
-                    open=excluded.open,
-                    high=excluded.high,
-                    low=excluded.low,
-                    close=excluded.close,
-                    volume=excluded.volume,
-                    amount=excluded.amount;
-                """,
-                records,
-            )
+            conn.execute("BEGIN IMMEDIATE")
+            migrated = conn.execute(
+                "SELECT value FROM cache_metadata WHERE key = 'legacy_csv_migrated'"
+            ).fetchone()
+            if migrated is not None:
+                conn.commit()
+                return
+
+            migration_failed = False
+            for path in legacy_paths:
+                try:
+                    normalised = _normalise_ohlcv(pd.read_csv(path))
+                except (OSError, UnicodeError, ValueError):
+                    migration_failed = True
+                    continue
+                if not normalised.empty:
+                    self._upsert(conn, path.stem, "qfq", normalised)
+
+            if not migration_failed:
+                conn.execute(
+                    """
+                    INSERT INTO cache_metadata (key, value)
+                    VALUES ('legacy_csv_migrated', '1')
+                    """
+                )
             conn.commit()
 
 
@@ -287,6 +403,14 @@ class MarketOverviewStore:
                 temporary.unlink()
 
 
+def _has_completed_weekday_since(updated_date: date, today: date) -> bool:
+    """Return whether an expected weekday refresh has been missed."""
+    return any(
+        date.fromordinal(day).weekday() < 5
+        for day in range(updated_date.toordinal() + 1, today.toordinal())
+    )
+
+
 class DataStatusStore:
     """Persist and derive daily refresh status across processes."""
 
@@ -308,7 +432,7 @@ class DataStatusStore:
         )
         stored_status = row["status"]
 
-        if updated_at and updated_at.date() < date.today():
+        if updated_at and _has_completed_weekday_since(updated_at.date(), date.today()):
             if stored_status in ("ready", "updating"):
                 stored_status = "stale" if latest_date else "failed"
 

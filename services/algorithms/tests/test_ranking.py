@@ -1,6 +1,7 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from quant_platform.models import (
     BacktestMetrics,
@@ -9,7 +10,7 @@ from quant_platform.models import (
     StrategyCategory,
     StrategyInfo,
 )
-from quant_platform.ranking import StrategyRankingService
+from quant_platform.ranking import StrategyRankingService, _period_metrics
 
 
 class FakeStrategy:
@@ -57,7 +58,7 @@ class FakeEngine:
             ),
             equity_curve=pd.DataFrame({
                 "date": dates,
-                "equity": [1.0] * len(dates),
+                "equity": [1.0] * (len(dates) - 1) + [1.0 + ret / 100],
                 "benchmarkEquity": [1.0] * len(dates),
             }),
             trades=(),
@@ -115,18 +116,19 @@ class TestRanking:
         items = svc.rank(as_of_date=date(2025, 12, 31), period="30d")
         assert items == []
 
-    def test_one_day_period_uses_one_calendar_day(self):
+    def test_one_day_period_uses_warmup_and_two_trading_sessions(self):
         strategies = {
             "ma_cross": FakeStrategy("ma_cross", "均线交叉", "available", "traditional"),
         }
         engine = FakeEngine(strategies)
-        StrategyRankingService(engine).rank(
+        items = StrategyRankingService(engine).rank(
             as_of_date=date(2025, 12, 31), period="1d"
         )
 
         assert len(engine.requests) == 1
-        assert engine.requests[0].start_date == date(2025, 12, 30)
+        assert engine.requests[0].start_date == date(2025, 10, 1)
         assert engine.requests[0].end_date == date(2025, 12, 31)
+        assert items[0].return_pct == pytest.approx(5.0)
 
     def test_correct_rank_numbers(self):
         strategies = {
@@ -141,3 +143,17 @@ class TestRanking:
 
         ranks = [it.rank for it in items]
         assert ranks == [1, 2, 3]
+
+def test_period_metrics_exclude_warmup_history():
+    curve = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2025-10-01", "2025-11-30", "2025-12-01", "2025-12-31"]
+            ),
+            "equity": [1.0, 2.0, 2.0, 2.2],
+        }
+    )
+
+    metrics = _period_metrics(curve, date(2025, 12, 31), "30d")
+
+    assert metrics.total_return_pct == pytest.approx(10.0)
