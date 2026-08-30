@@ -1,49 +1,45 @@
-# GitHub 团队协作流程
+# 团队协作规范
 
-## 模块负责人
+## 模块归属
 
-组员接受仓库邀请后，把真实 GitHub 用户名补充到 `.github/CODEOWNERS`：
+| 模块 | 主要职责 | 审查要求 |
+| --- | --- | --- |
+| `apps/frontend` | Vue 页面、图表、API 客户端 | 前端自查，并由接口相关成员复核 |
+| `services/backend` | Flask API、校验、任务与持久化 | 后端自查，并由算法/前端相关成员复核 |
+| `services/algorithms` | 数据、策略、回测、排行、配置 | 算法成员自查，并由后端成员复核 |
+| `packages/contracts` | OpenAPI、共享 Schema | 至少一名前端和一名后端相关成员确认 |
+| `docs` | 架构、实施、答辩口径 | 负责人确认与代码现状一致 |
 
-| 模块 | 目录 | 建议分支前缀 | GitHub 负责人 |
-| --- | --- | --- | --- |
-| 前端 | `apps/frontend/` | `frontend/` | 待填写 |
-| 后端 | `services/backend/` | `backend/` | 待填写 |
-| 算法 | `services/algorithms/` | `algorithm/` | @GhostUling |
-| 接口契约 | `packages/contracts/`、`docs/api-contract.md` | `docs/` | 待填写 |
+实际默认审查人以 `.github/CODEOWNERS` 为准。
 
-## 每个任务的标准流程
+## 标准流程
 
-1. 负责人创建 Issue，写清验收条件并分配给组员。
-2. 开发者同步 `main`，再从 `main` 创建短期功能分支。
-3. 一个分支只解决一个 Issue，提交信息使用约定前缀。
-4. 推送功能分支并创建 Pull Request，在描述中填写 `Closes #Issue编号`。
-5. 模块负责人 Review，所有 CI 通过且对话解决后合并。
-6. 合并后删除功能分支，其他组员再次同步 `main`。
+1. 从最新 `main` 创建短期分支，命名建议为 `frontend/*`、`backend/*`、`algo/*`、`docs/*` 或 `fix/*`。
+2. 每个分支只处理一个清晰目标，避免把无关格式化和功能修改混在一起。
+3. 接口变化先改 `packages/contracts/openapi.yaml`，再同步前端、后端、算法、测试和文档。
+4. 提交前运行本模块检查；跨模块修改应运行所有受影响模块检查。
+5. 推送后创建 PR，写清目标、实现、验证结果、风险和回滚方式。
+6. 至少一名相关成员审查，所有 CI 通过后由负责人合并。
+7. 合并后其他成员先同步 `main`，再继续自己的分支。
 
-常用命令：
+禁止直接向受保护的 `main` 推送，禁止提交密钥、账户信息、运行数据库和真实行情缓存。
 
-```bash
-git switch main
-git pull --ff-only origin main
-git switch -c backend/health-api
+## 审查清单
 
-# 完成修改和测试后
-git add .
-git commit -m "feat: implement health API"
-git push -u origin backend/health-api
-```
+- 功能是否与需求和 OpenAPI 一致。
+- 是否覆盖正常、空数据、非法参数和外部数据源失败。
+- 是否存在未来函数、比较口径不一致或静默伪造数据。
+- 前端是否明确区分真实结果、固定兜底和不可用状态。
+- 数据库、缓存和任务状态是否可恢复、可追踪。
+- 文档是否把“已实现”“规划中”“部署后才能使用”区分清楚。
+- CI 是否通过，是否有与本次任务无关的改动。
 
-## 首批 Issue 建议
+## 当前优先事项
 
-- 前端：把市场概览 mock 数据切换到 `/api/market/overview`，保留加载与失败状态。
-- 后端：接入第一个已授权行情数据适配器，替换当前演示数据。
-- 算法：为均线交叉回测增加滑点、交易记录和基准收益。
-- 契约：把 `docs/api-contract.md` 固化为 OpenAPI/JSON Schema，并加入兼容性检查。
+传统策略业务闭环已经完成，近期工作重点是：
 
-## 合并前检查
-
-- 没有提交 `.env`、Token、真实账户信息或未脱敏交易数据。
-- 相关模块测试和 lint 全部通过。
-- API 字段变化同步更新契约与调用方。
-- 算法结果注明样本区间、费用假设和已知限制。
-- PR 至少由一名非作者组员批准。
+1. 部署 Flask API 和持久化目录，配置前端公网 API 地址与 CORS。
+2. 配置交易日收盘后的数据更新任务，并验证缓存过期/失败提示。
+3. 补充日志、监控、告警、备份和恢复说明。
+4. 完成一次前后端联调演示和答辩流程演练。
+5. 强化学习策略在上述基础稳定后再逐项实现，不应提前标记完成。
