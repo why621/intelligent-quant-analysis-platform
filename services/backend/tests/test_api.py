@@ -1309,3 +1309,59 @@ def test_allocation_concurrency_isolation() -> None:
         assert status == 200
         assert body["cashPct"] == index * 10
         assert [p["symbol"] for p in body["positions"]] == [f"51030{index}"]
+
+
+def test_json_date_fields_reject_non_strings() -> None:
+    client = make_client()
+
+    correlation_payload = dict(CORRELATION_BODY, startDate=123)
+    correlation_response = client.post(
+        "/api/analytics/correlation", json=correlation_payload
+    )
+    assert correlation_response.status_code == 400
+    assert correlation_response.json["error"]["code"] == "VALIDATION_ERROR"
+
+    backtest_payload = dict(BACKTEST_BODY, endDate=None)
+    backtest_response = client.post("/api/backtests", json=backtest_payload)
+    assert backtest_response.status_code == 400
+    assert backtest_response.json["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_allocation_upstream_error_maps_to_503() -> None:
+    from quant_platform.data.akshare_provider import UpstreamUnavailableError
+
+    def failing(**kwargs):
+        raise UpstreamUnavailableError("Tencent history failed")
+
+    client = make_client_with_allocation_suggest(failing)
+    response = client.post(
+        "/api/allocation/suggestion",
+        json={"symbols": ["510300"], "strategyId": "ma_cross"},
+    )
+
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_backtest_default_database_path_is_runtime_dir() -> None:
+    from pathlib import Path
+
+    from app import BACKTEST_DB_DEFAULT
+
+    backend_root = Path(__file__).resolve().parents[1]
+    assert Path(BACKTEST_DB_DEFAULT).parent == backend_root / "var"
+
+
+def test_second_store_does_not_requeue_running_job(tmp_path) -> None:
+    from app.services.backtests import BacktestJobStore
+
+    db_path = str(tmp_path / "backtests.db")
+    first = BacktestJobStore(db_path)
+    job_id = first.create({"request": "snapshot"})
+    claimed = first.claim()
+    assert claimed is not None
+    assert claimed["job_id"] == job_id
+    assert first.get(job_id)["status"] == "running"
+
+    second = BacktestJobStore(db_path)
+    assert second.get(job_id)["status"] == "running"

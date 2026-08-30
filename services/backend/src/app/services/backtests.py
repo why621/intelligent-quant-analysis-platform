@@ -76,8 +76,6 @@ class BacktestJobStore:
         with closing(_connect(self._db_path)) as conn:
             conn.execute(_SCHEMA)
             conn.commit()
-        # 崩溃恢复：上次进程遗留的 running 任务重置回 queued，可被重新抢占重跑
-        self.recover_running()
 
     def create(self, request: Mapping[str, object]) -> str:
         job_id = str(uuid.uuid4())
@@ -268,11 +266,21 @@ class BacktestWorker:
 
     def _loop(self) -> None:
         while True:
-            job = self._store.claim()
+            try:
+                job = self._store.claim()
+            except Exception:
+                logger.exception("backtest worker failed to claim a job")
+                time.sleep(self.POLL_INTERVAL_SECONDS)
+                continue
             if job is None:
                 time.sleep(self.POLL_INTERVAL_SECONDS)
                 continue
-            self._service.execute_job(job["job_id"])
+            try:
+                self._service.execute_job(job["job_id"])
+            except Exception:
+                # execute_job handles algorithm failures itself. This guard keeps
+                # the worker alive if persistence or another infrastructure step fails.
+                logger.exception("backtest worker crashed while executing job %s", job["job_id"])
 
 
 def _build_request(payload: Mapping[str, object]) -> BacktestRequest:

@@ -221,7 +221,7 @@ def correlation() -> tuple[dict[str, object], int]:
             status=400,
             details={"field": missing},
         )
-    except ValueError:
+    except (TypeError, ValueError):
         return error_response(
             code="VALIDATION_ERROR",
             message="日期格式必须是 YYYY-MM-DD",
@@ -367,7 +367,7 @@ def create_backtest() -> tuple[dict[str, object], int]:
             status=400,
             details={"field": missing},
         )
-    except ValueError:
+    except (TypeError, ValueError):
         return error_response(
             code="VALIDATION_ERROR",
             message="日期格式必须是 YYYY-MM-DD",

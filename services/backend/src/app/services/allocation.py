@@ -3,9 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from quant_platform.allocation import AllocationService as AlgorithmAllocationService
+from quant_platform.data.akshare_provider import (
+    UpstreamUnavailableError as ProviderUpstreamError,
+)
 from quant_platform.models import AllocationSuggestion
 
-from app.services.errors import StrategyNotAvailableError
+from app.services.errors import StrategyNotAvailableError, UpstreamUnavailableError
 from app.services.strategies import StrategyCatalogService
 
 
@@ -47,6 +50,10 @@ class AllocationService:
                 strategy_id=strategy_id,
                 cash_pct=cash_pct,
             )
+        except ProviderUpstreamError as exc:
+            raise UpstreamUnavailableError(
+                details={"capability": "allocation-suggestion"}
+            ) from exc
         except ValueError as exc:
             # 算法组对未知策略抛 ValueError；目录外策略已被前置校验拦截，
             # 此处兜底统一转为契约错误码

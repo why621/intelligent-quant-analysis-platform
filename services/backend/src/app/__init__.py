@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
 from uuid import uuid4
 
 from flask import Flask, Response, g, request
@@ -19,9 +20,7 @@ from app.services.data import MarketDataService
 from app.services.ranking import RankingService
 from app.services.strategies import StrategyCatalogService
 
-BACKTEST_DB_DEFAULT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "backtests.db"
-)
+BACKTEST_DB_DEFAULT = str(Path(__file__).resolve().parents[2] / "var" / "backtests.db")
 
 __version__ = "0.1.0"
 
