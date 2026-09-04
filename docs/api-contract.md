@@ -141,7 +141,7 @@ Content-Type: application/json
 前端随后每 1–2 秒调用
 `GET /api/backtests/8f316d85-e86b-45c5-8ff6-c8ee2457e71b`。状态只能按
 `queued → running → succeeded|failed` 转换；失败时填写 `error`，成功时填写
-`result`。第一版可使用进程内任务队列，但重启会丢任务，部署版应持久化任务。
+`result`。当前实现使用 SQLite 持久化任务，并由后台 worker 原子领取 `queued` 任务；服务重启后仍可继续处理排队任务。
 
 回测统一假设：
 
