@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
-    "vite": "^8.0.1"
+    "vite": "^8.2.2"
   },
   "description": "Frontend dashboard for the intelligent quantitative analysis platform.",
   "engines": {
