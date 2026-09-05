@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date, timedelta
 from pathlib import Path
 from time import sleep
@@ -76,10 +77,15 @@ INDEX_SYMBOLS = [
     ("000905", "中证500"),
 ]
 
-# 数据落在仓库根目录 data/processed/（已在 .gitignore 中）
-_DEFAULT_DATA_DIR = Path(__file__).resolve().parents[5] / "data" / "processed"
-
 _LOOKBACK_DAYS = 400
+
+
+def _default_data_dir() -> Path:
+    """Resolve writable storage without assuming the package lives in a source tree."""
+    configured = os.getenv("QUANT_DATA_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.cwd() / "data" / "processed").resolve()
 
 
 def _today() -> date:
@@ -119,7 +125,7 @@ class AkShareMarketDataProvider:
             )
             for a in _DEFAULT_UNIVERSE
         }
-        resolved_data_dir = data_dir or _DEFAULT_DATA_DIR
+        resolved_data_dir = Path(data_dir).resolve() if data_dir else _default_data_dir()
         self._storage = OHLCVStore(resolved_data_dir)
         self._overview_storage = MarketOverviewStore(resolved_data_dir)
         self._status_storage = DataStatusStore(resolved_data_dir)

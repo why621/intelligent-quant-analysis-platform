@@ -1,0 +1,51 @@
+name: intelligent-quant-regression
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:8080}
+      BACKTEST_DB_PATH: /app/var/backtests.db
+      CORS_ALLOW_HEADERS: ${CORS_ALLOW_HEADERS:-Accept,Content-Type}
+      CORS_ALLOW_METHODS: ${CORS_ALLOW_METHODS:-GET,POST,OPTIONS}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      QUANT_DATA_DIR: /app/data/processed
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+    volumes:
+      - market-data:/app/data/processed
+      - backtest-data:/app/var
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+
+  data-update:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    command: ["quant-data-update"]
+    environment:
+      QUANT_DATA_DIR: /app/data/processed
+    profiles: ["maintenance"]
+    restart: "no"
+    volumes:
+      - market-data:/app/data/processed
+
+volumes:
+  market-data:
+  backtest-data:

@@ -31,6 +31,10 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
     application.config.from_mapping(
         APP_VERSION=__version__,
         ALLOWED_ORIGINS=os.getenv("ALLOWED_ORIGINS", "http://localhost:5173"),
+        CORS_ALLOW_HEADERS=os.getenv(
+            "CORS_ALLOW_HEADERS", "Accept, Content-Type"
+        ),
+        CORS_ALLOW_METHODS=os.getenv("CORS_ALLOW_METHODS", "GET, POST, OPTIONS"),
     )
     if test_config:
         application.config.update(test_config)
@@ -51,6 +55,13 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
         if request_origin in allowed_origins:
             response.headers["Access-Control-Allow-Origin"] = request_origin
             response.headers["Vary"] = "Origin"
+            response.headers["Access-Control-Allow-Headers"] = str(
+                application.config["CORS_ALLOW_HEADERS"]
+            )
+            response.headers["Access-Control-Allow-Methods"] = str(
+                application.config["CORS_ALLOW_METHODS"]
+            )
+            response.headers["Access-Control-Max-Age"] = "600"
         return response
 
     application.register_blueprint(api, url_prefix="/api")
