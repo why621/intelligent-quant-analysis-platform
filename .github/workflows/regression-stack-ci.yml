@@ -20,6 +20,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test backend and algorithms offline
+        run: |
+          python -m pip install -e 'services/algorithms[dev]' -e 'services/backend[dev]'
+          python -m pytest services/algorithms/tests services/backend/tests -m 'not network' -q
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Test frontend degradation states
+        run: |
+          npm ci
+          npm test --workspace @intelligent-quant/frontend
       - name: Build stack
         run: docker compose -f compose.regression.yml build
       - name: Start stack

@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -419,7 +420,12 @@ class DataStatusStore:
 
     def load(self, fallback_asset_count: int) -> DataStatus:
         with DatabaseConnection.connection(self._data_dir) as conn:
+            conn.execute("BEGIN")
             row = conn.execute("SELECT * FROM data_status_sync WHERE id = 1").fetchone()
+            component_row = conn.execute(
+                "SELECT value FROM cache_metadata WHERE key = 'data_components'"
+            ).fetchone()
+        components = json.loads(component_row[0]) if component_row else {}
 
         if row is None:
             raise RuntimeError("data status row is missing")
@@ -435,6 +441,10 @@ class DataStatusStore:
         if updated_at and _has_completed_weekday_since(updated_at.date(), date.today()):
             if stored_status in ("ready", "updating"):
                 stored_status = "stale" if latest_date else "failed"
+            for component in components.values():
+                if component.get("status") in ("ready", "updating"):
+                    component["status"] = "stale"
+                    component["message"] = "未完成预期的日更，请检查更新任务"
 
         return DataStatus(
             status=stored_status,  # type: ignore[arg-type]
@@ -443,11 +453,15 @@ class DataStatusStore:
             latest_trade_date=latest_date,
             updated_at=updated_at,
             message=row["message"],
+            components=components,
         )
 
-    def save(self, status: str, latest_trade_date: date | None, message: str | None) -> None:
+    def save(
+        self, status: str, latest_trade_date: date | None, message: str | None,
+        *, components: dict[str, object] | None = None,
+    ) -> None:
         latest_date = latest_trade_date.isoformat() if latest_trade_date else None
-        now = datetime.now().isoformat()
+        now = datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()
         with DatabaseConnection.connection(self._data_dir) as conn:
             conn.execute(
                 """
@@ -456,5 +470,12 @@ class DataStatusStore:
                 WHERE id = 1
                 """,
                 (status, now, latest_date, message),
+            )
+            conn.execute(
+                """
+                INSERT INTO cache_metadata (key, value) VALUES ('data_components', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (json.dumps(components or {}, ensure_ascii=False, allow_nan=False),),
             )
             conn.commit()

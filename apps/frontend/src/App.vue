@@ -36,13 +36,14 @@
             <div><dt>最新交易日</dt><dd>{{ dataStatus.latestTradeDate || '等待数据' }}</dd></div>
             <div><dt>资产池</dt><dd>{{ dataStatus.assetCount || assetCatalog.length }} 个</dd></div>
             <div><dt>数据源</dt><dd>{{ dataStatus.source || 'AkShare' }}</dd></div>
+            <div><dt>历史行情更新</dt><dd>{{ historyStatusText }}</dd></div>
+            <div><dt>市场概览更新</dt><dd>{{ overviewStatusText }}</dd></div>
           </dl>
         </div>
       </section>
 
       <div v-if="!connection.live && !connection.loading" class="notice">
-        <strong>接口联调状态：</strong>{{ connection.message }}。页面不会用随机数伪造回测、
-        排行或配置结果；组员完成接口后会自动显示真实数据。
+        <strong>接口联调状态：</strong>{{ connection.message }}。不可用的数据不以随机数或零替代。
       </div>
 
       <section id="market" class="panel">
@@ -50,6 +51,7 @@
           <div><p>MARKET OVERVIEW</p><h2>市场概况</h2></div>
           <span>{{ market.tradeDate ? `交易日 ${market.tradeDate}` : '等待收盘后日更' }}</span>
         </header>
+        <p v-if="marketNotice" class="notice" role="status">{{ marketNotice }}</p>
         <div class="market-grid">
           <article class="card">
             <h3>市场宽度</h3>
@@ -271,7 +273,8 @@ import { useBacktest } from './dashboard/use-backtest'
 import { useCorrelation } from './dashboard/use-correlation'
 import { useMarket } from './dashboard/use-market'
 
-const { connection, dataStatus, assetCatalog, market, strategies, ranking, initialise } = useMarket()
+const { connection, dataStatus, assetCatalog, market, strategies, ranking,
+  historyStatusText, overviewStatusText, marketNotice, initialise } = useMarket()
 const correlation = useCorrelation()
 const backtest = useBacktest(strategies)
 const allocation = useAllocation(strategies)

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
-from datetime import date, timedelta
+import subprocess
+import sys
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from time import sleep
+from zoneinfo import ZoneInfo
 
 import akshare as ak
 import pandas as pd
@@ -78,6 +83,9 @@ INDEX_SYMBOLS = [
 ]
 
 _LOOKBACK_DAYS = 400
+_OVERVIEW_TIMEOUT_SECONDS = 90
+_OVERVIEW_ATTEMPTS = 2
+logger = logging.getLogger(__name__)
 
 
 def _default_data_dir() -> Path:
@@ -89,7 +97,7 @@ def _default_data_dir() -> Path:
 
 
 def _today() -> date:
-    return date.today()
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
 
 
 def _tencent_symbol(symbol: str) -> str:
@@ -207,10 +215,15 @@ class AkShareMarketDataProvider:
             status="updating",
             latest_trade_date=previous_status.latest_trade_date,
             message="日更任务进行中",
+            components={
+                "history": {"status": "updating", "message": "行情日更进行中"},
+                "overview": {"status": "updating", "message": "等待市场概览刷新"},
+            },
         )
         available = 0
         refreshed = 0
         upstream_errors = 0
+        failed_symbols: list[str] = []
         latest_date: date | None = None
 
         for symbol in self._assets:
@@ -251,11 +264,27 @@ class AkShareMarketDataProvider:
                     latest_date = merged_date
             except Exception:
                 upstream_errors += 1
+                failed_symbols.append(symbol)
+                logger.exception("history refresh failed: symbol=%s", symbol)
 
+        history_state = (
+            "failed" if available == 0
+            else "stale" if available < len(self._assets) or upstream_errors
+            else "ready"
+        )
+        overview_state = "ready"
+        overview_message = "市场概览刷新成功"
         try:
             self.refresh_market_overview()
-        except (OSError, UpstreamUnavailableError, ValueError):
+        except (OSError, UpstreamUnavailableError, ValueError) as exc:
             upstream_errors += 1
+            logger.exception("market overview refresh failed; retaining previous snapshot")
+            overview_state = "stale" if self._overview_storage.load() else "failed"
+            overview_message = (
+                "刷新失败，保留上次成功快照" if overview_state == "stale"
+                else "市场概览暂不可用，尚无成功快照"
+            )
+            overview_message += f"（{type(exc).__name__}）"
 
         total = len(self._assets)
         if available == 0:
@@ -272,11 +301,22 @@ class AkShareMarketDataProvider:
                 f"refreshed={refreshed}, available={available}/{total}, "
                 f"upstreamErrors={upstream_errors}"
             ),
+            components={
+                "history": {
+                    "status": history_state,
+                    "message": f"刷新 {refreshed} 个，可用 {available}/{total} 个",
+                    "failedSymbols": failed_symbols,
+                },
+                "overview": {
+                    "status": overview_state,
+                    "message": overview_message,
+                },
+            },
         )
         return self._status_storage.load(total)
 
     def market_overview(self, trade_date: date | None = None) -> dict[str, object]:
-        """Return the local snapshot; call the live provider only on a cold cache."""
+        """Read only: upstream refreshes belong to the scheduled CLI, never HTTP workers."""
         cached = self._overview_storage.load()
         if trade_date is not None:
             requested = trade_date.isoformat()
@@ -284,13 +324,40 @@ class AkShareMarketDataProvider:
                 raise ValueError("the requested trade date is not available in the local cache")
         if cached is not None:
             return dict(cached)
-        return self.refresh_market_overview()
+        raise UpstreamUnavailableError("market overview unavailable; run quant-data-update")
 
     def refresh_market_overview(self) -> dict[str, object]:
         """Refresh and persist the market snapshot; intended for the daily CLI."""
-        overview = self._fetch_market_overview(_today())
+        overview = self._fetch_overview_bounded(_today())
         self._overview_storage.save(overview)
         return overview
+
+    def _fetch_overview_bounded(self, trade_date: date) -> dict[str, object]:
+        # AkShare's spot API exposes no timeout argument. Isolate the whole operation
+        # so timeout kills and reaps the worker, including any in-library retries.
+        for attempt in range(1, _OVERVIEW_ATTEMPTS + 1):
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "quant_platform.data.overview_worker",
+                     trade_date.isoformat()],
+                    capture_output=True, text=True, encoding="utf-8",
+                    timeout=_OVERVIEW_TIMEOUT_SECONDS, check=True,
+                )
+                overview = json.loads(result.stdout)
+                if not isinstance(overview, dict) or not isinstance(overview.get("tradeDate"), str):
+                    raise ValueError("invalid market overview worker output")
+                return overview
+            except (subprocess.SubprocessError, OSError, ValueError) as exc:
+                logger.warning(
+                    "market overview attempt %s/%s failed: %s; stderr=%s",
+                    attempt, _OVERVIEW_ATTEMPTS, exc, getattr(exc, "stderr", ""),
+                )
+                if attempt == _OVERVIEW_ATTEMPTS:
+                    raise UpstreamUnavailableError(
+                        "market overview failed after bounded retries"
+                    ) from exc
+                sleep(1)
+        raise AssertionError("unreachable")
 
     # ------------------------------------------------------------------
     # 内部
@@ -341,7 +408,8 @@ class AkShareMarketDataProvider:
             raise UpstreamUnavailableError("Tencent history returned invalid required values")
         return result.sort_values("date").drop_duplicates(subset="date", keep="last")
 
-    def _fetch_market_overview(self, trade_date: date) -> dict[str, object]:
+    @staticmethod
+    def _fetch_market_overview(trade_date: date) -> dict[str, object]:
         try:
             spot_df = ak.stock_zh_a_spot_em()
         except Exception as exc:
@@ -351,16 +419,20 @@ class AkShareMarketDataProvider:
             raise UpstreamUnavailableError("market overview upstream returned invalid data")
 
         change = pd.to_numeric(spot_df["涨跌幅"], errors="coerce").dropna()
+        if change.empty:
+            raise UpstreamUnavailableError("market overview has no valid price changes")
         advancing = int(change.gt(0).sum())
         declining = int(change.lt(0).sum())
         unchanged = int(change.eq(0).sum())
         limit_up = int(change.ge(9.9).sum())
         limit_down = int(change.le(-9.9).sum())
         turnover = (
-            float(pd.to_numeric(spot_df["成交额"], errors="coerce").fillna(0).sum())
+            float(pd.to_numeric(spot_df["成交额"], errors="coerce").sum(min_count=1))
             if "成交额" in spot_df.columns
-            else 0.0
+            else None
         )
+        if turnover is not None and pd.isna(turnover):
+            turnover = None
 
         northbound = None
         try:
@@ -409,8 +481,10 @@ class AkShareMarketDataProvider:
             except Exception:
                 continue
 
+        if latest_index_date is None:
+            raise UpstreamUnavailableError("market overview has no verified trade date")
         return {
-            "tradeDate": (latest_index_date or trade_date).isoformat(),
+            "tradeDate": latest_index_date.isoformat(),
             "advancing": advancing,
             "declining": declining,
             "unchanged": unchanged,

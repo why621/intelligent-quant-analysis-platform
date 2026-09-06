@@ -11,6 +11,24 @@ DataStatus:
     latestTradeDate: {type: [string, "null"], format: date}
     updatedAt: {type: [string, "null"], format: date-time}
     message: {type: [string, "null"]}
+    components:
+      type: object
+      description: 分项更新状态；旧缓存尚未记录时为空对象，ready 不保证每个标的日期一致
+      additionalProperties: false
+      properties:
+        history: {$ref: "#/DataComponentStatus"}
+        overview: {$ref: "#/DataComponentStatus"}
+DataComponentStatus:
+  type: object
+  required: [status, message]
+  properties:
+    status:
+      type: string
+      enum: [ready, updating, stale, failed]
+    message: {type: string}
+    failedSymbols:
+      type: array
+      items: {$ref: "./common.yaml#/Symbol"}
 Asset:
   type: object
   required: [symbol, name, assetType, exchange, active]
@@ -66,8 +84,8 @@ MarketOverview:
     limitUp: {type: integer, minimum: 0}
     limitDown: {type: integer, minimum: 0}
     turnoverCny:
-      type: number
-      description: 两市成交额，单位元
+      type: [number, "null"]
+      description: 两市成交额，单位元；上游缺失时为 null，不以零替代
     northboundNetCny:
       type: [number, "null"]
       description: 北向资金净流入，单位元；数据源不可用时为 null

@@ -48,6 +48,7 @@ class MarketDataService:
             "latestTradeDate": _serialize_date(status.latest_trade_date),
             "updatedAt": _serialize_datetime(status.updated_at),
             "message": status.message,
+            "components": dict(status.components),
         }
 
     def list_assets(
