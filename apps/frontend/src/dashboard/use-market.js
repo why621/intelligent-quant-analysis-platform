@@ -33,35 +33,67 @@ export function useMarket(client = api) {
     if (component?.status === 'stale') {
       return `显示上次成功快照（${market.value.tradeDate || '日期未知'}），本次未完成更新。`
     }
-    return component?.status === 'ready' ? '' : (component?.message || '等待市场概览状态确认')
+    const labels = { limitUp: '涨停数', limitDown: '跌停数', turnoverCny: '成交额',
+      northboundNetCny: '北向资金' }
+    const missing = (market.value.unavailableMetrics || []).map(key =>
+      labels[key] || (key.startsWith('index:') ? `指数 ${key.slice(6)}` : key))
+    const coverage = market.value.coverage
+    if (coverage && coverage.priced < coverage.total) missing.push('部分股票涨跌幅')
+    const notice = missing.length ? `部分指标暂不可用：${missing.join('、')}；缺失值显示为 —。` : ''
+    return component?.status === 'ready' ? notice : (component?.message || '等待市场概览状态确认')
   })
 
+  let generation = 0
   const initialise = async () => {
+    const current = ++generation
     connection.loading = true
-    const results = await Promise.allSettled([
-      client.getDataStatus(),
-      client.listAssets({ limit: 50 }),
-      client.getMarketOverview(),
-      client.getStrategies(),
-      client.getStrategyRanking('30d')
-    ])
-
-    if (results[0].status === 'fulfilled') dataStatus.value = results[0].value
-    if (results[1].status === 'fulfilled' && results[1].value.items?.length) {
-      assetCatalog.value = results[1].value.items
-    }
-    if (results[2].status === 'fulfilled') {
-      market.value = results[2].value
-      marketError.value = ''
-    } else {
-      market.value = { ...fallbackMarket }
-      marketError.value = '市场概览读取失败'
-    }
-    if (results[3].status === 'fulfilled' && results[3].value.items?.length) {
-      strategies.value = results[3].value.items
-    }
-    if (results[4].status === 'fulfilled') ranking.value = results[4].value.items || []
-
+    connection.live = false
+    connection.message = '正在连接后端接口'
+    dataStatus.value = { ...dataStatus.value, status: 'stale', components: {},
+      latestTradeDate: null, updatedAt: null, message: '等待后端数据接口' }
+    assetCatalog.value = fallbackAssets
+    strategies.value = fallbackStrategies
+    market.value = { ...fallbackMarket }
+    ranking.value = []
+    marketError.value = ''
+    let completed = 0
+    const jobs = [
+      [() => client.getDataStatus(), value => {
+        if (!value || !['ready', 'stale', 'updating', 'failed'].includes(value.status)) throw Error()
+        dataStatus.value = value
+      }],
+      [() => client.listAssets({ limit: 50 }), value => {
+        if (!Array.isArray(value?.items) || !value.items.length) throw Error()
+        assetCatalog.value = value.items
+      }],
+      [() => client.getMarketOverview(), value => {
+        if (typeof value?.tradeDate !== 'string') throw Error()
+        market.value = value
+      }],
+      [() => client.getStrategies(), value => {
+        if (!Array.isArray(value?.items) || !value.items.length) throw Error()
+        strategies.value = value.items
+      }],
+      [() => client.getStrategyRanking('30d'), value => {
+        if (!Array.isArray(value?.items)) throw Error()
+        ranking.value = value.items
+      }]
+    ]
+    const results = await Promise.allSettled(jobs.map(async ([fetchValue, applyValue], index) => {
+      try {
+        const value = await fetchValue()
+        if (current === generation) applyValue(value)
+      } catch (error) {
+        if (current === generation && index === 2) marketError.value = '市场概览读取失败'
+        throw error
+      } finally {
+        if (current === generation) {
+          completed += 1
+          connection.message = `已收到 ${completed}/${jobs.length} 个接口响应，可用数据已显示`
+        }
+      }
+    }))
+    if (current !== generation) return
     const fulfilledCount = results.filter((result) => result.status === 'fulfilled').length
     connection.live = fulfilledCount === results.length
     connection.loading = false

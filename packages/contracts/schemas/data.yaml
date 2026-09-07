@@ -81,11 +81,27 @@ MarketOverview:
     advancing: {type: integer, minimum: 0}
     declining: {type: integer, minimum: 0}
     unchanged: {type: integer, minimum: 0}
-    limitUp: {type: integer, minimum: 0}
-    limitDown: {type: integer, minimum: 0}
+    limitUp:
+      type: [integer, "null"]
+      minimum: 0
+      description: 无可靠涨停价格边界时为 null，不以统一涨幅阈值估算
+    limitDown:
+      type: [integer, "null"]
+      minimum: 0
+      description: 无可靠跌停价格边界时为 null
+    unavailableMetrics:
+      type: array
+      items: {type: string}
+      description: 缺失的可选指标；index:代码 表示该指数未取得同日数据
+    coverage:
+      type: object
+      required: [total, priced]
+      properties:
+        total: {type: integer, minimum: 1}
+        priced: {type: integer, minimum: 1}
     turnoverCny:
       type: [number, "null"]
-      description: 两市成交额，单位元；上游缺失时为 null，不以零替代
+      description: 沪深京股票成交额，单位元；任一记录缺失时为 null，不发布部分合计
     northboundNetCny:
       type: [number, "null"]
       description: 北向资金净流入，单位元；数据源不可用时为 null

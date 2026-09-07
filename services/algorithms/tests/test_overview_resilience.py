@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from quant_platform import cli
-from quant_platform.data import overview_worker
+from quant_platform.data import market_fetch, overview_worker, upstream
 from quant_platform.data.akshare_provider import (
     AkShareMarketDataProvider,
     UpstreamUnavailableError,
@@ -59,15 +59,15 @@ def test_retry_then_success(provider, snapshot):
     failure = subprocess.CalledProcessError(1, [], stderr="ConnectionError: upstream")
     with (
         patch(
-            "quant_platform.data.akshare_provider.subprocess.run", side_effect=[failure, success]
+            "quant_platform.data.upstream.subprocess.run", side_effect=[failure, success]
         ) as run,
-        patch("quant_platform.data.akshare_provider.sleep") as sleep,
+        patch("quant_platform.data.upstream.sleep") as sleep,
     ):
-        assert provider.refresh_market_overview() == snapshot
+        assert upstream.run("spot", {"date": "2026-09-04"}, timeout=180, attempts=2) == snapshot
     assert run.call_count == 2
-    assert run.call_args.kwargs["timeout"] == 90
+    assert run.call_args.kwargs["timeout"] == 180
     sleep.assert_called_once_with(1)
-    assert provider.market_overview() == snapshot
+    assert provider._overview_storage.load() is None
 
 
 def test_real_hung_process_is_killed_and_retries_are_bounded(provider):
@@ -79,14 +79,14 @@ def test_real_hung_process_is_killed_and_retries_are_bounded(provider):
     started = monotonic()
     with (
         patch(
-            "quant_platform.data.akshare_provider.subprocess.run", side_effect=hung_worker
+            "quant_platform.data.upstream.subprocess.run", side_effect=hung_worker
         ) as run,
         patch("quant_platform.data.akshare_provider._OVERVIEW_TIMEOUT_SECONDS", 0.1),
         patch("quant_platform.data.akshare_provider.sleep"),
         pytest.raises(UpstreamUnavailableError),
     ):
         provider.refresh_market_overview()
-    assert run.call_count == 2
+    assert run.call_count == 1
     assert monotonic() - started < 5
     assert provider._overview_storage.load() is None
 
@@ -147,19 +147,10 @@ def test_history_errors_record_symbol_and_traceback(provider, caplog):
 
 
 def test_missing_turnover_is_null_and_date_is_not_fabricated(provider):
-    index = pd.DataFrame({"date": ["2026-09-03", "2026-09-04"], "close": [10, 11]})
-    with (
-        patch("akshare.stock_zh_a_spot_em", return_value=pd.DataFrame({"涨跌幅": [1]})),
-        patch("akshare.stock_hsgt_hist_em", side_effect=RuntimeError),
-        patch("akshare.stock_zh_index_daily", return_value=index),
-    ):
-        result = provider._fetch_market_overview(date(2026, 9, 6))
+    timestamp = pd.Timestamp("2026-09-04 15:00", tz="Asia/Shanghai").timestamp()
+    rows = [{"f3": 1, "f6": None, "f124": timestamp}]
+    result = market_fetch.summarise(rows, date(2026, 9, 6))
     assert result["turnoverCny"] is None
     assert result["tradeDate"] == "2026-09-04"
-    with (
-        patch("akshare.stock_zh_a_spot_em", return_value=pd.DataFrame({"涨跌幅": [1]})),
-        patch("akshare.stock_hsgt_hist_em", side_effect=RuntimeError),
-        patch("akshare.stock_zh_index_daily", side_effect=RuntimeError),
-        pytest.raises(UpstreamUnavailableError, match="verified trade date"),
-    ):
-        provider._fetch_market_overview(date(2026, 9, 6))
+    with pytest.raises(ValueError, match="verified trade date"):
+        market_fetch.summarise([{"f3": 1}], date(2026, 9, 6))

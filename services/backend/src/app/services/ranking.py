@@ -4,7 +4,9 @@ import logging
 import math
 import threading
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from datetime import date
+from time import monotonic
 
 from quant_platform.models import DataStatus, RankingItem
 from quant_platform.ranking import StrategyRankingService as AlgorithmRankingService
@@ -13,17 +15,15 @@ from app.services.errors import InsufficientDataError, UpstreamUnavailableError
 from app.services.strategies import StrategyCatalogService
 
 logger = logging.getLogger(__name__)
+_RANKING_BUDGET_SECONDS = 10.0
+_CACHE_LIMIT = 128
 
 
 class RankingService:
-    """策略排行接口的实现：数据驱动 asOfDate + 查表缓存 + single-flight 并发合并。
+    """Revision-aware bounded cache, single-flight waits and cooperative I/O budget.
 
-    服务层无状态；唯一共享的是线程安全的缓存。缓存是 write-once 语义：
-    一个 key（asOfDate, period）一生只写一次（single-flight 保证），写后
-    永不修改、从不删除——因此读路径可以无锁（CPython 的 dict.get 是
-    原子操作，与写 key 不交错），只有 miss 才进锁区。
-    排行是日更快照：key 含 asOfDate，数据日更后 key 变化 → 查表 miss →
-    自然重算。"失效"由 miss 隐式表达，无需任何过期检查。
+    The I/O budget bounds provider calls, not arbitrary CPU code. Results computed
+    across a data revision or after the deadline are never cached or returned.
     """
 
     def __init__(
@@ -35,11 +35,9 @@ class RankingService:
         self._algorithm = algorithm
         self._provider = provider
         self._catalog = catalog
-        self._cache: dict[tuple[date, str], list[RankingItem]] = {}
+        self._cache: dict[tuple[date, str, str], list[RankingItem]] = {}
         self._condition = threading.Condition()
-        # 正在计算中的 key 集合：多 key 并发（不同 period / asOfDate 变化瞬间）
-        # 各自独立合并，互不覆盖——单值标记会在 key2 插入时把 key1 的标记顶掉
-        self._inflight: set[tuple[date, str]] = set()
+        self._inflight: set[tuple[date, str, str]] = set()
 
     def get_ranking(self, period: str) -> Mapping[str, object]:
         """返回契约 RankingResponse；period 已由路由层校验为枚举值之一。"""
@@ -61,32 +59,33 @@ class RankingService:
             )
         return status.latest_trade_date
 
+    def _revision(self) -> str:
+        revision = getattr(self._provider, "cache_revision", None)
+        return str(revision()) if callable(revision) else "unversioned"
+
     def _compute(self, as_of_date: date, period: str) -> list[RankingItem]:
-        """缓存未命中时计算一次；并发请求被 single-flight 合并为一次计算。
-
-        双层检查：第一重无锁 get（write-once 缓存，命中即返回）；miss 才
-        进锁区做第二重检查（等别人算完或自己成为计算者）。计算不持锁
-        （耗时操作），结果完整构造后原子写入并唤醒所有等待者；异常同样
-        唤醒等待者自行重试（错误不缓存）。
-        """
-        key = (as_of_date, period)
-
-        # 第一重检查：无锁读。write-once 不变量——key 写入后不再修改、
-        # 从不删除；dict.get 在 GIL 下是原子操作，与写 key 不交错，读线程
-        # 要么 miss 要么看到完整值，不存在读到半写状态的中间态。
-        cached = self._cache.get(key)
-        if cached is not None:
-            return cached
-
+        deadline = monotonic() + _RANKING_BUDGET_SECONDS
+        revision = self._revision()
+        key = (as_of_date, period, revision)
         with self._condition:
             while key in self._inflight:
-                self._condition.wait()
-            if key in self._cache:  # 第二重检查：等待期间别人可能已写好
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise UpstreamUnavailableError(message="排行计算繁忙，请稍后重试")
+                self._condition.wait(timeout=remaining)
+            if key in self._cache:
                 return self._cache[key]
             self._inflight.add(key)
 
         try:
-            items = self._algorithm.rank(as_of_date=as_of_date, period=period)  # type: ignore[arg-type]
+            budget = getattr(self._provider, "computation_budget", None)
+            context = budget(max(0, deadline - monotonic())) if callable(budget) else nullcontext()
+            with context:
+                items = self._algorithm.rank(as_of_date=as_of_date, period=period)
+            if monotonic() > deadline:
+                raise UpstreamUnavailableError(message="排行计算超时，请稍后重试")
+            if self._revision() != revision:
+                raise UpstreamUnavailableError(message="行情在计算期间更新，请重新获取排行")
             if not items:
                 # 无策略产出真实结果（算法组吞掉异常等），显式报错而非 200 空排行
                 raise InsufficientDataError(
@@ -101,6 +100,8 @@ class RankingService:
             raise
 
         with self._condition:
+            if len(self._cache) >= _CACHE_LIMIT:
+                self._cache.pop(next(iter(self._cache)))
             self._cache[key] = items
             self._inflight.discard(key)
             self._condition.notify_all()

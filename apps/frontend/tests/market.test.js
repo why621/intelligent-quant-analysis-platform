@@ -51,3 +51,41 @@ test('recovery clears unavailable notice', async () => {
   assert.equal(state.connection.message, '接口数据')
   assert.equal(state.market.value.advancing, 42)
 })
+test('pending ranking does not block independently resolved data', async () => {
+  const client = makeClient()
+  let finish
+  client.getStrategyRanking = () => new Promise(resolve => { finish = resolve })
+  const state = useMarket(client)
+  const pending = state.initialise()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(state.historyStatusText.value, '更新完成')
+  assert.match(state.marketNotice.value, /暂不可用/)
+  assert.equal(state.connection.loading, true)
+  finish({ items: [] })
+  await pending
+  assert.equal(state.connection.loading, false)
+})
+
+test('late responses from an earlier reload never overwrite current state', async () => {
+  const client = makeClient()
+  let finish
+  client.getDataStatus = () => new Promise(resolve => { finish = resolve })
+  const state = useMarket(client)
+  const first = state.initialise()
+  client.getDataStatus = async () => ({ status: 'ready' })
+  await state.initialise()
+  finish({ status: 'failed' })
+  await first
+  assert.equal(state.dataStatus.value.status, 'ready')
+})
+
+test('failed reload clears old ready status', async () => {
+  const client = makeClient()
+  client.getDataStatus = async () => ({ status: 'ready' })
+  const state = useMarket(client)
+  await state.initialise()
+  client.getDataStatus = async () => null
+  await state.initialise()
+  assert.equal(state.dataStatus.value.status, 'stale')
+  assert.equal(state.connection.live, false)
+})

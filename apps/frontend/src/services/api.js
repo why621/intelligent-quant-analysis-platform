@@ -29,34 +29,45 @@ function toQuery(params = {}) {
   return result ? `?${result}` : ''
 }
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...options.headers
-    },
-    ...options
+export async function request(path, options = {}) {
+  const { timeoutMs = 15000, headers, ...fetchOptions } = options
+  const controller = new AbortController()
+  let timer
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new ApiError('请求超时，请稍后重试', { code: 'REQUEST_TIMEOUT' }))
+      controller.abort()
+    }, timeoutMs)
   })
-
-  const contentType = response.headers.get('content-type') || ''
-  const payload = contentType.includes('application/json')
-    ? await response.json()
-    : null
-
-  if (!response.ok) {
-    const error = payload?.error || payload
-    throw new ApiError(
-      error?.message || `请求失败（HTTP ${response.status}）`,
-      {
-        status: response.status,
-        code: error?.code,
-        details: error?.details
+  try {
+    return await Promise.race([deadline, (async () => {
+      const response = await fetch(`${API_BASE_URL}${path}`, {
+        ...fetchOptions, signal: controller.signal,
+        headers: { Accept: 'application/json',
+          ...(fetchOptions.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...headers }
+      })
+      const contentType = response.headers.get('content-type') || ''
+      let payload = null
+      if (contentType.includes('application/json')) {
+        try { payload = await response.json() } catch { /* Reject invalid JSON below. */ }
       }
-    )
+      if (!response.ok) {
+        const error = payload?.error || payload
+        throw new ApiError(error?.message || `请求失败（HTTP ${response.status}）`, {
+          status: response.status, code: error?.code, details: error?.details
+        })
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new ApiError('接口返回格式不正确，请检查后端地址', {
+          status: response.status, code: 'INVALID_RESPONSE'
+        })
+      }
+      return payload
+    })()])
+  } finally {
+    clearTimeout(timer)
   }
-
-  return payload
 }
 
 function post(path, body) {

@@ -8,6 +8,7 @@ on:
       - package.json
       - package-lock.json
       - .github/workflows/deploy-pages.yml
+      - tools/validate_pages_api.py
   workflow_dispatch:
 
 permissions:
@@ -35,9 +36,13 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Install dependencies
         run: npm ci
+      - name: Validate public HTTPS API configuration
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+        run: python3 tools/validate_pages_api.py
       - name: Build frontend
         env:
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || '/api' }}
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
         run: npm run build --workspace @intelligent-quant/frontend -- --base /${GITHUB_REPOSITORY#*/}/
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

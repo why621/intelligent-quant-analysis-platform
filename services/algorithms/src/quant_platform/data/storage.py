@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import tempfile
 from collections.abc import Iterator
@@ -14,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from quant_platform.data.calendar import CalendarUnavailableError, sessions
 from quant_platform.models import DataStatus
 
 OHLCV_COLUMNS = ["date", "open", "high", "low", "close", "volume", "amount"]
@@ -51,6 +53,15 @@ def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     invalid_required = result[REQUIRED_OHLCV_COLUMNS].isna().any(axis=1)
     if invalid_required.any():
         raise ValueError("OHLCV data contains invalid required values")
+    for column in OHLCV_COLUMNS[1:]:
+        values = result[column].dropna()
+        if not values.map(math.isfinite).all():
+            raise ValueError("OHLCV data contains non-finite values")
+    if (result["volume"] < 0).any() or (result["amount"].dropna() < 0).any():
+        raise ValueError("OHLCV data contains negative volume/amount")
+    if ((result["high"] < result[["open", "close", "low"]].max(axis=1)).any()
+            or (result["low"] > result[["open", "close", "high"]].min(axis=1)).any()):
+        raise ValueError("OHLCV price bounds are inconsistent")
 
     return (
         result[OHLCV_COLUMNS]
@@ -292,7 +303,19 @@ class OHLCVStore:
 
         with DatabaseConnection.connection(self._data_dir) as conn:
             self._upsert(conn, symbol, adjust, normalised)
+            conn.execute(
+                "INSERT INTO cache_metadata (key, value) VALUES ('ohlcv_revision', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
+            )
             conn.commit()
+
+    def revision(self) -> str:
+        """Cross-process revision, committed in the same transaction as price writes."""
+        with DatabaseConnection.connection(self._data_dir) as conn:
+            row = conn.execute(
+                "SELECT value FROM cache_metadata WHERE key = 'ohlcv_revision'"
+            ).fetchone()
+        return str(row[0]) if row else "0"
 
     @staticmethod
     def _validate_adjust(adjust: str) -> None:
@@ -404,12 +427,19 @@ class MarketOverviewStore:
                 temporary.unlink()
 
 
+def _shanghai_today() -> date:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
 def _has_completed_weekday_since(updated_date: date, today: date) -> bool:
-    """Return whether an expected weekday refresh has been missed."""
-    return any(
-        date.fromordinal(day).weekday() < 5
-        for day in range(updated_date.toordinal() + 1, today.toordinal())
-    )
+    """Missed completed sessions; unknown calendar coverage fails conservatively."""
+    if (today - updated_date).days <= 1:
+        return False
+    try:
+        return bool(sessions(date.fromordinal(updated_date.toordinal() + 1),
+                             date.fromordinal(today.toordinal() - 1)))
+    except CalendarUnavailableError:
+        return True
 
 
 class DataStatusStore:
@@ -438,7 +468,11 @@ class DataStatusStore:
         )
         stored_status = row["status"]
 
-        if updated_at and _has_completed_weekday_since(updated_at.date(), date.today()):
+        if updated_at:
+            updated_at = (updated_at.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+                          if updated_at.tzinfo is None
+                          else updated_at.astimezone(ZoneInfo("Asia/Shanghai")))
+        if updated_at and _has_completed_weekday_since(updated_at.date(), _shanghai_today()):
             if stored_status in ("ready", "updating"):
                 stored_status = "stale" if latest_date else "failed"
             for component in components.values():
