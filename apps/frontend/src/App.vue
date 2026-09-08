@@ -20,9 +20,11 @@
           <p class="eyebrow">END-OF-DAY QUANT RESEARCH</p>
           <h1>用统一数据和可复现回测，完成每日市场复盘</h1>
           <p>
-            平台覆盖市场宽度、2–10 个资产相关性、传统与 AI 策略对比、
-            回测指标及下一交易日模拟配置。所有建议仅用于教学研究。
+            当前可体验 2–10 个资产相关性、两种传统策略回测、策略排行及模拟配置。
+            所有结果仅用于教学研究，不会提交真实订单。
           </p>
+          <p class="notice">阶段预览：当前为50只股票/ETF混合池，数据截至右侧所示日期。
+            完整沪深300、指数基准、市场概览与自动日更仍在建设；AI策略尚未接入。</p>
           <div class="chips">
             <span>A 股 / ETF</span><span>AkShare</span><span>Flask + Pandas</span>
           </div>
