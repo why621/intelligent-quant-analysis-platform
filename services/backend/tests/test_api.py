@@ -4,6 +4,17 @@ from datetime import date
 from app import create_app
 
 
+def publish_research_fixture(application):
+    """Fixed publication state for fake research data; no external cache dependence."""
+    from quant_platform.models import DataStatus
+
+    provider = application.extensions["market_data_service"]._provider
+    provider.status = lambda: DataStatus(
+        status="ready", source="AkShare", asset_count=2,
+        latest_trade_date=date(2026, 9, 7), updated_at=None,
+    )
+
+
 def make_client():
     application = create_app({"TESTING": True})
     return application.test_client()
@@ -50,11 +61,12 @@ def test_assets_matches_contract() -> None:
 
     assert response.status_code == 200
     body = response.json
-    assert set(body) == {"items", "total"}
+    assert set(body) == {"items", "total", "matchedTotal", "offset",
+                         "nextOffset", "catalogVersion"}
     assert isinstance(body["total"], int) and body["total"] == len(body["items"])
     assert body["total"] > 0
     for item in body["items"]:
-        assert set(item) == {"symbol", "name", "assetType", "exchange", "active"}
+        assert set(item) == {"assetId", "symbol", "name", "assetType", "exchange", "active"}
         assert isinstance(item["symbol"], str) and len(item["symbol"]) == 6
         assert item["assetType"] in {"stock", "etf"}
         assert item["exchange"] in {"SSE", "SZSE", "BSE"}
@@ -99,6 +111,7 @@ def make_client_with_fake(method_name: str, fake_value):
     """把 provider 的 method_name 替换为返回 fake_value 的函数，避免真实网络请求。"""
     application = create_app({"TESTING": True})
     service = application.extensions["market_data_service"]
+    publish_research_fixture(application)
     setattr(service._provider, method_name, lambda *args, **kwargs: fake_value)
     return application.test_client()
 
@@ -304,6 +317,7 @@ def make_client_with_correlation(fake_result):
     """把 correlation 服务的 analyzer.calculate 替换为返回 fake_result 的函数。"""
     application = create_app({"TESTING": True})
     service = application.extensions["correlation_service"]
+    publish_research_fixture(application)
     service._analyzer.calculate = lambda request: fake_result
     return application.test_client()
 
@@ -376,6 +390,7 @@ def test_correlation_upstream_error() -> None:
 
     application = create_app({"TESTING": True})
     service = application.extensions["market_data_service"]
+    publish_research_fixture(application)
     # correlation 复用同一个 provider 实例，替换 history 即模拟上游失败
     service._provider.history = failing
     response = application.test_client().post(
@@ -449,7 +464,7 @@ BACKTEST_BODY = {
     "symbols": ["510300"],
     "strategyId": "ma_cross",
     "parameters": {"shortWindow": 5, "longWindow": 20},
-    "startDate": "2024-01-01",
+    "startDate": "2025-01-01",
     "endDate": "2025-12-31",
 }
 
@@ -471,14 +486,14 @@ def fake_backtest_result():
         ),
         equity_curve=DataFrame(
             {
-                "date": ["2024-01-02", "2024-01-03"],
+                "date": ["2025-01-02", "2025-01-03"],
                 "equity": [100000.0, 100500.0],
                 "benchmarkEquity": [1.0, 1.005],
             }
         ),
         trades=(
             Trade(
-                trade_date=date_cls(2024, 1, 2),
+                trade_date=date_cls(2025, 1, 2),
                 symbol="510300",
                 side="buy",
                 price=3.95,
@@ -503,12 +518,13 @@ def test_backtest_create_matches_contract() -> None:
     assert response.status_code == 202
     body = response.json
     assert set(body) == {
-        "jobId", "status", "createdAt", "updatedAt", "progressPct", "result", "error",
+        "jobId", "status", "createdAt", "updatedAt", "progressPct", "result", "error", "request",
     }
     assert re.fullmatch(
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         body["jobId"],
     )
+    assert body["request"] == BACKTEST_BODY
     assert body["status"] == "queued"
     assert body["updatedAt"] is None
     assert body["progressPct"] == 0
@@ -542,12 +558,12 @@ def test_backtest_executes_and_returns_result() -> None:
         "beta": None,
     }
     assert result["equityCurve"] == [
-        {"date": "2024-01-02", "equity": 100000.0, "benchmarkEquity": 1.0},
-        {"date": "2024-01-03", "equity": 100500.0, "benchmarkEquity": 1.005},
+        {"date": "2025-01-02", "equity": 100000.0, "benchmarkEquity": 1.0},
+        {"date": "2025-01-03", "equity": 100500.0, "benchmarkEquity": 1.005},
     ]
     assert result["trades"] == [
         {
-            "date": "2024-01-02",
+            "date": "2025-01-02",
             "symbol": "510300",
             "side": "buy",
             "price": 3.95,
@@ -668,7 +684,7 @@ def test_backtest_momentum_reversal_parameters() -> None:
         "symbols": ["510300"],
         "strategyId": "momentum_reversal",
         "parameters": {"lookback": 10, "overboughtThreshold": 5.0, "oversoldThreshold": -5.0},
-        "startDate": "2024-01-01",
+        "startDate": "2025-01-01",
         "endDate": "2025-12-31",
     }
     assert client.post("/api/backtests", json=valid).status_code == 202

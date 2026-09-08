@@ -111,9 +111,9 @@ Content-Type: application/json
     "shortWindow": 5,
     "longWindow": 20
   },
-  "startDate": "2024-01-01",
+  "startDate": "2025-01-01",
   "endDate": "2025-12-31",
-  "benchmark": "000300",
+  "benchmark": "510300",
   "initialCapitalCny": 100000,
   "adjust": "qfq",
   "tradingCosts": {
@@ -197,3 +197,14 @@ Content-Type: application/json
 5. PR 合并前至少验证：契约能解析、后端测试通过、前端构建通过。
 
 禁止在未改契约的情况下让前端“猜字段”，也禁止用固定随机数伪装真实策略结果。
+
+
+## CR-009 M0（2026-09-08）
+
+默认无基准，示例510300明确为ETF而非独立指数。回测查询新增request原始快照；已有任务不重算。参数Schema的default须由客户端提交，x-relations表达字段lt关系，服务端仍校验必填和业务关系。相关性/回测在入队或计算前按已发布截止及2025—2026日历校验，越界400 DATE_OUT_OF_RANGE，无截止或历史failed返回503 DATA_NOT_READY；范围内真正源失败保留503 UPSTREAM_UNAVAILABLE。全局截止不保证每只资产完整，原有逐资产完整性检查保留。
+# CR-011增量 / API契约0.4.0（2026-09-08）
+
+资产目录新增offset分页、matchedTotal、nextOffset、catalogVersion和只读assetId；total继续表示本页数量。稳定排序为(exchange, symbol, assetType)，过滤先于分页。前端须完整读取同版本分页，混版或中途失败不发布部分目录；旧接口无分页元数据时提示升级后重试，不把一页当完整目录。目录版本不是行情覆盖或官方成分版本。默认池本批仍为旧50只；完整300只是真实名单及行情的后续验收目标。独立指数接口尚未实现，研究请求仍用六位股票/ETF代码。详见 [M1设计](m1-catalog-design.md)。
+## CR-012磁盘快照契约（非HTTP接口）
+
+新增packages/contracts/schemas/universe.yaml#/UniverseSnapshot，schemaVersion=1；当前官方名单300股票及源文件哈希/日期/来源绑定，effectiveDate为null、historicalMembershipVerified=false。API仍0.4.0，没有新增快照路由，也未把index:CSI:000300作为当前股票/ETF研究请求。显式provider注入仅在隔离验证启用，默认运行资产池未切换。详见 [CR-012报告](cr012-universe-validation-2026-09-08.md)。

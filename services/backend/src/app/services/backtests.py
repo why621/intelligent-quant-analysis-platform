@@ -26,6 +26,7 @@ from app.services.errors import (
     ValidationError,
 )
 from app.services.parameters import validate_against_schema
+from app.services.research_dates import ResearchDateGuard
 from app.services.strategies import StrategyCatalogService
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,22 @@ class BacktestService:
     def submit(self, payload: Mapping[str, object]) -> Mapping[str, object]:
         """业务校验后接受任务，返回 queued 的 BacktestJob（契约 BacktestJob 字段）。"""
         self._validate_business(payload)
+        symbols = list(payload["symbols"])
+        benchmark = payload.get("benchmark")
+        if benchmark is not None:
+            supported = {a.symbol for a in self._provider.list_assets(
+                query=None, asset_type="etf", limit=None
+            ) if a.asset_type == "etf" and a.active}
+            if benchmark not in supported:
+                raise ValidationError(
+                    message="基准仅支持资产目录中的ETF；独立指数尚未接入",
+                    details={"field": "benchmark", "benchmark": benchmark},
+                )
+            symbols.append(benchmark)
+        ResearchDateGuard(self._provider).validate(
+            symbols, date.fromisoformat(str(payload["startDate"])),
+            date.fromisoformat(str(payload["endDate"])),
+        )
         job_id = self._store.create(payload)
         return self.get_job(job_id)
 
@@ -212,7 +229,7 @@ class BacktestService:
         """提交时的业务校验：资产池、策略可用性、参数合法性（同步失败快报）。"""
         pool = {
             asset.symbol
-            for asset in self._provider.list_assets(query=None, asset_type=None, limit=100)  # type: ignore[union-attr]
+            for asset in self._provider.list_assets(query=None, asset_type=None, limit=None)  # type: ignore[union-attr]
         }
         for symbol in payload["symbols"]:  # type: ignore[union-attr]
             if symbol not in pool:
@@ -319,6 +336,7 @@ def _serialize_job(row: Mapping[str, object]) -> Mapping[str, object]:
             }
         }
     return {
+        "request": json.loads(row["request_json"]),
         "jobId": row["job_id"],
         "status": row["status"],
         "createdAt": row["created_at"],

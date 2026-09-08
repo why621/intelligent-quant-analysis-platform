@@ -2,6 +2,7 @@ import { computed, reactive, ref } from 'vue'
 
 import { fallbackAssets, fallbackMarket, fallbackStrategies } from '../data/application-fixtures.js'
 import { api } from '../services/api.js'
+import { loadAssetCatalog } from './asset-catalog.js'
 
 export function useMarket(client = api) {
   const marketError = ref('')
@@ -21,7 +22,8 @@ export function useMarket(client = api) {
     updatedAt: null,
     message: '等待后端数据接口'
   })
-  const assetCatalog = ref(fallbackAssets)
+  const assetCatalog = ref([])
+  const assetCatalogError = ref('')
   const market = ref({ ...fallbackMarket })
   const strategies = ref(fallbackStrategies)
   const ranking = ref([])
@@ -51,7 +53,8 @@ export function useMarket(client = api) {
     connection.message = '正在连接后端接口'
     dataStatus.value = { ...dataStatus.value, status: 'stale', components: {},
       latestTradeDate: null, updatedAt: null, message: '等待后端数据接口' }
-    assetCatalog.value = fallbackAssets
+    assetCatalog.value = []
+    assetCatalogError.value = ''
     strategies.value = fallbackStrategies
     market.value = { ...fallbackMarket }
     ranking.value = []
@@ -62,7 +65,7 @@ export function useMarket(client = api) {
         if (!value || !['ready', 'stale', 'updating', 'failed'].includes(value.status)) throw Error()
         dataStatus.value = value
       }],
-      [() => client.listAssets({ limit: 50 }), value => {
+      [() => loadAssetCatalog(client, () => current === generation), value => {
         if (!Array.isArray(value?.items) || !value.items.length) throw Error()
         assetCatalog.value = value.items
       }],
@@ -84,6 +87,9 @@ export function useMarket(client = api) {
         const value = await fetchValue()
         if (current === generation) applyValue(value)
       } catch (error) {
+        if (current === generation && index === 1) {
+          assetCatalogError.value = '资产目录加载失败：未取得完整且一致的目录，请重新加载；若持续失败请核对前后端版本。'
+        }
         if (current === generation && index === 2) marketError.value = '市场概览读取失败'
         throw error
       } finally {
@@ -108,6 +114,7 @@ export function useMarket(client = api) {
     connection,
     dataStatus,
     assetCatalog,
+    assetCatalogError,
     market,
     strategies,
     ranking,

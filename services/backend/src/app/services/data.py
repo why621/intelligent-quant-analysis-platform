@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from datetime import date, datetime
+from hashlib import sha256
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -57,28 +59,41 @@ class MarketDataService:
         query: str | None,
         asset_type: str | None,
         limit: int,
+        offset: int = 0,
     ) -> Mapping[str, object]:
         """返回资产列表，字段与 contracts/schemas/data.yaml#/Asset 一致。
 
-        total 与 items 长度一致（契约未定义匹配总数语义，见 api-contract.md）。
+        total保留本页数量；matchedTotal为过滤后总数。版本仅涵盖目录元数据。
         """
-        result = self._provider.list_assets(
-            query=query,
-            asset_type=asset_type,  # type: ignore[arg-type]
-            limit=limit,
+        assets = sorted(
+            self._provider.list_assets(limit=None),
+            key=lambda asset: (asset.exchange, asset.symbol, asset.asset_type),
         )
+        catalog = [
+            {"assetId": f"{a.asset_type}:{a.exchange}:{a.symbol}",
+             "symbol": a.symbol, "name": a.name, "assetType": a.asset_type,
+             "exchange": a.exchange, "active": a.active}
+            for a in assets
+        ]
+        version = sha256(json.dumps(
+            catalog, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        filtered = catalog
+        if query is not None:
+            needle = query.strip().lower()
+            filtered = [a for a in filtered
+                        if needle in a["symbol"] or needle in a["name"].lower()]
+        if asset_type is not None:
+            filtered = [a for a in filtered if a["assetType"] == asset_type]
+        result = filtered[offset:offset + limit]
+        end = offset + len(result)
         return {
-            "items": [
-                {
-                    "symbol": asset.symbol,
-                    "name": asset.name,
-                    "assetType": asset.asset_type,
-                    "exchange": asset.exchange,
-                    "active": asset.active,
-                }
-                for asset in result
-            ],
+            "items": result,
             "total": len(result),
+            "matchedTotal": len(filtered),
+            "offset": offset,
+            "nextOffset": end if end < len(filtered) else None,
+            "catalogVersion": version,
         }
 
     def history(
@@ -97,7 +112,7 @@ class MarketDataService:
         """
         in_pool = any(
             asset.symbol == symbol
-            for asset in self._provider.list_assets(query=None, asset_type=None, limit=100)
+            for asset in self._provider.list_assets(query=None, asset_type=None, limit=None)
         )
         if not in_pool:
             raise AssetNotFoundError(details={"symbol": symbol})

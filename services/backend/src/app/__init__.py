@@ -18,6 +18,7 @@ from app.services.analytics import CorrelationService
 from app.services.backtests import BacktestJobStore, BacktestService, BacktestWorker
 from app.services.data import MarketDataService
 from app.services.ranking import RankingService
+from app.services.research_dates import ResearchDateGuard
 from app.services.strategies import StrategyCatalogService
 
 BACKTEST_DB_DEFAULT = str(Path(__file__).resolve().parents[2] / "var" / "backtests.db")
@@ -25,7 +26,11 @@ BACKTEST_DB_DEFAULT = str(Path(__file__).resolve().parents[2] / "var" / "backtes
 __version__ = "0.1.0"
 
 
-def create_app(test_config: dict[str, object] | None = None) -> Flask:
+def create_app(
+    test_config: dict[str, object] | None = None,
+    *,
+    market_data_provider: AkShareMarketDataProvider | None = None,
+) -> Flask:
     """Create and configure the Flask application."""
     application = Flask(__name__)
     application.config.from_mapping(
@@ -68,14 +73,16 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
 
     # 装配服务：路由通过 current_app.extensions 获取服务。
     # provider 复用同一个实例，保证所有接口共享同一份缓存。
-    provider = AkShareMarketDataProvider()
+    provider = (
+        market_data_provider if market_data_provider is not None else AkShareMarketDataProvider()
+    )
     application.extensions["market_data_service"] = MarketDataService(provider)
 
     strategy_catalog = StrategyCatalogService()
     application.extensions["strategy_catalog_service"] = strategy_catalog
 
     application.extensions["correlation_service"] = CorrelationService(
-        CorrelationAnalyzer(provider)
+        CorrelationAnalyzer(provider), ResearchDateGuard(provider)
     )
 
     # 回测任务存储：测试用独立临时目录，避免污染 var/ 下的真实任务库。

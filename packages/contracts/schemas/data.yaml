@@ -8,7 +8,10 @@ DataStatus:
     timezone: {type: string, const: Asia/Shanghai}
     source: {type: string, const: AkShare}
     assetCount: {type: integer, minimum: 0}
-    latestTradeDate: {type: [string, "null"], format: date}
+    latestTradeDate:
+      type: [string, "null"]
+      format: date
+      description: 全局已发布截止；不是每只资产覆盖承诺。相关性/回测不得越界；null时禁止提交，组件概览失败不阻塞已有历史研究。
     updatedAt: {type: [string, "null"], format: date-time}
     message: {type: [string, "null"]}
     components:
@@ -31,8 +34,13 @@ DataComponentStatus:
       items: {$ref: "./common.yaml#/Symbol"}
 Asset:
   type: object
-  required: [symbol, name, assetType, exchange, active]
+  required: [assetId, symbol, name, assetType, exchange, active]
   properties:
+    assetId:
+      type: string
+      pattern: "^(stock|etf):(SSE|SZSE|BSE):[0-9]{6}$"
+      readOnly: true
+      description: 类型及市场限定的目录身份；当前请求仍用symbol，尚不支持指数
     symbol: {$ref: "./common.yaml#/Symbol"}
     name: {type: string, minLength: 1}
     assetType: {$ref: "./common.yaml#/AssetType"}
@@ -40,6 +48,28 @@ Asset:
       type: string
       enum: [SSE, SZSE, BSE]
     active: {type: boolean}
+AssetPage:
+  type: object
+  required: [items, total, matchedTotal, offset, nextOffset, catalogVersion]
+  properties:
+    items:
+      type: array
+      maxItems: 100
+      items: {$ref: "#/Asset"}
+    total:
+      type: integer
+      minimum: 0
+      description: 本页items数量（保留旧语义）
+    matchedTotal:
+      type: integer
+      minimum: 0
+      description: 按query及assetType过滤后的目录总数，不保证行情覆盖
+    offset: {type: integer, minimum: 0, maximum: 100000}
+    nextOffset: {type: [integer, "null"], minimum: 0}
+    catalogVersion:
+      type: string
+      pattern: "^[a-f0-9]{64}$"
+      description: 完整目录元数据SHA256，与筛选无关；不是成分名单版本或行情版本
 PriceBar:
   type: object
   required: [date, open, high, low, close, volume]

@@ -51,6 +51,7 @@
           <div><p>MARKET OVERVIEW</p><h2>市场概况</h2></div>
           <span>{{ market.tradeDate ? `交易日 ${market.tradeDate}` : '等待收盘后日更' }}</span>
         </header>
+        <p v-if="assetCatalogError" class="notice" role="alert">{{ assetCatalogError }}</p>
         <p v-if="marketNotice" class="notice" role="status">{{ marketNotice }}</p>
         <div class="market-grid">
           <article class="card">
@@ -115,8 +116,8 @@
               @click="correlation.addSymbol"
             >添加资产</button>
             <div class="date-row">
-              <label>开始日期<input v-model="correlationStartDate" type="date" /></label>
-              <label>结束日期<input v-model="correlationEndDate" type="date" /></label>
+              <label>开始日期<input v-model="correlationStartDate" type="date" :min="correlation.minDate" :max="correlation.maxDate.value" /></label>
+              <label>结束日期<input v-model="correlationEndDate" type="date" :min="correlation.minDate" :max="correlation.maxDate.value" /></label>
             </div>
             <button
               class="primary full"
@@ -124,6 +125,8 @@
               :disabled="!correlation.canSubmit.value || correlationBusy"
               @click="correlation.submit"
             >{{ correlationBusy ? '计算中…' : '计算相关矩阵' }}</button>
+            <p class="hint" role="status">{{ correlation.dateNotice.value }}</p>
+            <p v-if="correlation.validationError.value" class="hint">{{ correlation.validationError.value }}</p>
             <p v-if="correlationError" class="error">{{ correlationError }}</p>
             <p class="hint">{{ correlationValidSymbols.length }} 个有效代码；矩阵按共同交易日对齐。</p>
           </article>
@@ -131,6 +134,9 @@
             <div class="card-head"><h3>相关系数矩阵</h3><span>
               {{ correlationResult ? `${correlationResult.observationCount} 个样本` : '等待计算' }}
             </span></div>
+            <p v-if="correlationResult?.matrix.some(row => row.some(value => value == null))" class="hint">
+              部分资产对无有效相关系数，留空显示；未以 0 代替。
+            </p>
             <div ref="correlationChart" class="chart"></div>
           </article>
         </div>
@@ -162,9 +168,24 @@
                 </option>
               </select>
             </label>
+            <label v-for="field in backtest.parameterFields.value" :key="field.key">
+              {{ field.label }}
+              <input v-model.number="backtestParameters[field.key]" type="number"
+                :name="field.key" :min="field.minimum" :max="field.maximum"
+                :step="field.type === 'integer' ? 1 : 'any'" />
+            </label>
+            <label>比较基准
+              <select v-model="backtestBenchmark">
+                <option value="">无基准（Alpha / Beta 不适用）</option>
+                <option v-for="asset in backtest.benchmarkOptions.value" :key="asset.symbol" :value="asset.symbol">
+                  {{ asset.name }} · ETF · {{ asset.symbol }}
+                </option>
+              </select>
+            </label>
+            <p class="hint">ETF 为基金交易价格序列；独立沪深300指数尚未接入。</p>
             <div class="date-row">
-              <label>开始日期<input v-model="backtestStartDate" type="date" /></label>
-              <label>结束日期<input v-model="backtestEndDate" type="date" /></label>
+              <label>开始日期<input v-model="backtestStartDate" type="date" :min="backtest.minDate" :max="backtest.maxDate.value" /></label>
+              <label>结束日期<input v-model="backtestEndDate" type="date" :min="backtest.minDate" :max="backtest.maxDate.value" /></label>
             </div>
             <button
               class="primary full"
@@ -172,6 +193,12 @@
               :disabled="!backtest.canSubmit.value"
               @click="backtest.submit"
             >{{ backtestBusy ? '任务运行中…' : '提交异步回测' }}</button>
+            <p class="hint" role="status">{{ backtest.dateNotice.value }}</p>
+            <p v-if="backtest.validationError.value" class="hint">{{ backtest.validationError.value }}</p>
+            <p v-if="backtest.activeJob.value && !backtestBusy" class="hint">已有未结束任务，请恢复查询后再提交新任务。</p>
+            <label>恢复任务编号<input v-model.trim="backtestRecoveryId" placeholder="UUID 任务编号" /></label>
+            <button class="secondary full" type="button" :disabled="backtestBusy || !backtestRecoveryId"
+              @click="backtest.resume">恢复查询</button>
             <p v-if="backtestJob" class="hint">任务 {{ backtestJob.jobId }} · {{ backtestJob.status }}</p>
             <p v-if="backtestError" class="error">{{ backtestError }}</p>
           </article>
@@ -179,6 +206,11 @@
             <div class="card-head"><h3>{{ backtest.strategyName.value }}结果</h3><span>
               {{ backtestResult ? '真实回测输出' : '尚未运行' }}
             </span></div>
+            <p v-if="backtestJob" class="hint">{{ backtest.benchmarkLabel.value }}</p>
+            <p v-if="backtestJob?.request" class="hint">
+              {{ backtestJob.request.startDate }} 至 {{ backtestJob.request.endDate }} ·
+              {{ backtestJob.request.symbols.join('、') }} · 参数 {{ JSON.stringify(backtestJob.request.parameters) }}
+            </p>
             <div ref="equityChart" class="chart"></div>
             <div class="result-grid">
               <div><span>总收益率</span><b>{{ formatPct(backtestMetrics?.totalReturnPct) }}</b></div>
@@ -240,7 +272,7 @@
               :disabled="!allocation.canSubmit.value"
               @click="allocation.submit"
             >{{ allocationBusy ? '生成中…' : '生成模拟建议' }}</button>
-            <p v-if="allocationError" class="error">{{ allocationError }}</p>
+            <p v-if="allocationError || allocation.validationError.value" class="error">{{ allocationError || allocation.validationError.value }}</p>
             <p class="disclaimer">仅用于教学研究，不构成投资建议，不会提交真实订单。</p>
           </article>
           <article class="card">
@@ -249,6 +281,10 @@
             </span></div>
             <div ref="allocationChart" class="chart small"></div>
             <div v-if="allocationResult" class="position-list">
+              <div>
+                <strong>现金</strong><span>{{ allocationResult.cashPct }}%</span>
+                <small>实际现金权重（含策略退出后保留的现金）</small>
+              </div>
               <div v-for="position in allocationResult.positions" :key="position.symbol">
                 <strong>{{ position.symbol }}</strong><span>{{ position.weightPct }}%</span>
                 <small>{{ actionLabel(position.action) }} · {{ position.reason }}</small>
@@ -274,16 +310,17 @@ import { useCorrelation } from './dashboard/use-correlation'
 import { useMarket } from './dashboard/use-market'
 
 const { connection, dataStatus, assetCatalog, market, strategies, ranking,
-  historyStatusText, overviewStatusText, marketNotice, initialise } = useMarket()
-const correlation = useCorrelation()
-const backtest = useBacktest(strategies)
+  historyStatusText, overviewStatusText, marketNotice, assetCatalogError, initialise } = useMarket()
+const correlation = useCorrelation(dataStatus)
+const backtest = useBacktest(strategies, dataStatus, assetCatalog)
 const allocation = useAllocation(strategies)
 
 const { symbols: correlationSymbols, startDate: correlationStartDate, endDate: correlationEndDate,
   result: correlationResult, busy: correlationBusy, error: correlationError,
   validSymbols: correlationValidSymbols } = correlation
 const { symbols: backtestSymbols, strategyId: backtestStrategyId, startDate: backtestStartDate,
-  endDate: backtestEndDate, job: backtestJob, busy: backtestBusy, error: backtestError } = backtest
+  endDate: backtestEndDate, job: backtestJob, busy: backtestBusy, error: backtestError,
+  parameters: backtestParameters, benchmark: backtestBenchmark, recoveryId: backtestRecoveryId } = backtest
 const { symbols: allocationSymbols, strategyId: allocationStrategyId, cashPct: allocationCashPct,
   result: allocationResult, busy: allocationBusy, error: allocationError } = allocation
 

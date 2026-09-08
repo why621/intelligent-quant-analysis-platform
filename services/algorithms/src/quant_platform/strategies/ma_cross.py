@@ -23,6 +23,7 @@ class MACrossStrategy:
             parameter_schema={
                 "type": "object",
                 "additionalProperties": False,
+                "x-relations": [{"left": "shortWindow", "operator": "lt", "right": "longWindow"}],
                 "required": ["shortWindow", "longWindow"],
                 "properties": {
                     "shortWindow": {

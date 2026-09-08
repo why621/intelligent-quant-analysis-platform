@@ -31,3 +31,13 @@ ErrorResponse:
         details:
           type: [object, "null"]
           additionalProperties: true
+          description: 日期错误包含field、startDate、endDate、availableStartDate、availableEndDate与symbols；可用区间为全局截止及日历边界，不保证每资产完整。
+          properties:
+            field: {type: string}
+            startDate: {type: string, format: date}
+            endDate: {type: string, format: date}
+            availableStartDate: {type: string, format: date}
+            availableEndDate: {type: [string, "null"], format: date}
+            symbols:
+              type: array
+              items: {$ref: "#/Symbol"}

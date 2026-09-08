@@ -1,17 +1,6 @@
-import { ApiError } from '../services/api'
+import { ApiError } from '../services/api.js'
 
 export const SYMBOL_PATTERN = /^\d{6}$/
-
-export function isoDate(value) {
-  return value.toISOString().slice(0, 10)
-}
-
-export function defaultDateRange() {
-  const end = new Date()
-  const start = new Date(end)
-  start.setFullYear(start.getFullYear() - 1)
-  return { startDate: isoDate(start), endDate: isoDate(end) }
-}
 
 export function displayError(error) {
   if (error instanceof ApiError && error.code) {

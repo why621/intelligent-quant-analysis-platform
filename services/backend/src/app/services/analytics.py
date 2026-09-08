@@ -11,6 +11,7 @@ from quant_platform.data.akshare_provider import (
 from quant_platform.models import CorrelationRequest
 
 from app.services.errors import InsufficientDataError, UpstreamUnavailableError
+from app.services.research_dates import ResearchDateGuard
 
 
 class CorrelationService:
@@ -21,8 +22,9 @@ class CorrelationService:
     整体数据不足（observation_count < 2）时返回 422 INSUFFICIENT_DATA。
     """
 
-    def __init__(self, analyzer: CorrelationAnalyzer) -> None:
+    def __init__(self, analyzer: CorrelationAnalyzer, dates: ResearchDateGuard) -> None:
         self._analyzer = analyzer
+        self._dates = dates
 
     def calculate(
         self,
@@ -34,6 +36,7 @@ class CorrelationService:
         return_type: str,
     ) -> Mapping[str, object]:
         """返回相关系数矩阵，字段与 contracts/schemas/analytics.yaml#/CorrelationResponse 一致。"""
+        self._dates.validate(symbols, start_date, end_date)
         request = CorrelationRequest(
             symbols=tuple(symbols),
             start_date=start_date,

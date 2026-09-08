@@ -18,7 +18,8 @@ class MarketDataService(Protocol):
         query: str | None,
         asset_type: str | None,
         limit: int,
-    ) -> Sequence[Mapping[str, object]]:
+        offset: int = 0,
+    ) -> Mapping[str, object]:
         """Return only assets in the maintained A-share/ETF universe."""
 
     def history(

@@ -1,0 +1,98 @@
+# On-disk isolated candidate only. No HTTP endpoint or production publication assertion.
+HistoryCandidate:
+  type: object
+  additionalProperties: false
+  required: [schemaVersion, kind, published, universeVersion, membershipMode, startDate,
+             endDate, adjust, source, sdkVersion, normalizationVersion, volumeUnit, amountUnit,
+             createdAt, mode, selectedSymbols, memberCount, statusCounts, priceCoverageComplete,
+             candidateRevision, networkRequestsThisRun, requestCountExact,
+             requestUpperBoundThisRun, entries, candidateId]
+  properties:
+    schemaVersion: {const: 1}
+    kind: {const: isolated_history_candidate}
+    published: {const: false}
+    universeVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
+    candidateId: {type: string, pattern: '^[a-f0-9]{64}$'}
+    membershipMode: {const: current_snapshot}
+    startDate: {type: string, format: date}
+    endDate: {type: string, format: date}
+    adjust: {const: qfq}
+    source: {const: Tencent}
+    sdkVersion: {const: '1.18.94'}
+    normalizationVersion: {const: tx-1.18.94-project-v1}
+    volumeUnit: {const: share}
+    amountUnit: {const: CNY}
+    createdAt: {type: string, format: date-time}
+    mode: {enum: [live_probe, offline_replay]}
+    selectedSymbols:
+      type: array
+      minItems: 1
+      maxItems: 6
+      uniqueItems: true
+      items: {type: string, pattern: '^[036][0-9]{5}$'}
+    memberCount: {const: 300}
+    statusCounts:
+      type: object
+      propertyNames: {enum: [not_attempted, source_error, empty, invalid, gaps, complete]}
+      additionalProperties: {type: integer, minimum: 1, maximum: 300}
+    priceCoverageComplete:
+      type: boolean
+      description: 仅全300所选区间基本OHLCV质量/日期覆盖；不证明复权经济正确或授权
+    candidateRevision: {type: string, pattern: '^[0-9]+$'}
+    networkRequestsThisRun:
+      type: integer
+      minimum: 0
+      maximum: 30
+      description: 已知发起次数；requestCountExact=false时为下界，不是实际总数
+    requestCountExact: {type: boolean}
+    requestUpperBoundThisRun: {type: integer, minimum: 0, maximum: 30}
+    entries:
+      type: array
+      minItems: 300
+      maxItems: 300
+      items: {$ref: '#/HistoryCandidate/$defs/Entry'}
+  $defs:
+    Entry:
+      type: object
+      additionalProperties: false
+      required: [assetId, symbol, exchange, status, quality, observationSha256, error]
+      properties:
+        assetId: {type: string, pattern: '^stock:(SSE|SZSE):[036][0-9]{5}$'}
+        symbol: {type: string, pattern: '^[036][0-9]{5}$'}
+        exchange: {enum: [SSE, SZSE]}
+        status: {enum: [not_attempted, source_error, empty, invalid, gaps, complete]}
+        observationSha256: {type: [string, 'null'], pattern: '^[a-f0-9]{64}$'}
+        error: {type: [string, 'null']}
+        quality:
+          anyOf:
+            - {type: 'null'}
+            - {$ref: '#/HistoryCandidate/$defs/Quality'}
+    Quality:
+      type: object
+      additionalProperties: false
+      required: [status, rowCount, expectedSessions, observedSessions, firstDate, lastDate,
+                 missingSessions, unexpectedSessions, gapReason, duplicateRows, invalidRows,
+                 missingColumns, ordered, amountMissingRows]
+      properties:
+        status: {enum: [empty, invalid, gaps, complete]}
+        rowCount: {type: integer, minimum: 0}
+        expectedSessions: {type: integer, minimum: 1}
+        observedSessions: {type: integer, minimum: 0}
+        firstDate: {type: [string, 'null'], format: date}
+        lastDate: {type: [string, 'null'], format: date}
+        missingSessions:
+          type: array
+          uniqueItems: true
+          items: {type: string, format: date}
+        unexpectedSessions:
+          type: array
+          uniqueItems: true
+          items: {type: string, format: date}
+        gapReason: {enum: [unknown, null]}
+        duplicateRows: {type: integer, minimum: 0}
+        invalidRows: {type: integer, minimum: 0}
+        missingColumns:
+          type: array
+          items: {type: string}
+        ordered: {type: boolean}
+        amountMissingRows: {type: integer, minimum: 0}

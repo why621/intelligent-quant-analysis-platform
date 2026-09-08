@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智能量化分析平台 API
-  version: 0.2.0
+  version: 0.4.0
   description: |
     前端、Flask 后端与算法模块之间唯一具有约束力的 HTTP 契约。
     平台面向 A 股及场内 ETF，按交易日收盘后更新。配置建议仅用于研究，
@@ -56,19 +56,17 @@ paths:
         - in: query
           name: limit
           schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - in: query
+          name: offset
+          schema: {type: integer, minimum: 0, maximum: 100000, default: 0}
+          description: 过滤后稳定排序目录的偏移；跨页catalogVersion变化时丢弃本次目录并重试
       responses:
         "200":
           description: 资产列表
           content:
             application/json:
               schema:
-                type: object
-                required: [items, total]
-                properties:
-                  items:
-                    type: array
-                    items: {$ref: "./schemas/data.yaml#/Asset"}
-                  total: {type: integer, minimum: 0}
+                $ref: "./schemas/data.yaml#/AssetPage"
         default: {$ref: "#/components/responses/Error"}
   /assets/{symbol}/history:
     get:
@@ -109,6 +107,7 @@ paths:
     post:
       tags: [Analytics]
       summary: 计算资产收益率相关性
+      description: 请求区间须在2025—2026已验证日历及已发布latestTradeDate内；越界400 DATE_OUT_OF_RANGE，无发布截止503 DATA_NOT_READY；范围内源失败503 UPSTREAM_UNAVAILABLE。
       operationId: calculateCorrelation
       requestBody:
         required: true
@@ -163,6 +162,7 @@ paths:
     post:
       tags: [Backtest]
       summary: 提交异步回测任务
+      description: 同步校验策略参数、ETF基准和已发布日期范围后入队。日期错误含请求区间、可用截止及symbols；查询返回提交时request快照。
       operationId: createBacktest
       requestBody:
         required: true

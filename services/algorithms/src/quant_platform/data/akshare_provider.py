@@ -16,6 +16,7 @@ import pandas as pd
 from quant_platform.data import upstream
 from quant_platform.data.calendar import CalendarUnavailableError, latest_session, sessions
 from quant_platform.data.storage import DataStatusStore, MarketOverviewStore, OHLCVStore
+from quant_platform.data.universe import UniverseSnapshot
 from quant_platform.models import AdjustMode, Asset, AssetType, DataStatus
 
 # 30–50 个 A 股/ETF 资产池，代码全部六位字符串
@@ -128,6 +129,7 @@ class AkShareMarketDataProvider:
         data_dir: Path | None = None,
         *,
         request_interval_seconds: float = 0.2,
+        universe_snapshot: UniverseSnapshot | None = None,
     ) -> None:
         self._assets: dict[str, Asset] = {
             a["symbol"]: Asset(
@@ -138,6 +140,13 @@ class AkShareMarketDataProvider:
             )
             for a in _DEFAULT_UNIVERSE
         }
+        self.universe_snapshot = universe_snapshot
+        if universe_snapshot is not None:
+            # Explicit opt-in only. Old histories are retained; ETFs are not constituents.
+            self._assets = {
+                **{a.symbol: a for a in universe_snapshot.members},
+                **{symbol: a for symbol, a in self._assets.items() if a.asset_type == "etf"},
+            }
         resolved_data_dir = Path(data_dir).resolve() if data_dir else _default_data_dir()
         self._storage = OHLCVStore(resolved_data_dir)
         self._overview_storage = MarketOverviewStore(resolved_data_dir)
@@ -152,7 +161,7 @@ class AkShareMarketDataProvider:
         self,
         query: str | None = None,
         asset_type: AssetType | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
     ) -> list[Asset]:
         result = list(self._assets.values())
         if query is not None:
@@ -483,7 +492,9 @@ class AkShareMarketDataProvider:
             result[column] = pd.to_numeric(result[column], errors="coerce")
         if result[["date", "open", "high", "low", "close", "volume"]].isna().any().any():
             raise UpstreamUnavailableError("Tencent history returned invalid required values")
-        return result.sort_values("date").drop_duplicates(subset="date", keep="last")
+        if result["date"].duplicated().any():
+            raise UpstreamUnavailableError("Tencent history returned duplicate daily dates")
+        return result.sort_values("date")
 
     @staticmethod
     def _fetch_market_overview(trade_date: date) -> dict[str, object]:

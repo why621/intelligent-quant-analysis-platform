@@ -88,6 +88,17 @@ def list_assets() -> tuple[dict[str, object], int]:
         )
     limit = int(raw_limit)
 
+    raw_offset = request.args.get("offset", "0")
+    if (not re.fullmatch(r"[0-9]{1,6}", raw_offset)
+            or int(raw_offset) > 100000):
+        return error_response(
+            code="VALIDATION_ERROR",
+            message="offset 必须是 0 到 100000 的整数",
+            status=400,
+            details={"field": "offset"},
+        )
+    offset = int(raw_offset)
+
     query = request.args.get("query")
     if query is not None and len(query) > 30:
         return error_response(
@@ -98,7 +109,9 @@ def list_assets() -> tuple[dict[str, object], int]:
         )
 
     service = current_app.extensions["market_data_service"]
-    return dict(service.list_assets(query=query, asset_type=asset_type, limit=limit)), 200
+    return dict(service.list_assets(
+        query=query, asset_type=asset_type, limit=limit, offset=offset
+    )), 200
 
 
 @api.get("/assets/<string:symbol>/history")

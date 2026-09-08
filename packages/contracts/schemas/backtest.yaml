@@ -37,6 +37,7 @@ BacktestRequest:
     endDate: {type: string, format: date}
     benchmark:
       $ref: "./common.yaml#/Symbol"
+      description: 可省略表示无基准；当前仅支持GET /assets目录中的active ETF，不支持000300独立指数。
     initialCapitalCny:
       type: number
       exclusiveMinimum: 0
@@ -108,6 +109,9 @@ BacktestJob:
   type: object
   required: [jobId, status, createdAt]
   properties:
+    request:
+      $ref: "#/BacktestRequest"
+      description: 提交时请求快照；用于刷新恢复、结果归属及基准披露。旧任务保留原参数。
     jobId: {type: string, format: uuid}
     status:
       type: string

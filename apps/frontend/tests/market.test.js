@@ -8,7 +8,10 @@ const makeClient = () => ({
     history: { status: 'ready', message: 'complete' },
     overview: { status: 'failed', message: 'unavailable' }
   } }),
-  listAssets: async () => ({ items: [{ symbol: '510300' }] }),
+  listAssets: async () => ({ items: [{
+    symbol: '510300', assetId: 'etf:SSE:510300', assetType: 'etf',
+    exchange: 'SSE', name: '沪深300ETF', active: true
+  }], total: 1, matchedTotal: 1, offset: 0, nextOffset: null, catalogVersion: 'a'.repeat(64) }),
   getMarketOverview: async () => { throw new Error('503') },
   getStrategies: async () => ({ items: [{ id: 'ma_cross' }] }),
   getStrategyRanking: async () => ({ items: [] })
