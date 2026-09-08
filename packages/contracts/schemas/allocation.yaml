@@ -36,7 +36,7 @@ AllocationResponse:
     basisDate:
       type: string
       format: date
-      description: 建议所用的最近交易日收盘日期
+      description: 上海当前日期之前最近交易日的收盘日期；保守排除当天数据
     targetDate:
       type: string
       format: date
@@ -45,7 +45,11 @@ AllocationResponse:
     positions:
       type: array
       items: {$ref: "#/AllocationPosition"}
-    cashPct: {type: number, minimum: 0, maximum: 100}
+    cashPct:
+      type: number
+      minimum: 0
+      maximum: 100
+      description: 实际现金比例，与持仓权重合计100%；全部退出时为100%
     advisoryOnly: {type: boolean, const: true}
     disclaimer:
       type: string

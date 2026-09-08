@@ -1,4 +1,5 @@
 import re
+from datetime import date
 
 from app import create_app
 
@@ -1145,8 +1146,9 @@ def test_allocation_matches_contract() -> None:
     ]
 
 
-def test_allocation_with_real_algorithm() -> None:
+def test_allocation_with_real_algorithm(monkeypatch) -> None:
     """真实算法组 AllocationService + fake 价格：信号映射与权重守恒端到端。"""
+    monkeypatch.setattr("quant_platform.allocation._today", lambda: date(2026, 8, 24))
     application = create_app({"TESTING": True})
     algorithm = application.extensions["allocation_service"]._algorithm
     prices = {
@@ -1178,8 +1180,9 @@ def test_allocation_with_real_algorithm() -> None:
     assert total + body["cashPct"] == 100
 
 
-def test_allocation_all_sell_zero_weights() -> None:
+def test_allocation_all_sell_zero_weights(monkeypatch) -> None:
     """全卖出信号：无可投标的，所有仓位权重为 0，建议纯现金。"""
+    monkeypatch.setattr("quant_platform.allocation._today", lambda: date(2026, 8, 24))
     application = create_app({"TESTING": True})
     algorithm = application.extensions["allocation_service"]._algorithm
     algorithm._provider.history = lambda symbol, *args, **kwargs: make_allocation_prices(80.0)
@@ -1193,13 +1196,11 @@ def test_allocation_all_sell_zero_weights() -> None:
     body = response.json
     assert all(p["weightPct"] == 0 for p in body["positions"])
     assert all(p["action"] == "exit" for p in body["positions"])
+    assert body["cashPct"] == 100
 
 
-def test_allocation_insufficient_history_is_hold() -> None:
-    """历史数据不足 10 行：算法组标记为中性信号（hold），后端原样透传。
-
-    数据缺失被伪装成中性信号是算法组行为，问题已转达，后端不修正。
-    """
+def test_allocation_insufficient_history_is_unavailable() -> None:
+    """历史不足不能被伪装成中性信号。"""
     application = create_app({"TESTING": True})
     algorithm = application.extensions["allocation_service"]._algorithm
     algorithm._provider.history = (
@@ -1211,9 +1212,8 @@ def test_allocation_insufficient_history_is_hold() -> None:
         json={"symbols": ["510300"], "strategyId": "ma_cross"},
     )
 
-    assert response.status_code == 200
-    position = response.json["positions"][0]
-    assert position["action"] == "hold"
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
 
 
 def test_allocation_unknown_strategy() -> None:

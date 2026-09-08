@@ -87,6 +87,7 @@ INDEX_SYMBOLS = [
 _LOOKBACK_DAYS = 400
 _OVERVIEW_TIMEOUT_SECONDS = 180
 _HISTORY_BATCH_TIMEOUT_SECONDS = 900
+_SZ000_VOLUME_VERSION = "tx-1.18.94-sz000-shares-v1"
 _OVERVIEW_ATTEMPTS = 1  # HTTP pages retry individually; do not restart a full collection.
 logger = logging.getLogger(__name__)
 _REQUEST_DEADLINE = ContextVar("history_request_deadline", default=None)
@@ -177,7 +178,7 @@ class AkShareMarketDataProvider:
         if not expected:
             return _empty_ohlcv()
         start_date, end_date = expected[0], expected[-1]
-        cached = self._storage.load(symbol, adjust)
+        cached = self._load_history_cache(symbol, adjust)
         if not cached.empty:
             lo = pd.Timestamp(start_date)
             hi = pd.Timestamp(end_date)
@@ -207,7 +208,7 @@ class AkShareMarketDataProvider:
             )
         else:
             merged = raw
-        self._storage.save(symbol, merged, adjust)
+        self._save_history_cache(symbol, merged, adjust)
 
         lo = pd.Timestamp(start_date)
         hi = pd.Timestamp(end_date)
@@ -219,6 +220,17 @@ class AkShareMarketDataProvider:
 
     def cache_revision(self) -> str:
         return self._storage.revision()
+
+    def _load_history_cache(self, symbol, adjust="qfq"):
+        version = _SZ000_VOLUME_VERSION if symbol.startswith("000") else None
+        try:
+            return self._storage.load(symbol, adjust, required_volume_version=version)
+        except ValueError as exc:
+            raise UpstreamUnavailableError(str(exc)) from exc
+
+    def _save_history_cache(self, symbol, frame, adjust="qfq"):
+        version = _SZ000_VOLUME_VERSION if symbol.startswith("000") else None
+        self._storage.save(symbol, frame, adjust, volume_version=version)
 
     @contextmanager
     def computation_budget(self, seconds: float):
@@ -267,7 +279,7 @@ class AkShareMarketDataProvider:
 
         for symbol in self._assets:
             try:
-                cached = self._storage.load(symbol)
+                cached = self._load_history_cache(symbol)
                 if not cached.empty:
                     available += 1
                     cached_date = cached["date"].max().date()
@@ -298,7 +310,7 @@ class AkShareMarketDataProvider:
                     .drop_duplicates(subset="date", keep="last")
                     .sort_values("date")
                 )
-                self._storage.save(symbol, merged)
+                self._save_history_cache(symbol, merged)
                 if cached.empty:
                     available += 1
                 refreshed += 1
@@ -449,8 +461,17 @@ class AkShareMarketDataProvider:
         result = raw[required].copy()
         if "volume" in raw.columns:
             result["volume"] = raw["volume"]
+            # This method accepts stock/ETF codes, never index identities. AkShare
+            # 1.18.94 incorrectly excludes sz000 stocks from hand-to-share conversion.
+            # Fail closed after dependency changes rather than applying a blind factor.
+            if symbol.startswith("000"):
+                if ak.__version__ != "1.18.94":
+                    raise UpstreamUnavailableError("revalidate sz000 volume for this SDK version")
+                result["volume"] = pd.to_numeric(result["volume"], errors="coerce") * 100
             result["amount"] = raw["amount"] if "amount" in raw.columns else float("nan")
         elif "amount" in raw.columns:
+            if symbol.startswith("000"):
+                raise UpstreamUnavailableError("unverified legacy sz000 volume schema")
             # AkShare's Tencent endpoint names trading volume (hands) ``amount``.
             result["volume"] = raw["amount"]
             result["amount"] = float("nan")

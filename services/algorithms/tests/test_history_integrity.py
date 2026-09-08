@@ -100,6 +100,7 @@ def test_oldest_asset_date_is_reported_and_mixed_freshness_is_stale(tmp_path):
     def fetch(symbol, *args):
         return bars(["2026-09-04" if symbol == "510300" else "2026-09-07"])
     with (
+        patch("quant_platform.data.akshare_provider._today", return_value=date(2026, 9, 7)),
         patch.object(provider, "_fetch_tencent", side_effect=fetch),
         patch.object(provider, "refresh_market_overview", return_value={}),
     ):

@@ -270,13 +270,17 @@ class OHLCVStore:
             )
             return cur.fetchone() is not None
 
-    def load(self, symbol: str, adjust: str = "qfq") -> pd.DataFrame:
+    def load(
+        self, symbol: str, adjust: str = "qfq", *, required_volume_version: str | None = None,
+    ) -> pd.DataFrame:
         """Return a complete cached history, or an empty frame when absent."""
         if not symbol.isdigit() or len(symbol) != 6:
             raise ValueError("symbol must be a six-digit string")
 
         self._validate_adjust(adjust)
         with DatabaseConnection.connection(self._data_dir) as conn:
+            # Read bars and their schema assertion from one SQLite snapshot.
+            conn.execute("BEGIN")
             df = pd.read_sql_query(
                 """
                 SELECT trade_date AS date, open, high, low, close, volume, amount
@@ -287,11 +291,21 @@ class OHLCVStore:
                 conn,
                 params=(symbol, adjust),
             )
+            if required_volume_version and not df.empty:
+                marker = conn.execute(
+                    "SELECT value FROM cache_metadata WHERE key = ?",
+                    (f"volume_schema:{symbol}:{adjust}",),
+                ).fetchone()
+                if marker is None or marker[0] != required_volume_version:
+                    raise ValueError("volume schema unverified; rebuild affected cache first")
         if df.empty:
             return pd.DataFrame(columns=OHLCV_COLUMNS)
         return _normalise_ohlcv(df)
 
-    def save(self, symbol: str, df: pd.DataFrame, adjust: str = "qfq") -> None:
+    def save(
+        self, symbol: str, df: pd.DataFrame, adjust: str = "qfq", *,
+        volume_version: str | None = None,
+    ) -> None:
         """Validate, deduplicate, and atomically save asset data to SQLite."""
         if not symbol.isdigit() or len(symbol) != 6:
             raise ValueError("symbol must be a six-digit string")
@@ -302,7 +316,29 @@ class OHLCVStore:
             return
 
         with DatabaseConnection.connection(self._data_dir) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            marker_key = f"volume_schema:{symbol}:{adjust}"
+            if volume_version:
+                marker = conn.execute(
+                    "SELECT value FROM cache_metadata WHERE key = ?", (marker_key,),
+                ).fetchone()
+                if marker is None or marker[0] != volume_version:
+                    old_dates = {row[0] for row in conn.execute(
+                        "SELECT trade_date FROM ohlcv WHERE symbol = ? AND adjust = ?",
+                        (symbol, adjust),
+                    )}
+                    if not old_dates.issubset(set(normalised["date"].dt.strftime("%Y-%m-%d"))):
+                        raise ValueError("volume migration must cover every cached date")
             self._upsert(conn, symbol, adjust, normalised)
+            if volume_version:
+                conn.execute(
+                    "INSERT INTO cache_metadata (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (marker_key, volume_version),
+                )
+            else:
+                # An unversioned writer must not leave an obsolete quality assertion.
+                conn.execute("DELETE FROM cache_metadata WHERE key = ?", (marker_key,))
             conn.execute(
                 "INSERT INTO cache_metadata (key, value) VALUES ('ohlcv_revision', '1') "
                 "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
