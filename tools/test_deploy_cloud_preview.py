@@ -34,3 +34,13 @@ def test_revision_rejects_shell_input():
     ) as remote, pytest.raises(SystemExit):
         deploy.main()
     remote.assert_not_called()
+
+
+def test_ssh_stdin_preserves_lf_on_windows():
+    with patch.object(deploy.subprocess, "run") as run:
+        run.return_value.returncode = 0
+        deploy.remote("true\n")
+    kwargs = run.call_args.kwargs
+    assert isinstance(kwargs["input"], bytes)
+    assert b"\r" not in kwargs["input"]
+    assert "text" not in kwargs

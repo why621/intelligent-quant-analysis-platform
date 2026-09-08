@@ -18,7 +18,7 @@ OPTIONS = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
            "-o", "IdentitiesOnly=yes", "-i", "D:/quantserver.pem"]
 TARGET = "ubuntu@43.161.223.91"
 REPO = "/opt/intelligent-quant-regression"
-BACKUP = "/opt/intelligent-quant-backups/cr015-preview-20260908"
+BACKUP = "/opt/intelligent-quant-backups/cr015-preview-20260908-r2"
 BASE = "b4634d18abd2409fde9c9cd533dc811dd4ca2f1f"
 COMPOSE = "docker compose -f compose.regression.yml"
 PREFIX = f"set -eu\ncd {REPO}\nexport FRONTEND_BIND_ADDRESS=0.0.0.0 FRONTEND_PORT=80 VITE_API_BASE_URL=/api\n"
@@ -28,7 +28,8 @@ FRONTEND = "intelligent-quant-regression-frontend"
 
 def remote(script, timeout=180):
     result = subprocess.run([SSH, *OPTIONS, TARGET, "sudo -n bash -s"],
-                            input=PREFIX + script, text=True, timeout=timeout, check=False)
+                            input=(PREFIX + script).encode("utf-8"),
+                            timeout=timeout, check=False)
     if result.returncode:
         raise SystemExit(result.returncode)
 
@@ -45,7 +46,7 @@ def main():
     if args.action == "backup":
         backup_code = '''import json, sqlite3
 from pathlib import Path
-root = Path("/tmp/cr015-preview-backup")
+root = Path("/tmp/cr015-preview-backup-r2")
 root.mkdir(mode=0o700)
 for source, name in [("/app/data/processed/market_data.db", "market_data.db"),
                      ("/app/var/backtests.db", "backtests.db")]:
@@ -68,10 +69,12 @@ chmod 600 {BACKUP}/containers.json
 docker image tag $(docker inspect --format '{{{{.Image}}}}' {BACKEND}-1) {BACKEND}:rollback-cr015
 docker image tag $(docker inspect --format '{{{{.Image}}}}' {FRONTEND}-1) {FRONTEND}:rollback-cr015
 docker exec -u 0 {BACKEND}-1 python -B -c {shlex.quote(backup_code)}
-docker cp {BACKEND}-1:/tmp/cr015-preview-backup/. {BACKUP}/
+docker cp {BACKEND}-1:/tmp/cr015-preview-backup-r2/. {BACKUP}/
 chmod 600 {BACKUP}/*.db
 test -s {BACKUP}/market_data.db
 test -s {BACKUP}/backtests.db
+test -s {BACKUP}/repository.bundle
+test -s {BACKUP}/containers.json
 printf '%s\\n' 'BACKUP COMPLETE: {BACKUP}'
 ''')
     elif args.action == "upload":
