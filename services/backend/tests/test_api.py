@@ -1,6 +1,21 @@
 import re
+from datetime import date
 
 from app import create_app
+
+
+def publish_research_fixture(application, cutoff=date(2026, 9, 7)):
+    """Fixed publication state for fake research data; no external cache dependence."""
+    from quant_platform.models import DataStatus
+
+    provider = application.extensions["market_data_service"]._provider
+    provider.status = lambda: DataStatus(
+        status="ready",
+        source="AkShare",
+        asset_count=2,
+        latest_trade_date=cutoff,
+        updated_at=None,
+    )
 
 
 def make_client():
@@ -49,11 +64,11 @@ def test_assets_matches_contract() -> None:
 
     assert response.status_code == 200
     body = response.json
-    assert set(body) == {"items", "total"}
+    assert set(body) == {"items", "total", "matchedTotal", "offset", "nextOffset", "catalogVersion"}
     assert isinstance(body["total"], int) and body["total"] == len(body["items"])
     assert body["total"] > 0
     for item in body["items"]:
-        assert set(item) == {"symbol", "name", "assetType", "exchange", "active"}
+        assert set(item) == {"assetId", "symbol", "name", "assetType", "exchange", "active"}
         assert isinstance(item["symbol"], str) and len(item["symbol"]) == 6
         assert item["assetType"] in {"stock", "etf"}
         assert item["exchange"] in {"SSE", "SZSE", "BSE"}
@@ -98,6 +113,7 @@ def make_client_with_fake(method_name: str, fake_value):
     """把 provider 的 method_name 替换为返回 fake_value 的函数，避免真实网络请求。"""
     application = create_app({"TESTING": True})
     service = application.extensions["market_data_service"]
+    publish_research_fixture(application)
     setattr(service._provider, method_name, lambda *args, **kwargs: fake_value)
     return application.test_client()
 
@@ -117,9 +133,7 @@ def test_asset_history_matches_contract() -> None:
     from pandas import DataFrame
 
     client = make_client_with_fake("history", DataFrame(FAKE_HISTORY))
-    response = client.get(
-        "/api/assets/510300/history?startDate=2025-01-01&endDate=2025-12-31"
-    )
+    response = client.get("/api/assets/510300/history?startDate=2025-01-01&endDate=2025-12-31")
 
     assert response.status_code == 200
     body = response.json
@@ -138,9 +152,7 @@ def test_asset_history_empty_frame_is_empty_items() -> None:
 
     empty = DataFrame(columns=["date", "open", "high", "low", "close", "volume", "amount"])
     client = make_client_with_fake("history", empty)
-    response = client.get(
-        "/api/assets/510300/history?startDate=2025-01-01&endDate=2025-12-31"
-    )
+    response = client.get("/api/assets/510300/history?startDate=2025-01-01&endDate=2025-12-31")
 
     # 新 provider 语义：空 DataFrame = 区间真无数据，返回 200 空 items（不是错误）
     assert response.status_code == 200
@@ -155,11 +167,10 @@ def test_asset_history_upstream_error() -> None:
 
     application = create_app({"TESTING": True})
     service = application.extensions["market_data_service"]
+    publish_research_fixture(application)
     service._provider.history = failing
     client = application.test_client()
-    response = client.get(
-        "/api/assets/510300/history?startDate=2025-01-01&endDate=2025-12-31"
-    )
+    response = client.get("/api/assets/510300/history?startDate=2025-01-01&endDate=2025-12-31")
 
     assert response.status_code == 503
     assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
@@ -224,14 +235,24 @@ def test_market_overview_matches_contract() -> None:
     assert response.status_code == 200
     body = response.json
     assert set(body) == {
-        "tradeDate", "advancing", "declining", "unchanged",
-        "limitUp", "limitDown", "turnoverCny", "northboundNetCny", "indices",
+        "tradeDate",
+        "advancing",
+        "declining",
+        "unchanged",
+        "limitUp",
+        "limitDown",
+        "turnoverCny",
+        "northboundNetCny",
+        "indices",
     }
     assert body["tradeDate"] == "2026-08-14"
     assert body["advancing"] == 3200
     assert body["turnoverCny"] == 850000000000.0
     assert body["indices"][0] == {
-        "symbol": "000001", "name": "上证指数", "close": 3456.78, "changePct": 0.55,
+        "symbol": "000001",
+        "name": "上证指数",
+        "close": 3456.78,
+        "changePct": 0.55,
     }
 
 
@@ -282,7 +303,12 @@ def test_strategies_matches_contract() -> None:
     assert len(items) >= 1
     for item in items:
         assert set(item) == {
-            "id", "name", "category", "status", "description", "parameterSchema",
+            "id",
+            "name",
+            "category",
+            "status",
+            "description",
+            "parameterSchema",
         }
         assert item["category"] in {"traditional", "ai"}
         assert item["status"] in {"available", "experimental", "planned"}
@@ -303,6 +329,7 @@ def make_client_with_correlation(fake_result):
     """把 correlation 服务的 analyzer.calculate 替换为返回 fake_result 的函数。"""
     application = create_app({"TESTING": True})
     service = application.extensions["correlation_service"]
+    publish_research_fixture(application)
     service._analyzer.calculate = lambda request: fake_result
     return application.test_client()
 
@@ -328,7 +355,7 @@ def test_correlation_matches_contract() -> None:
 
     assert response.status_code == 200
     body = response.json
-    assert set(body) == {"symbols", "observationCount", "matrix"}
+    assert set(body) == {"symbols", "observationCount", "matrix", "dataContext", "returnAlignment"}
     assert body["symbols"] == ["510300", "510500"]
     assert body["observationCount"] == 245
     assert body["matrix"] == [[1.0, 0.87], [0.87, 1.0]]
@@ -375,11 +402,10 @@ def test_correlation_upstream_error() -> None:
 
     application = create_app({"TESTING": True})
     service = application.extensions["market_data_service"]
+    publish_research_fixture(application)
     # correlation 复用同一个 provider 实例，替换 history 即模拟上游失败
     service._provider.history = failing
-    response = application.test_client().post(
-        "/api/analytics/correlation", json=CORRELATION_BODY
-    )
+    response = application.test_client().post("/api/analytics/correlation", json=CORRELATION_BODY)
 
     assert response.status_code == 503
     assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
@@ -389,12 +415,12 @@ def test_correlation_rejects_invalid_body() -> None:
     client = make_client()
 
     bad_symbols = [
-        dict(CORRELATION_BODY, symbols=["510300"]),           # 少于 2 个
-        dict(CORRELATION_BODY, symbols=list(range(11))),      # 超过 10 个
+        dict(CORRELATION_BODY, symbols=["510300"]),  # 少于 2 个
+        dict(CORRELATION_BODY, symbols=list(range(11))),  # 超过 10 个
         dict(CORRELATION_BODY, symbols=["510300", "510300"]),  # 重复
         dict(CORRELATION_BODY, symbols=["510300", "abc123"]),  # 非六位数字
-        dict(CORRELATION_BODY, symbols=["510300", 510500]),   # 非字符串
-        dict(CORRELATION_BODY, extra="field"),                # 未知字段
+        dict(CORRELATION_BODY, symbols=["510300", 510500]),  # 非字符串
+        dict(CORRELATION_BODY, extra="field"),  # 未知字段
     ]
     for body in bad_symbols:
         response = client.post("/api/analytics/correlation", json=body)
@@ -448,7 +474,7 @@ BACKTEST_BODY = {
     "symbols": ["510300"],
     "strategyId": "ma_cross",
     "parameters": {"shortWindow": 5, "longWindow": 20},
-    "startDate": "2024-01-01",
+    "startDate": "2025-01-01",
     "endDate": "2025-12-31",
 }
 
@@ -470,14 +496,14 @@ def fake_backtest_result():
         ),
         equity_curve=DataFrame(
             {
-                "date": ["2024-01-02", "2024-01-03"],
+                "date": ["2025-01-02", "2025-01-03"],
                 "equity": [100000.0, 100500.0],
                 "benchmarkEquity": [1.0, 1.005],
             }
         ),
         trades=(
             Trade(
-                trade_date=date_cls(2024, 1, 2),
+                trade_date=date_cls(2025, 1, 2),
                 symbol="510300",
                 side="buy",
                 price=3.95,
@@ -502,12 +528,21 @@ def test_backtest_create_matches_contract() -> None:
     assert response.status_code == 202
     body = response.json
     assert set(body) == {
-        "jobId", "status", "createdAt", "updatedAt", "progressPct", "result", "error",
+        "dataContext",
+        "jobId",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "progressPct",
+        "result",
+        "error",
+        "request",
     }
     assert re.fullmatch(
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         body["jobId"],
     )
+    assert body["request"] == BACKTEST_BODY
     assert body["status"] == "queued"
     assert body["updatedAt"] is None
     assert body["progressPct"] == 0
@@ -517,9 +552,7 @@ def test_backtest_create_matches_contract() -> None:
 
 
 def test_backtest_executes_and_returns_result() -> None:
-    client, backtest_service = make_client_with_backtest(
-        lambda request: fake_backtest_result()
-    )
+    client, backtest_service = make_client_with_backtest(lambda request: fake_backtest_result())
     job_id = client.post("/api/backtests", json=BACKTEST_BODY).json["jobId"]
 
     backtest_service.execute_job(job_id)
@@ -531,7 +564,7 @@ def test_backtest_executes_and_returns_result() -> None:
     assert body["progressPct"] == 100
     assert body["error"] is None
     result = body["result"]
-    assert set(result) == {"metrics", "equityCurve", "trades", "assumptions"}
+    assert set(result) == {"metrics", "equityCurve", "trades", "assumptions", "dataContext"}
     assert result["metrics"] == {
         "totalReturnPct": 8.5,
         "annualizedReturnPct": 8.5,
@@ -541,12 +574,12 @@ def test_backtest_executes_and_returns_result() -> None:
         "beta": None,
     }
     assert result["equityCurve"] == [
-        {"date": "2024-01-02", "equity": 100000.0, "benchmarkEquity": 1.0},
-        {"date": "2024-01-03", "equity": 100500.0, "benchmarkEquity": 1.005},
+        {"date": "2025-01-02", "equity": 100000.0, "benchmarkEquity": 1.0},
+        {"date": "2025-01-03", "equity": 100500.0, "benchmarkEquity": 1.005},
     ]
     assert result["trades"] == [
         {
-            "date": "2024-01-02",
+            "date": "2025-01-02",
             "symbol": "510300",
             "side": "buy",
             "price": 3.95,
@@ -595,9 +628,7 @@ def test_backtest_upstream_error() -> None:
 
 
 def test_backtest_job_not_found() -> None:
-    response = make_client().get(
-        "/api/backtests/8f316d85-e86b-45c5-8ff6-c8ee2457e71b"
-    )
+    response = make_client().get("/api/backtests/8f316d85-e86b-45c5-8ff6-c8ee2457e71b")
 
     assert response.status_code == 404
     assert response.json["error"]["code"] == "JOB_NOT_FOUND"
@@ -613,9 +644,7 @@ def test_backtest_rejects_invalid_job_id() -> None:
 
 def test_backtest_strategy_not_available() -> None:
     client, _ = make_client_with_backtest(lambda request: None)
-    response = client.post(
-        "/api/backtests", json=dict(BACKTEST_BODY, strategyId="unknown")
-    )
+    response = client.post("/api/backtests", json=dict(BACKTEST_BODY, strategyId="unknown"))
 
     assert response.status_code == 422
     assert response.json["error"]["code"] == "STRATEGY_NOT_AVAILABLE"
@@ -639,18 +668,16 @@ def test_backtest_rejects_schema_mismatched_parameters() -> None:
     client, _ = make_client_with_backtest(lambda request: None)
 
     bad_parameters = [
-        {"shortWindow": 5, "longWindow": 20, "evilField": 1},   # 未知字段
-        {"shortWindow": 5},                                     # 缺 required 字段
-        {},                                                     # 全缺
-        {"shortWindow": "5", "longWindow": 20},                 # 类型错误
-        {"shortWindow": True, "longWindow": 20},                # bool 伪装整数
-        {"shortWindow": 1, "longWindow": 20},                   # 低于 minimum
-        {"shortWindow": 5, "longWindow": 3, "extra": 1},        # 缺字段+未知字段
+        {"shortWindow": 5, "longWindow": 20, "evilField": 1},  # 未知字段
+        {"shortWindow": 5},  # 缺 required 字段
+        {},  # 全缺
+        {"shortWindow": "5", "longWindow": 20},  # 类型错误
+        {"shortWindow": True, "longWindow": 20},  # bool 伪装整数
+        {"shortWindow": 1, "longWindow": 20},  # 低于 minimum
+        {"shortWindow": 5, "longWindow": 3, "extra": 1},  # 缺字段+未知字段
     ]
     for parameters in bad_parameters:
-        response = client.post(
-            "/api/backtests", json=dict(BACKTEST_BODY, parameters=parameters)
-        )
+        response = client.post("/api/backtests", json=dict(BACKTEST_BODY, parameters=parameters))
         assert response.status_code == 400, parameters
         assert response.json["error"]["code"] == "VALIDATION_ERROR"
 
@@ -667,7 +694,7 @@ def test_backtest_momentum_reversal_parameters() -> None:
         "symbols": ["510300"],
         "strategyId": "momentum_reversal",
         "parameters": {"lookback": 10, "overboughtThreshold": 5.0, "oversoldThreshold": -5.0},
-        "startDate": "2024-01-01",
+        "startDate": "2025-01-01",
         "endDate": "2025-12-31",
     }
     assert client.post("/api/backtests", json=valid).status_code == 202
@@ -688,9 +715,7 @@ def test_backtest_momentum_reversal_parameters() -> None:
 
 def test_backtest_asset_not_in_pool() -> None:
     client, _ = make_client_with_backtest(lambda request: None)
-    response = client.post(
-        "/api/backtests", json=dict(BACKTEST_BODY, symbols=["999999"])
-    )
+    response = client.post("/api/backtests", json=dict(BACKTEST_BODY, symbols=["999999"]))
 
     assert response.status_code == 404
     assert response.json["error"]["code"] == "ASSET_NOT_FOUND"
@@ -700,22 +725,22 @@ def test_backtest_rejects_invalid_body() -> None:
     client, _ = make_client_with_backtest(lambda request: None)
 
     bad_bodies = [
-        dict(BACKTEST_BODY, symbols=[]),                            # 空符号列表
-        dict(BACKTEST_BODY, symbols=list(range(11))),               # 超过 10 个
-        dict(BACKTEST_BODY, symbols=["510300", "510300"]),          # 重复
-        dict(BACKTEST_BODY, symbols=["510300", "abc123"]),          # 非六位数字
-        dict(BACKTEST_BODY, symbols=["510300", 510500]),            # 非字符串
-        dict(BACKTEST_BODY, strategyId=""),                         # 空 strategyId
-        dict(BACKTEST_BODY, parameters=["shortWindow"]),            # parameters 非对象
-        dict(BACKTEST_BODY, benchmark="abc"),                       # benchmark 非六位
-        dict(BACKTEST_BODY, initialCapitalCny=0),                   # 本金非正
-        dict(BACKTEST_BODY, initialCapitalCny=-1),                  # 本金负数
-        dict(BACKTEST_BODY, initialCapitalCny="100000"),            # 本金非数字
-        dict(BACKTEST_BODY, adjust="xxx"),                          # 复权方式非法
-        dict(BACKTEST_BODY, tradingCosts=[]),                       # 成本非对象
-        dict(BACKTEST_BODY, tradingCosts={"commission": 0.1}),      # 成本未知字段
-        dict(BACKTEST_BODY, tradingCosts={"commissionPct": -1}),    # 成本负值
-        dict(BACKTEST_BODY, extra="field"),                         # 未知字段
+        dict(BACKTEST_BODY, symbols=[]),  # 空符号列表
+        dict(BACKTEST_BODY, symbols=list(range(11))),  # 超过 10 个
+        dict(BACKTEST_BODY, symbols=["510300", "510300"]),  # 重复
+        dict(BACKTEST_BODY, symbols=["510300", "abc123"]),  # 非六位数字
+        dict(BACKTEST_BODY, symbols=["510300", 510500]),  # 非字符串
+        dict(BACKTEST_BODY, strategyId=""),  # 空 strategyId
+        dict(BACKTEST_BODY, parameters=["shortWindow"]),  # parameters 非对象
+        dict(BACKTEST_BODY, benchmark="abc"),  # benchmark 非六位
+        dict(BACKTEST_BODY, initialCapitalCny=0),  # 本金非正
+        dict(BACKTEST_BODY, initialCapitalCny=-1),  # 本金负数
+        dict(BACKTEST_BODY, initialCapitalCny="100000"),  # 本金非数字
+        dict(BACKTEST_BODY, adjust="xxx"),  # 复权方式非法
+        dict(BACKTEST_BODY, tradingCosts=[]),  # 成本非对象
+        dict(BACKTEST_BODY, tradingCosts={"commission": 0.1}),  # 成本未知字段
+        dict(BACKTEST_BODY, tradingCosts={"commissionPct": -1}),  # 成本负值
+        dict(BACKTEST_BODY, extra="field"),  # 未知字段
     ]
     for body in bad_bodies:
         response = client.post("/api/backtests", json=body)
@@ -768,6 +793,7 @@ def test_backtest_claim_concurrency() -> None:
 # ---------------------------------------------------------------------------
 # /strategies/ranking
 # ---------------------------------------------------------------------------
+
 
 def make_ranking_engine_run(returns, nan_strategies=(), calls=None):
     """构造一个可计数的 fake engine.run：按策略返回不同收益，指定策略可给 NaN。"""
@@ -878,14 +904,12 @@ def test_ranking_rejects_invalid_period() -> None:
 
 
 def test_ranking_upstream_unavailable_when_no_trade_date() -> None:
-    client = make_client_with_ranking(
-        make_ranking_engine_run({}), latest_trade_date=None
-    )
+    client = make_client_with_ranking(make_ranking_engine_run({}), latest_trade_date=None)
 
     response = client.get("/api/strategies/ranking")
 
     assert response.status_code == 503
-    assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+    assert response.json["error"]["code"] == "DATA_NOT_READY"
 
 
 def test_ranking_insufficient_data_on_nan() -> None:
@@ -929,9 +953,7 @@ def test_ranking_insufficient_data_on_empty_result() -> None:
 def test_ranking_cache_hit_avoids_recompute() -> None:
     calls: list[str] = []
     client = make_client_with_ranking(
-        make_ranking_engine_run(
-            {"ma_cross": 5.0, "momentum_reversal": 8.0}, calls=calls
-        )
+        make_ranking_engine_run({"ma_cross": 5.0, "momentum_reversal": 8.0}, calls=calls)
     )
 
     client.get("/api/strategies/ranking")
@@ -947,9 +969,7 @@ def test_ranking_single_flight_concurrency() -> None:
 
     calls: list[str] = []
     client = make_client_with_ranking(
-        make_ranking_engine_run(
-            {"ma_cross": 5.0, "momentum_reversal": 8.0}, calls=calls
-        )
+        make_ranking_engine_run({"ma_cross": 5.0, "momentum_reversal": 8.0}, calls=calls)
     )
     barrier = threading.Barrier(5)
     statuses: list[int] = []
@@ -1029,9 +1049,7 @@ def test_ranking_multi_key_single_flight() -> None:
     service = RankingService(timed, provider, StrategyCatalogService())
 
     results: dict[str, object] = {}
-    first = threading.Thread(
-        target=lambda: results.setdefault("30d", service.get_ranking("30d"))
-    )
+    first = threading.Thread(target=lambda: results.setdefault("30d", service.get_ranking("30d")))
     first.start()
     assert timed.started_30d.wait(2)  # key1 已开始计算
 
@@ -1067,9 +1085,7 @@ def fake_allocation_suggestion(*, symbols=("510300",), cash_pct=0.0, strategy_id
         target_date=date(2026, 8, 24),
         strategy_id=strategy_id,
         positions=tuple(
-            AllocationPosition(
-                symbol=s, weight_pct=50.0, action="hold", reason="策略信号中性"
-            )
+            AllocationPosition(symbol=s, weight_pct=50.0, action="hold", reason="策略信号中性")
             for s in symbols
         ),
         cash_pct=cash_pct,
@@ -1079,6 +1095,7 @@ def fake_allocation_suggestion(*, symbols=("510300",), cash_pct=0.0, strategy_id
 def make_client_with_allocation_suggest(suggest):
     """替换共享 allocation 服务的算法层 suggest，隔离后端校验与序列化逻辑。"""
     application = create_app({"TESTING": True})
+    publish_research_fixture(application, date(2026, 8, 21))
     application.extensions["allocation_service"]._algorithm.suggest = suggest
     return application.test_client()
 
@@ -1113,9 +1130,7 @@ def test_allocation_matches_contract() -> None:
     calls: list[dict] = []
 
     def suggest(*, symbols, strategy_id, cash_pct):
-        calls.append(
-            {"symbols": list(symbols), "strategy_id": strategy_id, "cash_pct": cash_pct}
-        )
+        calls.append({"symbols": list(symbols), "strategy_id": strategy_id, "cash_pct": cash_pct})
         return fake_allocation_suggestion(symbols=symbols, cash_pct=cash_pct)
 
     client = make_client_with_allocation_suggest(suggest)
@@ -1127,8 +1142,14 @@ def test_allocation_matches_contract() -> None:
     assert response.status_code == 200
     body = response.json
     assert set(body) == {
-        "basisDate", "targetDate", "strategyId", "positions",
-        "cashPct", "advisoryOnly", "disclaimer",
+        "dataContext",
+        "basisDate",
+        "targetDate",
+        "strategyId",
+        "positions",
+        "cashPct",
+        "advisoryOnly",
+        "disclaimer",
     }
     assert body["basisDate"] == "2026-08-21"
     assert body["targetDate"] == "2026-08-24"
@@ -1140,19 +1161,19 @@ def test_allocation_matches_contract() -> None:
     for position in body["positions"]:
         assert set(position) == {"symbol", "weightPct", "action", "reason"}
         assert position["action"] in {"increase", "hold", "decrease", "exit"}
-    assert calls == [
-        {"symbols": ["510300", "510500"], "strategy_id": "ma_cross", "cash_pct": 20}
-    ]
+    assert calls == [{"symbols": ["510300", "510500"], "strategy_id": "ma_cross", "cash_pct": 20}]
 
 
-def test_allocation_with_real_algorithm() -> None:
+def test_allocation_with_real_algorithm(monkeypatch) -> None:
     """真实算法组 AllocationService + fake 价格：信号映射与权重守恒端到端。"""
+    monkeypatch.setattr("quant_platform.allocation._today", lambda: date(2026, 8, 24))
     application = create_app({"TESTING": True})
+    publish_research_fixture(application, date(2026, 8, 21))
     algorithm = application.extensions["allocation_service"]._algorithm
     prices = {
         "510300": make_allocation_prices(120.0),  # 末日金叉 → 买入
         "510500": make_allocation_prices(100.0),  # 持平 → 持有
-        "159915": make_allocation_prices(80.0),   # 末日死叉 → 卖出
+        "159915": make_allocation_prices(80.0),  # 末日死叉 → 卖出
     }
     algorithm._provider.history = lambda symbol, *args, **kwargs: prices[symbol]
 
@@ -1178,9 +1199,11 @@ def test_allocation_with_real_algorithm() -> None:
     assert total + body["cashPct"] == 100
 
 
-def test_allocation_all_sell_zero_weights() -> None:
+def test_allocation_all_sell_zero_weights(monkeypatch) -> None:
     """全卖出信号：无可投标的，所有仓位权重为 0，建议纯现金。"""
+    monkeypatch.setattr("quant_platform.allocation._today", lambda: date(2026, 8, 24))
     application = create_app({"TESTING": True})
+    publish_research_fixture(application, date(2026, 8, 21))
     algorithm = application.extensions["allocation_service"]._algorithm
     algorithm._provider.history = lambda symbol, *args, **kwargs: make_allocation_prices(80.0)
 
@@ -1193,33 +1216,30 @@ def test_allocation_all_sell_zero_weights() -> None:
     body = response.json
     assert all(p["weightPct"] == 0 for p in body["positions"])
     assert all(p["action"] == "exit" for p in body["positions"])
+    assert body["cashPct"] == 100
 
 
-def test_allocation_insufficient_history_is_hold() -> None:
-    """历史数据不足 10 行：算法组标记为中性信号（hold），后端原样透传。
-
-    数据缺失被伪装成中性信号是算法组行为，问题已转达，后端不修正。
-    """
+def test_allocation_insufficient_history_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr("quant_platform.allocation._today", lambda: date(2026, 8, 24))
+    """历史不足不能被伪装成中性信号。"""
     application = create_app({"TESTING": True})
+    publish_research_fixture(application, date(2026, 8, 21))
     algorithm = application.extensions["allocation_service"]._algorithm
-    algorithm._provider.history = (
-        lambda symbol, *args, **kwargs: make_allocation_prices(120.0).tail(5)
-    )
+    algorithm._provider.history = lambda symbol, *args, **kwargs: make_allocation_prices(
+        120.0
+    ).tail(5)
 
     response = application.test_client().post(
         "/api/allocation/suggestion",
         json={"symbols": ["510300"], "strategyId": "ma_cross"},
     )
 
-    assert response.status_code == 200
-    position = response.json["positions"][0]
-    assert position["action"] == "hold"
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "UPSTREAM_UNAVAILABLE"
 
 
 def test_allocation_unknown_strategy() -> None:
-    client = make_client_with_allocation_suggest(
-        lambda **kwargs: fake_allocation_suggestion()
-    )
+    client = make_client_with_allocation_suggest(lambda **kwargs: fake_allocation_suggestion())
     response = client.post(
         "/api/allocation/suggestion",
         json={"symbols": ["510300"], "strategyId": "no-such-strategy"},
@@ -1247,9 +1267,7 @@ def test_allocation_algorithm_value_error_maps_to_422() -> None:
 
 
 def test_allocation_rejects_invalid_body() -> None:
-    client = make_client_with_allocation_suggest(
-        lambda **kwargs: fake_allocation_suggestion()
-    )
+    client = make_client_with_allocation_suggest(lambda **kwargs: fake_allocation_suggestion())
     cases = [
         ({"symbols": ["510300"], "strategyId": "ma_cross", "bogus": 1}, "bogus"),
         ({"strategyId": "ma_cross"}, "symbols"),
@@ -1316,9 +1334,7 @@ def test_json_date_fields_reject_non_strings() -> None:
     client = make_client()
 
     correlation_payload = dict(CORRELATION_BODY, startDate=123)
-    correlation_response = client.post(
-        "/api/analytics/correlation", json=correlation_payload
-    )
+    correlation_response = client.post("/api/analytics/correlation", json=correlation_payload)
     assert correlation_response.status_code == 400
     assert correlation_response.json["error"]["code"] == "VALIDATION_ERROR"
 

@@ -37,6 +37,7 @@ class DataStatus:
     updated_at: datetime | None
     message: str | None = None
     timezone: str = "Asia/Shanghai"
+    components: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

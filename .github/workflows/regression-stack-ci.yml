@@ -1,0 +1,50 @@
+name: Regression stack CI
+
+on:
+  push:
+    branches: [main, codex/regression-deployment]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test backend and algorithms offline
+        run: |
+          python -m pip install -e 'services/algorithms[dev]' -e 'services/backend[dev]'
+          python -m pytest services/algorithms/tests services/backend/tests -m 'not network' -q
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Test frontend degradation states
+        run: |
+          npm ci
+          npm test --workspace @intelligent-quant/frontend
+      - name: Build stack
+        run: docker compose -f compose.regression.yml build
+      - name: Start stack
+        run: docker compose -f compose.regression.yml up -d --wait
+      - name: Run smoke test
+        run: python3 tools/smoke_regression.py
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose -f compose.regression.yml logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose -f compose.regression.yml down --volumes

@@ -2,19 +2,59 @@ DataStatus:
   type: object
   required: [status, timezone, source, assetCount]
   properties:
+    benchmarks:
+      type: array
+      items:
+        type: object
+        required: [assetId, name, returnBasis, adjust]
+        properties:
+          assetId: {const: "index:CSI:000300"}
+          name: {type: string}
+          returnBasis: {const: price_index}
+          adjust: {const: none}
+    dataContext:
+      anyOf:
+        - {$ref: "./common.yaml#/ResearchContext"}
+        - {type: "null"}
     status:
       type: string
       enum: [ready, updating, stale, failed]
     timezone: {type: string, const: Asia/Shanghai}
     source: {type: string, const: AkShare}
     assetCount: {type: integer, minimum: 0}
-    latestTradeDate: {type: [string, "null"], format: date}
+    latestTradeDate:
+      type: [string, "null"]
+      format: date
+      description: 全局已发布截止；不是每只资产覆盖承诺。相关性/回测不得越界；null时禁止提交，组件概览失败不阻塞已有历史研究。
     updatedAt: {type: [string, "null"], format: date-time}
     message: {type: [string, "null"]}
+    components:
+      type: object
+      description: 分项更新状态；旧缓存尚未记录时为空对象，ready 不保证每个标的日期一致
+      additionalProperties: false
+      properties:
+        history: {$ref: "#/DataComponentStatus"}
+        overview: {$ref: "#/DataComponentStatus"}
+DataComponentStatus:
+  type: object
+  required: [status, message]
+  properties:
+    status:
+      type: string
+      enum: [ready, updating, stale, failed]
+    message: {type: string}
+    failedSymbols:
+      type: array
+      items: {$ref: "./common.yaml#/Symbol"}
 Asset:
   type: object
-  required: [symbol, name, assetType, exchange, active]
+  required: [assetId, symbol, name, assetType, exchange, active]
   properties:
+    assetId:
+      type: string
+      pattern: "^(stock|etf):(SSE|SZSE|BSE):[0-9]{6}$"
+      readOnly: true
+      description: 类型及市场限定的目录身份；当前请求仍用symbol，尚不支持指数
     symbol: {$ref: "./common.yaml#/Symbol"}
     name: {type: string, minLength: 1}
     assetType: {$ref: "./common.yaml#/AssetType"}
@@ -22,6 +62,28 @@ Asset:
       type: string
       enum: [SSE, SZSE, BSE]
     active: {type: boolean}
+AssetPage:
+  type: object
+  required: [items, total, matchedTotal, offset, nextOffset, catalogVersion]
+  properties:
+    items:
+      type: array
+      maxItems: 100
+      items: {$ref: "#/Asset"}
+    total:
+      type: integer
+      minimum: 0
+      description: 本页items数量（保留旧语义）
+    matchedTotal:
+      type: integer
+      minimum: 0
+      description: 按query及assetType过滤后的目录总数，不保证行情覆盖
+    offset: {type: integer, minimum: 0, maximum: 100000}
+    nextOffset: {type: [integer, "null"], minimum: 0}
+    catalogVersion:
+      type: string
+      pattern: "^[a-f0-9]{64}$"
+      description: 完整目录元数据SHA256，与筛选无关；不是成分名单版本或行情版本
 PriceBar:
   type: object
   required: [date, open, high, low, close, volume]
@@ -37,6 +99,7 @@ HistoryResponse:
   type: object
   required: [symbol, adjust, currency, items]
   properties:
+    dataContext: {$ref: "./common.yaml#/ResearchContext"}
     symbol: {$ref: "./common.yaml#/Symbol"}
     adjust: {$ref: "./common.yaml#/AdjustMode"}
     currency: {type: string, const: CNY}
@@ -59,18 +122,59 @@ MarketOverview:
     [tradeDate, advancing, declining, unchanged, limitUp, limitDown,
      turnoverCny, northboundNetCny, indices]
   properties:
+    scope: {type: string, enum: [csi300_current_constituents]}
+    dataContext: {$ref: './common.yaml#/ResearchContext'}
+    membershipMode: {const: current_snapshot}
+    suspended: {type: integer, minimum: 0}
     tradeDate: {type: string, format: date}
     advancing: {type: integer, minimum: 0}
     declining: {type: integer, minimum: 0}
     unchanged: {type: integer, minimum: 0}
-    limitUp: {type: integer, minimum: 0}
-    limitDown: {type: integer, minimum: 0}
+    limitUp:
+      type: [integer, "null"]
+      minimum: 0
+      description: 无可靠涨停价格边界时为 null，不以统一涨幅阈值估算
+    limitDown:
+      type: [integer, "null"]
+      minimum: 0
+      description: 无可靠跌停价格边界时为 null
+    unavailableMetrics:
+      type: array
+      items: {type: string}
+      description: 缺失的可选指标；index:代码 表示该指数未取得同日数据
+    coverage:
+      type: object
+      required: [total, priced]
+      properties:
+        total: {type: integer, minimum: 1}
+        priced: {type: integer, minimum: 1}
     turnoverCny:
-      type: number
-      description: 两市成交额，单位元
+      type: [number, "null"]
+      description: 单位元；csi300_current_constituents范围为当前300成分成交额，其余旧接口为沪深京股票；任一记录缺失不发布部分合计
     northboundNetCny:
       type: [number, "null"]
       description: 北向资金净流入，单位元；数据源不可用时为 null
     indices:
       type: array
       items: {$ref: "#/IndexSnapshot"}
+
+PublishedCoverage:
+  type: object
+  required: [dataContext, memberCount, etfCount, items]
+  properties:
+    dataContext: {$ref: './common.yaml#/ResearchContext'}
+    memberCount: {const: 300}
+    etfCount: {const: 27}
+    items:
+      type: array
+      minItems: 327
+      maxItems: 327
+      items:
+        type: object
+        required: [assetId, symbol, startDate, endDate, quality]
+        properties:
+          assetId: {type: string}
+          symbol: {$ref: './common.yaml#/Symbol'}
+          startDate: {type: string, format: date}
+          endDate: {type: string, format: date}
+          quality: {type: object}

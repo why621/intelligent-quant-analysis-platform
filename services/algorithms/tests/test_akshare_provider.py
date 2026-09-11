@@ -10,8 +10,8 @@ pytestmark_network = pytest.mark.network
 
 
 @pytest.fixture
-def provider():
-    return AkShareMarketDataProvider()
+def provider(tmp_path):
+    return AkShareMarketDataProvider(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ class TestStatus:
     @pytestmark_network
     def test_update_daily_changes_status(self, provider):
         s = provider.update_daily()
-        assert s.status in ("ready", "failed")
+        assert s.status in ("ready", "stale", "failed")
         assert s.updated_at is not None
 
     @pytestmark_network
@@ -127,7 +127,15 @@ class TestStatus:
 
 
 class TestMarketOverview:
-    @pytestmark_network
+    @pytest.fixture(autouse=True)
+    def cached_snapshot(self, provider):
+        # Reads are offline now; live refresh has a separate bounded diagnostic.
+        provider._overview_storage.save({
+            "tradeDate": "2026-09-04", "advancing": 1, "declining": 2,
+            "unchanged": 3, "limitUp": None, "limitDown": None,
+            "turnoverCny": None, "northboundNetCny": None, "indices": [],
+        })
+
     def test_returns_expected_keys(self, provider):
         overview = provider.market_overview()
         for key in [
@@ -143,19 +151,17 @@ class TestMarketOverview:
         ]:
             assert key in overview
 
-    @pytestmark_network
     def test_counts_are_non_negative(self, provider):
         overview = provider.market_overview()
         assert overview["advancing"] >= 0
         assert overview["declining"] >= 0
         assert overview["unchanged"] >= 0
-        assert overview["limitUp"] >= 0
-        assert overview["limitDown"] >= 0
+        assert overview["limitUp"] is None
+        assert overview["limitDown"] is None
 
-    @pytestmark_network
     def test_turnover_non_negative(self, provider):
         overview = provider.market_overview()
-        assert overview["turnoverCny"] >= 0
+        assert overview["turnoverCny"] is None or overview["turnoverCny"] >= 0
 
 
 # ---------------------------------------------------------------------------

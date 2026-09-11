@@ -25,6 +25,9 @@ class MomentumReversalStrategy:
             parameter_schema={
                 "type": "object",
                 "additionalProperties": False,
+                "x-relations": [
+                    {"left": "oversoldThreshold", "operator": "lt", "right": "overboughtThreshold"}
+                ],
                 "required": ["lookback", "overboughtThreshold", "oversoldThreshold"],
                 "properties": {
                     "lookback": {

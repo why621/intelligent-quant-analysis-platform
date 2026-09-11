@@ -1,11 +1,16 @@
 openapi: 3.1.0
 info:
   title: 智能量化分析平台 API
-  version: 0.2.0
+  version: 0.7.0
   description: |
     前端、Flask 后端与算法模块之间唯一具有约束力的 HTTP 契约。
     平台面向 A 股及场内 ETF，按交易日收盘后更新。配置建议仅用于研究，
     不连接券商、不提交真实订单。
+    研究只读已有数据。published_snapshot 表示启动时载入且经完整校验的不可变327资产发布包；
+    legacy_revision 仅保护旧缓存修订，不代表完整不可变批次。切换发布指针后新进程加载新包。
+    研究接口可携带X-Research-Version（来自data/status的dataContext.dataVersion）；
+    版本不符或计算期间发生更新返回409 DATA_VERSION_CHANGED，更新中/失败返回503 DATA_NOT_READY。
+    配置若发布截止不等于上海当前日期之前最近交易日返回503 DATA_STALE。
 servers:
   - url: /api
     description: 同域部署
@@ -17,6 +22,19 @@ tags:
   - {name: Backtest}
   - {name: Allocation}
 paths:
+  /data/coverage:
+    get:
+      summary: 当前不可变发布的327资产覆盖目录（旧运行未发布时503）
+      responses:
+        '200':
+          description: 完整覆盖及共享上下文
+          content:
+            application/json:
+              schema: {$ref: './schemas/data.yaml#/PublishedCoverage'}
+        '503':
+          description: 尚无完整发布
+        '409':
+          description: 请求研究版本冲突
   /health:
     get:
       tags: [System]
@@ -56,19 +74,17 @@ paths:
         - in: query
           name: limit
           schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - in: query
+          name: offset
+          schema: {type: integer, minimum: 0, maximum: 100000, default: 0}
+          description: 过滤后稳定排序目录的偏移；跨页catalogVersion变化时丢弃本次目录并重试
       responses:
         "200":
           description: 资产列表
           content:
             application/json:
               schema:
-                type: object
-                required: [items, total]
-                properties:
-                  items:
-                    type: array
-                    items: {$ref: "./schemas/data.yaml#/Asset"}
-                  total: {type: integer, minimum: 0}
+                $ref: "./schemas/data.yaml#/AssetPage"
         default: {$ref: "#/components/responses/Error"}
   /assets/{symbol}/history:
     get:
@@ -76,6 +92,7 @@ paths:
       summary: 获取复权日线
       operationId: getAssetHistory
       parameters:
+        - $ref: "#/components/parameters/ResearchVersion"
         - $ref: "#/components/parameters/Symbol"
         - $ref: "#/components/parameters/StartDate"
         - $ref: "#/components/parameters/EndDate"
@@ -109,7 +126,10 @@ paths:
     post:
       tags: [Analytics]
       summary: 计算资产收益率相关性
+      description: 请求区间须在2025—2026已验证日历及已发布latestTradeDate内；越界400 DATE_OUT_OF_RANGE，无发布截止503 DATA_NOT_READY；范围内源失败503 UPSTREAM_UNAVAILABLE。
       operationId: calculateCorrelation
+      parameters:
+        - $ref: "#/components/parameters/ResearchVersion"
       requestBody:
         required: true
         content:
@@ -146,6 +166,7 @@ paths:
       summary: 获取策略排行榜
       operationId: getStrategyRanking
       parameters:
+        - $ref: "#/components/parameters/ResearchVersion"
         - in: query
           name: period
           schema:
@@ -163,7 +184,10 @@ paths:
     post:
       tags: [Backtest]
       summary: 提交异步回测任务
+      description: 同步校验策略参数、已接入独立指数或ETF基准和已发布日期范围后入队。日期错误含请求区间、可用截止及symbols；查询返回提交时request快照。
       operationId: createBacktest
+      parameters:
+        - $ref: "#/components/parameters/ResearchVersion"
       requestBody:
         required: true
         content:
@@ -195,6 +219,8 @@ paths:
       tags: [Allocation]
       summary: 生成下一交易日模拟配置建议
       operationId: createAllocationSuggestion
+      parameters:
+        - $ref: "#/components/parameters/ResearchVersion"
       requestBody:
         required: true
         content:
@@ -209,6 +235,12 @@ paths:
         default: {$ref: "#/components/responses/Error"}
 components:
   parameters:
+    ResearchVersion:
+      in: header
+      name: X-Research-Version
+      required: false
+      schema: {type: string, pattern: '^[a-f0-9]{64}$'}
+      description: 页面读取的dataContext.dataVersion；不匹配拒绝研究，避免跨模块静默混版。
     Symbol:
       in: path
       name: symbol

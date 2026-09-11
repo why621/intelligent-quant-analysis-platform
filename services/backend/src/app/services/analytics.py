@@ -11,6 +11,7 @@ from quant_platform.data.akshare_provider import (
 from quant_platform.models import CorrelationRequest
 
 from app.services.errors import InsufficientDataError, UpstreamUnavailableError
+from app.services.research_dates import ResearchDateGuard, research_read
 
 
 class CorrelationService:
@@ -21,8 +22,9 @@ class CorrelationService:
     整体数据不足（observation_count < 2）时返回 422 INSUFFICIENT_DATA。
     """
 
-    def __init__(self, analyzer: CorrelationAnalyzer) -> None:
+    def __init__(self, analyzer: CorrelationAnalyzer, dates: ResearchDateGuard) -> None:
         self._analyzer = analyzer
+        self._dates = dates
 
     def calculate(
         self,
@@ -34,6 +36,7 @@ class CorrelationService:
         return_type: str,
     ) -> Mapping[str, object]:
         """返回相关系数矩阵，字段与 contracts/schemas/analytics.yaml#/CorrelationResponse 一致。"""
+        self._dates.validate(symbols, start_date, end_date)
         request = CorrelationRequest(
             symbols=tuple(symbols),
             start_date=start_date,
@@ -42,20 +45,19 @@ class CorrelationService:
             return_type=return_type,  # type: ignore[arg-type]
         )
         try:
-            result = self._analyzer.calculate(request)
+            with research_read(self._dates._provider) as context:
+                result = self._analyzer.calculate(request)
         except ProviderUpstreamError as exc:
-            raise UpstreamUnavailableError(
-                details={"capability": "correlation"}
-            ) from exc
+            raise UpstreamUnavailableError(details={"capability": "correlation"}) from exc
 
         if result.observation_count < 2:
             # 契约要求 200 响应里 observationCount >= 2（schema minimum），
             # 数据不足以计算时统一返回错误而不是违约的 200。
-            raise InsufficientDataError(
-                details={"reason": "有效资产或共同观察交易日不足 2 个"}
-            )
+            raise InsufficientDataError(details={"reason": "有效资产或共同观察交易日不足 2 个"})
 
         return {
+            "dataContext": context,
+            "returnAlignment": "common_observation_intervals",
             "symbols": list(result.symbols),
             "observationCount": result.observation_count,
             "matrix": [_serialize_row(row) for row in result.matrix],

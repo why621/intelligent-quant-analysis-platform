@@ -35,6 +35,7 @@ class BacktestEngine:
         strategy = self._strategies[request.strategy_id]
         cash_per_symbol = request.initial_capital_cny / len(request.symbols)
 
+        uses_nontrading_valuation = False
         all_trades: list[Trade] = []
         equity_curves: dict[str, pd.Series] = {}
 
@@ -49,6 +50,14 @@ class BacktestEngine:
                 sym, prices, signals, cash_per_symbol, request.trading_costs
             )
             all_trades.extend(trades)
+            nontrading = getattr(self._provider, "nontrading_sessions", None)
+            if nontrading and nontrading(sym, request.start_date, request.end_date):
+                from quant_platform.data.calendar import sessions
+
+                # Extend VALUE only. No synthetic OHLCV or fills on suspended days.
+                grid = pd.to_datetime(sessions(request.start_date, request.end_date))
+                equity = equity.reindex(grid).ffill().fillna(cash_per_symbol)
+                uses_nontrading_valuation = True
             equity_curves[sym] = equity
 
         portfolio_equity = self._merge_equity(equity_curves)
@@ -74,9 +83,17 @@ class BacktestEngine:
             trades=tuple(all_trades),
             assumptions={
                 "signalAt": "close",
-                "executeAt": "next_open",
+                "executeAt": "next_tradable_open" if uses_nontrading_valuation else "next_open",
+                "nonTradingValuation": "last_observed_close_or_initial_cash"
+                if uses_nontrading_valuation
+                else "none",
                 "calendar": "CN",
                 "currency": "CNY",
+                "benchmarkReturnBasis": "price_index"
+                if request.benchmark == "index:CSI:000300"
+                else "adjusted_etf"
+                if request.benchmark
+                else "none",
             },
         )
 
@@ -134,29 +151,33 @@ class BacktestEngine:
                 invest = cash - fee
                 shares = invest / exec_price
                 cash = 0.0
-                trades.append(Trade(
-                    trade_date=pd.Timestamp(execution_date).date(),
-                    symbol=symbol,
-                    side="buy",
-                    price=exec_price,
-                    quantity=shares,
-                    amount_cny=invest,
-                    fee_cny=fee,
-                ))
+                trades.append(
+                    Trade(
+                        trade_date=pd.Timestamp(execution_date).date(),
+                        symbol=symbol,
+                        side="buy",
+                        price=exec_price,
+                        quantity=shares,
+                        amount_cny=invest,
+                        fee_cny=fee,
+                    )
+                )
 
             elif signal == -1.0 and shares > 0:
                 gross = shares * exec_price
                 fee = gross * (commission + stamp)
                 cash = gross - fee
-                trades.append(Trade(
-                    trade_date=pd.Timestamp(execution_date).date(),
-                    symbol=symbol,
-                    side="sell",
-                    price=exec_price,
-                    quantity=shares,
-                    amount_cny=gross,
-                    fee_cny=fee,
-                ))
+                trades.append(
+                    Trade(
+                        trade_date=pd.Timestamp(execution_date).date(),
+                        symbol=symbol,
+                        side="sell",
+                        price=exec_price,
+                        quantity=shares,
+                        amount_cny=gross,
+                        fee_cny=fee,
+                    )
+                )
                 shares = 0.0
 
             close_price = float(prices["close"].iloc[i + 1])
@@ -237,7 +258,7 @@ def _compute_metrics(
             dr = daily_ret[common]
             br = bm_ret[common]
             cov = np.cov(dr, br)
-            if cov[0, 1] != 0 and cov[1, 1] > 0:
+            if cov[1, 1] > 0:
                 beta = float(cov[0, 1] / cov[1, 1])
                 alpha = float(dr.mean() - (beta * br.mean())) * 252 * 100
             else:

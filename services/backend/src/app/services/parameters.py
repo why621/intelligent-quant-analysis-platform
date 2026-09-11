@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 
 
@@ -24,9 +25,7 @@ def validate_against_schema(
         properties = schema.get("properties", {})
         for key, sub_schema in properties.items():
             if key in value:
-                errors.extend(
-                    validate_against_schema(sub_schema, value[key], f"{path}.{key}")
-                )
+                errors.extend(validate_against_schema(sub_schema, value[key], f"{path}.{key}"))
         unknown = set(value) - set(properties)
         if unknown and schema.get("additionalProperties", True) is False:
             errors.append((f"{path}.{sorted(unknown)[0]}", "未知字段"))
@@ -37,6 +36,9 @@ def validate_against_schema(
 
     if not _matches_type(value, schema_type):
         errors.append((path, f"必须是 {schema_type} 类型"))
+
+    if isinstance(value, float) and not math.isfinite(value):
+        errors.append((path, "必须是有限数值"))
 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if isinstance(schema.get("minimum"), (int, float)) and value < schema["minimum"]:

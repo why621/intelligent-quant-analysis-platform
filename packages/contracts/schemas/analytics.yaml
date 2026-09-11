@@ -20,6 +20,10 @@ CorrelationResponse:
   type: object
   required: [symbols, observationCount, matrix]
   properties:
+    returnAlignment:
+      const: common_observation_intervals
+      description: 按相邻共同有效收盘日计算收益，停牌可能形成多日区间；不填价。
+    dataContext: {$ref: "./common.yaml#/ResearchContext"}
     symbols:
       type: array
       items: {$ref: "./common.yaml#/Symbol"}

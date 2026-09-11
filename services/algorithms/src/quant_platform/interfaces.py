@@ -31,7 +31,7 @@ class MarketDataProvider(Protocol):
         self,
         query: str | None = None,
         asset_type: AssetType | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
     ) -> Sequence[Asset]: ...
 
     def history(

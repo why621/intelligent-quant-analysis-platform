@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import tempfile
 from collections.abc import Iterator
@@ -10,9 +11,11 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from quant_platform.data.calendar import CalendarUnavailableError, sessions
 from quant_platform.models import DataStatus
 
 OHLCV_COLUMNS = ["date", "open", "high", "low", "close", "volume", "amount"]
@@ -50,6 +53,15 @@ def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     invalid_required = result[REQUIRED_OHLCV_COLUMNS].isna().any(axis=1)
     if invalid_required.any():
         raise ValueError("OHLCV data contains invalid required values")
+    for column in OHLCV_COLUMNS[1:]:
+        values = result[column].dropna()
+        if not values.map(math.isfinite).all():
+            raise ValueError("OHLCV data contains non-finite values")
+    if (result["volume"] < 0).any() or (result["amount"].dropna() < 0).any():
+        raise ValueError("OHLCV data contains negative volume/amount")
+    if ((result["high"] < result[["open", "close", "low"]].max(axis=1)).any()
+            or (result["low"] > result[["open", "close", "high"]].min(axis=1)).any()):
+        raise ValueError("OHLCV price bounds are inconsistent")
 
     return (
         result[OHLCV_COLUMNS]
@@ -258,13 +270,17 @@ class OHLCVStore:
             )
             return cur.fetchone() is not None
 
-    def load(self, symbol: str, adjust: str = "qfq") -> pd.DataFrame:
+    def load(
+        self, symbol: str, adjust: str = "qfq", *, required_volume_version: str | None = None,
+    ) -> pd.DataFrame:
         """Return a complete cached history, or an empty frame when absent."""
         if not symbol.isdigit() or len(symbol) != 6:
             raise ValueError("symbol must be a six-digit string")
 
         self._validate_adjust(adjust)
         with DatabaseConnection.connection(self._data_dir) as conn:
+            # Read bars and their schema assertion from one SQLite snapshot.
+            conn.execute("BEGIN")
             df = pd.read_sql_query(
                 """
                 SELECT trade_date AS date, open, high, low, close, volume, amount
@@ -275,11 +291,21 @@ class OHLCVStore:
                 conn,
                 params=(symbol, adjust),
             )
+            if required_volume_version and not df.empty:
+                marker = conn.execute(
+                    "SELECT value FROM cache_metadata WHERE key = ?",
+                    (f"volume_schema:{symbol}:{adjust}",),
+                ).fetchone()
+                if marker is None or marker[0] != required_volume_version:
+                    raise ValueError("volume schema unverified; rebuild affected cache first")
         if df.empty:
             return pd.DataFrame(columns=OHLCV_COLUMNS)
         return _normalise_ohlcv(df)
 
-    def save(self, symbol: str, df: pd.DataFrame, adjust: str = "qfq") -> None:
+    def save(
+        self, symbol: str, df: pd.DataFrame, adjust: str = "qfq", *,
+        volume_version: str | None = None,
+    ) -> None:
         """Validate, deduplicate, and atomically save asset data to SQLite."""
         if not symbol.isdigit() or len(symbol) != 6:
             raise ValueError("symbol must be a six-digit string")
@@ -290,8 +316,42 @@ class OHLCVStore:
             return
 
         with DatabaseConnection.connection(self._data_dir) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            marker_key = f"volume_schema:{symbol}:{adjust}"
+            if volume_version:
+                marker = conn.execute(
+                    "SELECT value FROM cache_metadata WHERE key = ?", (marker_key,),
+                ).fetchone()
+                if marker is None or marker[0] != volume_version:
+                    old_dates = {row[0] for row in conn.execute(
+                        "SELECT trade_date FROM ohlcv WHERE symbol = ? AND adjust = ?",
+                        (symbol, adjust),
+                    )}
+                    if not old_dates.issubset(set(normalised["date"].dt.strftime("%Y-%m-%d"))):
+                        raise ValueError("volume migration must cover every cached date")
             self._upsert(conn, symbol, adjust, normalised)
+            if volume_version:
+                conn.execute(
+                    "INSERT INTO cache_metadata (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (marker_key, volume_version),
+                )
+            else:
+                # An unversioned writer must not leave an obsolete quality assertion.
+                conn.execute("DELETE FROM cache_metadata WHERE key = ?", (marker_key,))
+            conn.execute(
+                "INSERT INTO cache_metadata (key, value) VALUES ('ohlcv_revision', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
+            )
             conn.commit()
+
+    def revision(self) -> str:
+        """Cross-process revision, committed in the same transaction as price writes."""
+        with DatabaseConnection.connection(self._data_dir) as conn:
+            row = conn.execute(
+                "SELECT value FROM cache_metadata WHERE key = 'ohlcv_revision'"
+            ).fetchone()
+        return str(row[0]) if row else "0"
 
     @staticmethod
     def _validate_adjust(adjust: str) -> None:
@@ -403,12 +463,19 @@ class MarketOverviewStore:
                 temporary.unlink()
 
 
+def _shanghai_today() -> date:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
 def _has_completed_weekday_since(updated_date: date, today: date) -> bool:
-    """Return whether an expected weekday refresh has been missed."""
-    return any(
-        date.fromordinal(day).weekday() < 5
-        for day in range(updated_date.toordinal() + 1, today.toordinal())
-    )
+    """Missed completed sessions; unknown calendar coverage fails conservatively."""
+    if (today - updated_date).days <= 1:
+        return False
+    try:
+        return bool(sessions(date.fromordinal(updated_date.toordinal() + 1),
+                             date.fromordinal(today.toordinal() - 1)))
+    except CalendarUnavailableError:
+        return True
 
 
 class DataStatusStore:
@@ -419,7 +486,12 @@ class DataStatusStore:
 
     def load(self, fallback_asset_count: int) -> DataStatus:
         with DatabaseConnection.connection(self._data_dir) as conn:
+            conn.execute("BEGIN")
             row = conn.execute("SELECT * FROM data_status_sync WHERE id = 1").fetchone()
+            component_row = conn.execute(
+                "SELECT value FROM cache_metadata WHERE key = 'data_components'"
+            ).fetchone()
+        components = json.loads(component_row[0]) if component_row else {}
 
         if row is None:
             raise RuntimeError("data status row is missing")
@@ -432,9 +504,17 @@ class DataStatusStore:
         )
         stored_status = row["status"]
 
-        if updated_at and _has_completed_weekday_since(updated_at.date(), date.today()):
+        if updated_at:
+            updated_at = (updated_at.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+                          if updated_at.tzinfo is None
+                          else updated_at.astimezone(ZoneInfo("Asia/Shanghai")))
+        if updated_at and _has_completed_weekday_since(updated_at.date(), _shanghai_today()):
             if stored_status in ("ready", "updating"):
                 stored_status = "stale" if latest_date else "failed"
+            for component in components.values():
+                if component.get("status") in ("ready", "updating"):
+                    component["status"] = "stale"
+                    component["message"] = "未完成预期的日更，请检查更新任务"
 
         return DataStatus(
             status=stored_status,  # type: ignore[arg-type]
@@ -443,11 +523,15 @@ class DataStatusStore:
             latest_trade_date=latest_date,
             updated_at=updated_at,
             message=row["message"],
+            components=components,
         )
 
-    def save(self, status: str, latest_trade_date: date | None, message: str | None) -> None:
+    def save(
+        self, status: str, latest_trade_date: date | None, message: str | None,
+        *, components: dict[str, object] | None = None,
+    ) -> None:
         latest_date = latest_trade_date.isoformat() if latest_trade_date else None
-        now = datetime.now().isoformat()
+        now = datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()
         with DatabaseConnection.connection(self._data_dir) as conn:
             conn.execute(
                 """
@@ -456,5 +540,12 @@ class DataStatusStore:
                 WHERE id = 1
                 """,
                 (status, now, latest_date, message),
+            )
+            conn.execute(
+                """
+                INSERT INTO cache_metadata (key, value) VALUES ('data_components', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (json.dumps(components or {}, ensure_ascii=False, allow_nan=False),),
             )
             conn.commit()

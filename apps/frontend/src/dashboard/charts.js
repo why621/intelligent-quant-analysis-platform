@@ -23,20 +23,24 @@ export function correlationOption(result) {
   }
   const data = []
   result.matrix.forEach((row, y) => {
-    row.forEach((value, x) => data.push([x, y, Number(value.toFixed(3))]))
+    row.forEach((value, x) => {
+      if (typeof value === 'number' && Number.isFinite(value)) data.push([x, y, Number(value.toFixed(3))])
+    })
   })
   return {
     tooltip: {
       formatter: ({ data: item }) =>
         `${result.symbols[item[1]]} / ${result.symbols[item[0]]}<br>${item[2]}`
     },
-    grid: { left: 64, right: 22, top: 20, bottom: 54 },
+    grid: { left: 64, right: 22, top: 20, bottom: 84 },
     xAxis: { type: 'category', data: result.symbols, splitArea: { show: true } },
     yAxis: { type: 'category', data: result.symbols, splitArea: { show: true } },
     visualMap: {
       min: -1,
       max: 1,
-      calculable: true,
+      calculable: false,
+      precision: 1,
+      text: ['1', '-1'],
       orient: 'horizontal',
       left: 'center',
       bottom: 4,
@@ -53,37 +57,49 @@ export function correlationOption(result) {
 export function equityOption(result) {
   const points = result?.equityCurve || []
   if (!points.length) return emptyChartOption('回测完成后显示净值曲线')
+  const normalised = field => {
+    const baseline = points[0][field]
+    return points.map(point => typeof point[field] === 'number' && Number.isFinite(point[field])
+      && typeof baseline === 'number' && baseline > 0 ? point[field] / baseline : null)
+  }
+  const benchmark = normalised('benchmarkEquity')
+  const hasBenchmark = benchmark.some(value => value !== null)
   return {
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['策略净值', '基准净值'] },
-    grid: { left: 52, right: 18, top: 42, bottom: 38 },
+    tooltip: { trigger: 'axis', valueFormatter: value =>
+      typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '—' },
+    legend: { top: 4, data: hasBenchmark ? ['策略净值', '基准净值'] : ['策略净值'] },
+    grid: { left: 52, right: 18, top: 64, bottom: 38 },
     xAxis: { type: 'category', data: points.map((item) => item.date) },
-    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: colors.grid } } },
+    yAxis: { name: '净值（首日=1）', type: 'value', scale: true, splitLine: { lineStyle: { color: colors.grid } } },
     series: [
       {
         name: '策略净值',
         type: 'line',
         showSymbol: false,
-        data: points.map((item) => item.equity),
+        data: normalised('equity'),
         lineStyle: { color: colors.blue, width: 2 }
       },
-      {
+      ...(hasBenchmark ? [{
         name: '基准净值',
         type: 'line',
         showSymbol: false,
-        data: points.map((item) => item.benchmarkEquity),
+        data: benchmark,
         lineStyle: { color: colors.amber, width: 2, type: 'dashed' }
-      }
+      }] : [])
     ]
   }
 }
 
 export function allocationOption(result) {
+  if (!result) return emptyChartOption('生成后显示下一交易日模拟权重')
   const positions = result?.positions || []
-  if (!positions.length) return emptyChartOption('生成后显示下一交易日模拟权重')
-  const data = positions.map((item) => ({ name: item.symbol, value: item.weightPct }))
+  // Zero-weight exits remain in the textual details, not as empty pie slices.
+  const data = positions.filter(item => item.weightPct > 0)
+    .map((item) => ({ name: item.symbol, value: item.weightPct }))
   if (result.cashPct > 0) data.push({ name: '现金', value: result.cashPct })
+  if (!data.length) return emptyChartOption('没有可展示的持仓或现金权重')
   return {
+    animation: false,
     tooltip: { trigger: 'item', formatter: '{b}: {c}%' },
     legend: { bottom: 0 },
     series: [{

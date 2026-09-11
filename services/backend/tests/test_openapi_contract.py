@@ -42,6 +42,7 @@ def test_openapi_declares_all_application_interfaces() -> None:
     assert set(spec["paths"]) == {
         "/health",
         "/data/status",
+        "/data/coverage",
         "/assets",
         "/assets/{symbol}/history",
         "/market/overview",

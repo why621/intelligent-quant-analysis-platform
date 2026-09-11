@@ -17,7 +17,7 @@ Strategy:
     description: {type: string}
     parameterSchema:
       type: object
-      description: JSON Schema 子集，由后端据此校验 parameters
+      description: JSON Schema 子集；客户端显式填入default，服务端不自动补全。x-relations为数组，元素left和right引用数值属性，operator=lt表示left严格小于right；前端验证此关系，后端继续策略业务校验。
       additionalProperties: true
 RankingItem:
   type: object
@@ -39,6 +39,7 @@ RankingResponse:
   type: object
   required: [asOfDate, period, items]
   properties:
+    dataContext: {$ref: "./common.yaml#/ResearchContext"}
     asOfDate: {type: string, format: date}
     period: {type: string, enum: [1d, 7d, 30d, 1y]}
     items:

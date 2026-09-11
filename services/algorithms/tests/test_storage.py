@@ -146,6 +146,12 @@ class TestDataStatusStore:
 
 
 class TestHistoryCaching:
+    @pytest.fixture(autouse=True)
+    def inline_sdk_for_cache_unit_tests(self, monkeypatch):
+        # Process deadlines have separate tests; here the SDK is mocked in-process.
+        monkeypatch.setattr(AkShareMarketDataProvider, "_fetch_tencent",
+                            AkShareMarketDataProvider._fetch_tencent_inline)
+
     def test_cache_hit_does_not_call_network(self, tmp_path: Path):
         provider = AkShareMarketDataProvider(tmp_path, request_interval_seconds=0)
         provider._storage.save(
@@ -169,13 +175,16 @@ class TestHistoryCaching:
         assert result["amount"].isna().all()
         assert len(provider._storage.load("510300")) == 2
 
-    def test_network_failure_returns_cached_partial(self, tmp_path: Path):
+    def test_network_failure_preserves_but_does_not_serve_partial_cache(self, tmp_path: Path):
         provider = AkShareMarketDataProvider(tmp_path, request_interval_seconds=0)
         provider._storage.save("510300", _frame(["2025-01-01", "2025-01-02"]))
 
-        with patch("akshare.stock_zh_a_hist_tx", side_effect=TimeoutError("timeout")):
-            result = provider.history("510300", date(2025, 1, 1), date(2025, 1, 31))
-        assert len(result) == 2
+        with (
+            patch("akshare.stock_zh_a_hist_tx", side_effect=TimeoutError("timeout")),
+            pytest.raises(UpstreamUnavailableError),
+        ):
+            provider.history("510300", date(2025, 1, 1), date(2025, 1, 31))
+        assert len(provider._storage.load("510300")) == 2
 
     def test_network_failure_without_cache_is_explicit(self, tmp_path: Path):
         provider = AkShareMarketDataProvider(tmp_path, request_interval_seconds=0)
@@ -222,6 +231,7 @@ class TestDailyUpdate:
         provider._assets = {"510300": provider._assets["510300"]}
         with (
             patch.object(provider, "_fetch_tencent", return_value=_frame(["2025-01-02"])),
+            patch("quant_platform.data.akshare_provider._today", return_value=date(2025, 1, 2)),
             patch.object(provider, "refresh_market_overview", return_value={}),
         ):
             status = provider.update_daily()
@@ -256,7 +266,17 @@ class TestMarketOverviewCache:
 
     def test_live_snapshot_uses_last_actual_trade_date(self, tmp_path: Path):
         provider = AkShareMarketDataProvider(tmp_path, request_interval_seconds=0)
-        spot = pd.DataFrame({"涨跌幅": [1.0, -2.0, 0.0], "成交额": [10, 20, 30]})
+        spot = {"tradeDate": "2025-01-03", "advancing": 1, "declining": 1,
+                "unchanged": 1, "turnoverCny": 60.0, "limitUp": None, "limitDown": None,
+                "indices": [], "northboundNetCny": None}
+        from quant_platform.data.market_fetch import fetch_index, fetch_northbound
+
+        def run(stage, payload, **kwargs):
+            if stage == "spot":
+                return spot
+            day = date.fromisoformat(payload["date"])
+            return (fetch_northbound(day) if stage == "northbound"
+                    else fetch_index(payload["symbol"], payload["name"], day))
         index_frame = pd.DataFrame(
             {
                 "date": ["2025-01-02", "2025-01-03"],
@@ -266,7 +286,7 @@ class TestMarketOverviewCache:
         northbound_frame = pd.DataFrame({"日期": ["2025-01-03"], "当日成交净买额": [1.5]})
 
         with (
-            patch("akshare.stock_zh_a_spot_em", return_value=spot),
+            patch("quant_platform.data.upstream.run", side_effect=run),
             patch("akshare.stock_hsgt_hist_em", return_value=northbound_frame),
             patch("akshare.stock_zh_index_daily", return_value=index_frame),
         ):
@@ -286,6 +306,7 @@ def test_adjusted_price_caches_are_isolated(tmp_path: Path):
     qfq = _frame(["2025-01-02"])
     hfq = qfq.copy()
     hfq["close"] = 9.5
+    hfq["high"] = 10.0
 
     store.save("510300", qfq, adjust="qfq")
     store.save("510300", hfq, adjust="hfq")
@@ -353,10 +374,10 @@ def test_ready_status_does_not_become_stale_over_weekend(tmp_path: Path):
             "UPDATE data_status_sync SET updated_at = '2025-01-03T18:00:00'"
         )
 
-    with patch("quant_platform.data.storage.date", wraps=date) as mocked_date:
-        mocked_date.today.return_value = date(2025, 1, 5)
+    with patch("quant_platform.data.storage._shanghai_today") as mocked_date:
+        mocked_date.return_value = date(2025, 1, 5)
         sunday = store.load(fallback_asset_count=1)
-        mocked_date.today.return_value = date(2025, 1, 7)
+        mocked_date.return_value = date(2025, 1, 7)
         tuesday = store.load(fallback_asset_count=1)
 
     assert sunday.status == "ready"
@@ -369,6 +390,7 @@ def test_history_cache_respects_adjust_mode(tmp_path: Path):
     def fetch(symbol, start_date, end_date, adjust):
         frame = _frame(["2025-01-02", "2025-01-03"])
         frame["close"] = 1.5 if adjust == "qfq" else 9.5
+        frame["high"] = 2.0 if adjust == "qfq" else 10.0
         return frame
 
     with patch.object(provider, "_fetch_tencent", side_effect=fetch) as mocked_fetch:

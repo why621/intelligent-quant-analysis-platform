@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "akshare>=1.18,<2.0",
   "Flask>=3.1,<4.0",
+  "gunicorn>=23,<24",
   "pandas>=2.3,<4.0",
 ]
 

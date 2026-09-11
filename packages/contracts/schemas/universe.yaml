@@ -1,0 +1,37 @@
+# On-disk snapshot contract; not a new HTTP endpoint or published market-data manifest.
+UniverseSnapshot:
+  type: object
+  additionalProperties: false
+  required: [schemaVersion, indexId, membershipMode, sourceUrl, sourceSha256, sourceDate,
+             effectiveDate, retrievedAt, historicalMembershipVerified, members, snapshotId]
+  properties:
+    schemaVersion: {type: integer, const: 1}
+    indexId: {type: string, const: "index:CSI:000300"}
+    membershipMode: {type: string, const: current_snapshot}
+    sourceUrl:
+      type: string
+      const: "https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/file/autofile/cons/000300cons.xls"
+    sourceSha256: {type: string, pattern: "^[a-f0-9]{64}$"}
+    snapshotId: {type: string, pattern: "^[a-f0-9]{64}$"}
+    sourceDate: {type: string, format: date}
+    effectiveDate:
+      type: "null"
+      description: 源文件日期不被假定为成分调样生效日
+    retrievedAt: {type: string, format: date-time}
+    historicalMembershipVerified: {type: boolean, const: false}
+    members:
+      type: array
+      minItems: 300
+      maxItems: 300
+      uniqueItems: true
+      items:
+        type: object
+        additionalProperties: false
+        required: [assetId, symbol, name, exchange, assetType, active]
+        properties:
+          assetId: {type: string, pattern: "^stock:(SSE|SZSE):[0-9]{6}$"}
+          symbol: {type: string, pattern: "^[036][0-9]{5}$"}
+          name: {type: string, minLength: 1}
+          exchange: {type: string, enum: [SSE, SZSE]}
+          assetType: {type: string, const: stock}
+          active: {type: boolean, const: true}

@@ -18,6 +18,7 @@ from app.services.analytics import CorrelationService
 from app.services.backtests import BacktestJobStore, BacktestService, BacktestWorker
 from app.services.data import MarketDataService
 from app.services.ranking import RankingService
+from app.services.research_dates import ResearchDateGuard
 from app.services.strategies import StrategyCatalogService
 
 BACKTEST_DB_DEFAULT = str(Path(__file__).resolve().parents[2] / "var" / "backtests.db")
@@ -25,12 +26,20 @@ BACKTEST_DB_DEFAULT = str(Path(__file__).resolve().parents[2] / "var" / "backtes
 __version__ = "0.1.0"
 
 
-def create_app(test_config: dict[str, object] | None = None) -> Flask:
+def create_app(
+    test_config: dict[str, object] | None = None,
+    *,
+    market_data_provider: AkShareMarketDataProvider | None = None,
+) -> Flask:
     """Create and configure the Flask application."""
     application = Flask(__name__)
     application.config.from_mapping(
         APP_VERSION=__version__,
         ALLOWED_ORIGINS=os.getenv("ALLOWED_ORIGINS", "http://localhost:5173"),
+        CORS_ALLOW_HEADERS=os.getenv(
+            "CORS_ALLOW_HEADERS", "Accept, Content-Type, X-Research-Version"
+        ),
+        CORS_ALLOW_METHODS=os.getenv("CORS_ALLOW_METHODS", "GET, POST, OPTIONS"),
     )
     if test_config:
         application.config.update(test_config)
@@ -51,20 +60,35 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
         if request_origin in allowed_origins:
             response.headers["Access-Control-Allow-Origin"] = request_origin
             response.headers["Vary"] = "Origin"
+            response.headers["Access-Control-Allow-Headers"] = str(
+                application.config["CORS_ALLOW_HEADERS"]
+            )
+            response.headers["Access-Control-Allow-Methods"] = str(
+                application.config["CORS_ALLOW_METHODS"]
+            )
+            response.headers["Access-Control-Max-Age"] = "600"
         return response
 
     application.register_blueprint(api, url_prefix="/api")
 
     # 装配服务：路由通过 current_app.extensions 获取服务。
     # provider 复用同一个实例，保证所有接口共享同一份缓存。
-    provider = AkShareMarketDataProvider()
+    if market_data_provider is None and os.environ.get("QUANT_PUBLICATION_ROOT"):
+        from pathlib import Path
+
+        from quant_platform.data.publication import load_publication
+
+        market_data_provider = load_publication(Path(os.environ["QUANT_PUBLICATION_ROOT"]))
+    provider = (
+        market_data_provider if market_data_provider is not None else AkShareMarketDataProvider()
+    )
     application.extensions["market_data_service"] = MarketDataService(provider)
 
     strategy_catalog = StrategyCatalogService()
     application.extensions["strategy_catalog_service"] = strategy_catalog
 
     application.extensions["correlation_service"] = CorrelationService(
-        CorrelationAnalyzer(provider)
+        CorrelationAnalyzer(provider), ResearchDateGuard(provider)
     )
 
     # 回测任务存储：测试用独立临时目录，避免污染 var/ 下的真实任务库。
@@ -89,7 +113,7 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
         strategy_catalog,
     )
     # 配置建议：算法组服务只依赖 provider（只读共享）与策略注册表，无状态
-    # 多线程安全；日期锚点由算法组内部决定（墙钟），后端按约定透传。
+    # 日期锚点使用发布截止，并验证是否覆盖当前所需交易日。
     application.extensions["allocation_service"] = AllocationService(
         AlgorithmAllocationService(provider, strategy_catalog.registry()),
         strategy_catalog,
