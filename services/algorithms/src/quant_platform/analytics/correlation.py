@@ -27,7 +27,7 @@ class CorrelationAnalyzer:
             if not df.empty:
                 price_frames[sym] = df.set_index("date")["close"]
 
-        if len(price_frames) < 2:
+        if len(price_frames) != len(request.symbols):
             return CorrelationResult(
                 symbols=request.symbols,
                 observation_count=0,
@@ -59,10 +59,7 @@ class CorrelationAnalyzer:
         ordered = [s for s in request.symbols if s in corr.columns]
         corr = corr.loc[ordered, ordered]
 
-        matrix = tuple(
-            tuple(float(corr.at[r, c]) for c in corr.columns)
-            for r in corr.index
-        )
+        matrix = tuple(tuple(float(corr.at[r, c]) for c in corr.columns) for r in corr.index)
 
         return CorrelationResult(
             symbols=tuple(ordered),

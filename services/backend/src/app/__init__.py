@@ -37,7 +37,7 @@ def create_app(
         APP_VERSION=__version__,
         ALLOWED_ORIGINS=os.getenv("ALLOWED_ORIGINS", "http://localhost:5173"),
         CORS_ALLOW_HEADERS=os.getenv(
-            "CORS_ALLOW_HEADERS", "Accept, Content-Type"
+            "CORS_ALLOW_HEADERS", "Accept, Content-Type, X-Research-Version"
         ),
         CORS_ALLOW_METHODS=os.getenv("CORS_ALLOW_METHODS", "GET, POST, OPTIONS"),
     )
@@ -73,6 +73,12 @@ def create_app(
 
     # 装配服务：路由通过 current_app.extensions 获取服务。
     # provider 复用同一个实例，保证所有接口共享同一份缓存。
+    if market_data_provider is None and os.environ.get("QUANT_PUBLICATION_ROOT"):
+        from pathlib import Path
+
+        from quant_platform.data.publication import load_publication
+
+        market_data_provider = load_publication(Path(os.environ["QUANT_PUBLICATION_ROOT"]))
     provider = (
         market_data_provider if market_data_provider is not None else AkShareMarketDataProvider()
     )
@@ -107,7 +113,7 @@ def create_app(
         strategy_catalog,
     )
     # 配置建议：算法组服务只依赖 provider（只读共享）与策略注册表，无状态
-    # 多线程安全；日期锚点由算法组内部决定（墙钟），后端按约定透传。
+    # 日期锚点使用发布截止，并验证是否覆盖当前所需交易日。
     application.extensions["allocation_service"] = AllocationService(
         AlgorithmAllocationService(provider, strategy_catalog.registry()),
         strategy_catalog,

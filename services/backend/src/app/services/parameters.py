@@ -25,9 +25,7 @@ def validate_against_schema(
         properties = schema.get("properties", {})
         for key, sub_schema in properties.items():
             if key in value:
-                errors.extend(
-                    validate_against_schema(sub_schema, value[key], f"{path}.{key}")
-                )
+                errors.extend(validate_against_schema(sub_schema, value[key], f"{path}.{key}"))
         unknown = set(value) - set(properties)
         if unknown and schema.get("additionalProperties", True) is False:
             errors.append((f"{path}.{sorted(unknown)[0]}", "未知字段"))

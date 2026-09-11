@@ -39,6 +39,7 @@ RankingResponse:
   type: object
   required: [asOfDate, period, items]
   properties:
+    dataContext: {$ref: "./common.yaml#/ResearchContext"}
     asOfDate: {type: string, format: date}
     period: {type: string, enum: [1d, 7d, 30d, 1y]}
     items:

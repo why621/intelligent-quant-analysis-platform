@@ -3,13 +3,21 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from quant_platform.allocation import AllocationService as AlgorithmAllocationService
+from quant_platform.allocation import PublicationUnavailableError, StalePublicationError
 from quant_platform.data.akshare_provider import (
     UpstreamUnavailableError as ProviderUpstreamError,
 )
 from quant_platform.models import AllocationSuggestion
 
-from app.services.errors import StrategyNotAvailableError, UpstreamUnavailableError
+from app.services.errors import ServiceError, StrategyNotAvailableError, UpstreamUnavailableError
+from app.services.research_dates import DataNotReadyError, research_read
 from app.services.strategies import StrategyCatalogService
+
+
+class DataStaleError(ServiceError):
+    code = "DATA_STALE"
+    status = 503
+    message = "已发布行情尚未覆盖所需交易日，暂不能生成当前模拟配置"
 
 
 class AllocationService:
@@ -19,7 +27,7 @@ class AllocationService:
     每次请求的信号计算是纯函数式的（history → generate_signals → 等权），
     请求间无共享可变状态——并发安全是构造性的，不需要锁也不需要缓存。
 
-    算法层使用上海日期之前最近交易日作为保守截止日，校验数据及信号；
+    算法层核对已发布截止与上海日期之前最近交易日，校验数据及信号；
     数据不足或过期按上游不可用返回，不生成伪中性建议。
     """
 
@@ -44,22 +52,30 @@ class AllocationService:
             raise StrategyNotAvailableError(details={"strategyId": strategy_id})
 
         try:
-            result = self._algorithm.suggest(
-                symbols=symbols,
-                strategy_id=strategy_id,
-                cash_pct=cash_pct,
-            )
-        except ProviderUpstreamError as exc:
-            raise UpstreamUnavailableError(
-                details={"capability": "allocation-suggestion"}
+            with research_read(self._algorithm._provider) as context:
+                result = self._algorithm.suggest(
+                    symbols=symbols,
+                    strategy_id=strategy_id,
+                    cash_pct=cash_pct,
+                )
+        except PublicationUnavailableError as exc:
+            raise DataNotReadyError() from exc
+        except StalePublicationError as exc:
+            raise DataStaleError(
+                details={
+                    "availableEndDate": exc.available.isoformat(),
+                    "requiredEndDate": exc.required.isoformat(),
+                }
             ) from exc
+        except ProviderUpstreamError as exc:
+            raise UpstreamUnavailableError(details={"capability": "allocation-suggestion"}) from exc
         except ValueError as exc:
             # 算法组对未知策略抛 ValueError；目录外策略已被前置校验拦截，
             # 此处兜底统一转为契约错误码
             raise StrategyNotAvailableError(
                 message=str(exc), details={"strategyId": strategy_id}
             ) from exc
-        return _serialize_suggestion(result)
+        return {**_serialize_suggestion(result), "dataContext": context}
 
 
 def _serialize_suggestion(result: AllocationSuggestion) -> Mapping[str, object]:

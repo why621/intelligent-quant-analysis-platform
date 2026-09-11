@@ -26,7 +26,11 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   const availableStrategies = computed(() => strategies.value.filter(item => item.status === 'available'))
   const selectedStrategy = computed(() => availableStrategies.value.find(item => item.id === strategyId.value))
   const parameterForm = useStrategyParameters(selectedStrategy)
-  const benchmarkOptions = computed(() => (assetCatalog?.value || []).filter(item => item.assetType === 'etf' && item.active))
+  const benchmarkOptions = computed(() => [
+    ...(dataStatus.value.benchmarks || []).filter(item => item.assetId === 'index:CSI:000300')
+      .map(item => ({ ...item, symbol: item.assetId, assetType: 'index' })),
+    ...(assetCatalog?.value || []).filter(item => item.assetType === 'etf' && item.active)
+  ])
   const activeJob = computed(() => ['queued', 'running'].includes(job.value?.status))
   const strategyName = computed(() => {
     const id = job.value ? job.value.request?.strategyId : strategyId.value
@@ -36,6 +40,7 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     const code = job.value?.request?.benchmark
     if (job.value && !job.value.request) return '历史任务未返回请求快照，基准待确认'
     if (!code) return '无基准；Alpha / Beta 不适用'
+    if (code === 'index:CSI:000300') return '沪深300价格指数（指数点数收益，非全收益指数）'
     const asset = benchmarkOptions.value.find(item => item.symbol === code)
     return asset ? `${asset.name}（ETF · ${code}）` : `历史基准 ${code}（身份未验证）`
   })
@@ -45,7 +50,7 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
       || new Set(symbols.value).size !== symbols.value.length) return '请选择 1–10 个不同的六位资产代码。'
     if (!selectedStrategy.value) return '请选择可用策略。'
     if (parameterForm.parameterError.value) return parameterForm.parameterError.value
-    if (benchmark.value && !benchmarkOptions.value.some(item => item.symbol === benchmark.value)) return '请选择目录中的 ETF 或无基准。'
+    if (benchmark.value && !benchmarkOptions.value.some(item => item.symbol === benchmark.value)) return '请选择已接入的指数、ETF 或无基准。'
     return dates.dateError.value
   })
   const canSubmit = computed(() => !busy.value && !activeJob.value && !disposed && !validationError.value)

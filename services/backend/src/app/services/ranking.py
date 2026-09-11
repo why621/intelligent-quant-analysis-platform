@@ -12,6 +12,7 @@ from quant_platform.models import DataStatus, RankingItem
 from quant_platform.ranking import StrategyRankingService as AlgorithmRankingService
 
 from app.services.errors import InsufficientDataError, UpstreamUnavailableError
+from app.services.research_dates import research_read
 from app.services.strategies import StrategyCatalogService
 
 logger = logging.getLogger(__name__)
@@ -41,9 +42,11 @@ class RankingService:
 
     def get_ranking(self, period: str) -> Mapping[str, object]:
         """返回契约 RankingResponse；period 已由路由层校验为枚举值之一。"""
-        as_of_date = self._latest_trade_date()
-        items = self._compute(as_of_date, period)
+        with research_read(self._provider) as context:
+            as_of_date = date.fromisoformat(context["publicationDate"])
+            items = self._compute(as_of_date, period)
         return {
+            "dataContext": context,
             "asOfDate": as_of_date.isoformat(),
             "period": period,
             "items": [_serialize_item(item) for item in items],

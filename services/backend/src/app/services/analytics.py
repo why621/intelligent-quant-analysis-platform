@@ -11,7 +11,7 @@ from quant_platform.data.akshare_provider import (
 from quant_platform.models import CorrelationRequest
 
 from app.services.errors import InsufficientDataError, UpstreamUnavailableError
-from app.services.research_dates import ResearchDateGuard
+from app.services.research_dates import ResearchDateGuard, research_read
 
 
 class CorrelationService:
@@ -45,20 +45,19 @@ class CorrelationService:
             return_type=return_type,  # type: ignore[arg-type]
         )
         try:
-            result = self._analyzer.calculate(request)
+            with research_read(self._dates._provider) as context:
+                result = self._analyzer.calculate(request)
         except ProviderUpstreamError as exc:
-            raise UpstreamUnavailableError(
-                details={"capability": "correlation"}
-            ) from exc
+            raise UpstreamUnavailableError(details={"capability": "correlation"}) from exc
 
         if result.observation_count < 2:
             # 契约要求 200 响应里 observationCount >= 2（schema minimum），
             # 数据不足以计算时统一返回错误而不是违约的 200。
-            raise InsufficientDataError(
-                details={"reason": "有效资产或共同观察交易日不足 2 个"}
-            )
+            raise InsufficientDataError(details={"reason": "有效资产或共同观察交易日不足 2 个"})
 
         return {
+            "dataContext": context,
+            "returnAlignment": "common_observation_intervals",
             "symbols": list(result.symbols),
             "observationCount": result.observation_count,
             "matrix": [_serialize_row(row) for row in result.matrix],

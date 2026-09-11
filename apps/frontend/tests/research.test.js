@@ -287,5 +287,27 @@ test('equity chart compares returns at the same base despite different source un
   const noBenchmark = equityOption({ equityCurve: [
     { date: '2026-09-07', equity: 100000, benchmarkEquity: null }
   ] })
-  assert.deepEqual(noBenchmark.series[1].data, [null])
+  assert.equal(noBenchmark.series.length, 1)
+  assert.deepEqual(noBenchmark.legend.data, ['策略净值'])
+})
+
+
+test('chart formatters retain raw precision and exclude invalid baselines', async () => {
+  const { equityOption, correlationOption } = await import('../src/dashboard/charts.js')
+  const raw = 1.123456789
+  const option = equityOption({ equityCurve: [
+    { date: '2026-09-04', equity: 1, benchmarkEquity: 0 },
+    { date: '2026-09-07', equity: raw, benchmarkEquity: 2 }
+  ] })
+  assert.equal(option.series[0].data[1], raw)
+  assert.equal(option.series.length, 1)
+  assert.equal(option.tooltip.valueFormatter(raw), '1.1235')
+  assert.equal(option.tooltip.valueFormatter(0), '0.0000')
+  for (const invalid of [null, undefined, NaN, Infinity]) {
+    assert.equal(option.tooltip.valueFormatter(invalid), '—')
+  }
+  const heatmap = correlationOption({ symbols: ['510300'], matrix: [[1]] })
+  assert.equal(heatmap.visualMap.calculable, false)
+  assert.equal(heatmap.visualMap.min, -1)
+  assert.equal(heatmap.visualMap.max, 1)
 })

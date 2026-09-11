@@ -1,0 +1,12 @@
+TradingEvent:
+  type: object
+  additionalProperties: false
+  required: [asset_id, start, end, reason, source_url, reviewed_on, evidence_note]
+  properties:
+    asset_id: {type: string, pattern: '^stock:(SSE|SZSE):[036][0-9]{5}$'}
+    start: {type: string, format: date}
+    end: {type: string, format: date}
+    reason: {enum: [suspension, pre_listing, identity_change]}
+    source_url: {type: string, format: uri}
+    reviewed_on: {type: string, format: date}
+    evidence_note: {type: string, minLength: 1}

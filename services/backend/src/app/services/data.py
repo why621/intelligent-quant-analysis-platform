@@ -13,6 +13,13 @@ from quant_platform.data.akshare_provider import (
 )
 
 from app.services.errors import AssetNotFoundError, UpstreamUnavailableError
+from app.services.research_dates import (
+    DataNotReadyError,
+    DataVersionChangedError,
+    ResearchDateGuard,
+    research_context,
+    research_read,
+)
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
@@ -42,7 +49,26 @@ class MarketDataService:
     def data_status(self) -> Mapping[str, object]:
         """返回日更数据状态，字段与 contracts/schemas/data.yaml#/DataStatus 一致。"""
         status = self._provider.status()
+        try:
+            context = research_context(self._provider)
+            if context["publicationDate"] != _serialize_date(status.latest_trade_date):
+                context = None
+        except (DataNotReadyError, DataVersionChangedError):
+            context = None
         return {
+            "benchmarks": (
+                [
+                    {
+                        "assetId": "index:CSI:000300",
+                        "name": "沪深300价格指数",
+                        "returnBasis": "price_index",
+                        "adjust": "none",
+                    }
+                ]
+                if getattr(self._provider, "index_snapshot", None)
+                else []
+            ),
+            "dataContext": context,
             "status": status.status,
             "timezone": status.timezone,
             "source": status.source,
@@ -70,22 +96,28 @@ class MarketDataService:
             key=lambda asset: (asset.exchange, asset.symbol, asset.asset_type),
         )
         catalog = [
-            {"assetId": f"{a.asset_type}:{a.exchange}:{a.symbol}",
-             "symbol": a.symbol, "name": a.name, "assetType": a.asset_type,
-             "exchange": a.exchange, "active": a.active}
+            {
+                "assetId": f"{a.asset_type}:{a.exchange}:{a.symbol}",
+                "symbol": a.symbol,
+                "name": a.name,
+                "assetType": a.asset_type,
+                "exchange": a.exchange,
+                "active": a.active,
+            }
             for a in assets
         ]
-        version = sha256(json.dumps(
-            catalog, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-        ).encode("utf-8")).hexdigest()
+        version = sha256(
+            json.dumps(catalog, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
         filtered = catalog
         if query is not None:
             needle = query.strip().lower()
-            filtered = [a for a in filtered
-                        if needle in a["symbol"] or needle in a["name"].lower()]
+            filtered = [a for a in filtered if needle in a["symbol"] or needle in a["name"].lower()]
         if asset_type is not None:
             filtered = [a for a in filtered if a["assetType"] == asset_type]
-        result = filtered[offset:offset + limit]
+        result = filtered[offset : offset + limit]
         end = offset + len(result)
         return {
             "items": result,
@@ -117,17 +149,20 @@ class MarketDataService:
         if not in_pool:
             raise AssetNotFoundError(details={"symbol": symbol})
 
+        ResearchDateGuard(self._provider).validate([symbol], start_date, end_date)
         try:
-            frame = self._provider.history(
-                symbol=symbol,
-                start_date=start_date,
-                end_date=end_date,
-                adjust=adjust,  # type: ignore[arg-type]
-            )
+            with research_read(self._provider) as context:
+                frame = self._provider.history(
+                    symbol=symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust=adjust,
+                )
         except ProviderUpstreamError as exc:
             raise UpstreamUnavailableError(details={"symbol": symbol}) from exc
 
         return {
+            "dataContext": context,
             "symbol": symbol,
             "adjust": adjust,
             "currency": "CNY",
@@ -142,11 +177,12 @@ class MarketDataService:
         上游失败（冷缓存且数据源不可用）-> UpstreamUnavailableError。
         """
         try:
+            if hasattr(self._provider, "publication_context"):
+                with research_read(self._provider):
+                    return self._provider.market_overview()
             return self._provider.market_overview()
         except ProviderUpstreamError as exc:
-            raise UpstreamUnavailableError(
-                details={"capability": "market-overview"}
-            ) from exc
+            raise UpstreamUnavailableError(details={"capability": "market-overview"}) from exc
 
 
 def _serialize_price_bar(row: pd.Series) -> dict[str, object]:

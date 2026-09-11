@@ -22,11 +22,16 @@ from quant_platform.models import BacktestRequest, BacktestResult, TradingCosts
 from app.services.errors import (
     AssetNotFoundError,
     JobNotFoundError,
+    ServiceError,
     StrategyNotAvailableError,
     ValidationError,
 )
 from app.services.parameters import validate_against_schema
-from app.services.research_dates import ResearchDateGuard
+from app.services.research_dates import (
+    DataVersionChangedError,
+    ResearchDateGuard,
+    research_read,
+)
 from app.services.strategies import StrategyCatalogService
 
 logger = logging.getLogger(__name__)
@@ -75,16 +80,21 @@ class BacktestJobStore:
 
     def _init_schema(self) -> None:
         with closing(_connect(self._db_path)) as conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(_SCHEMA)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(backtest_jobs)")}
+            if "context_json" not in columns:
+                conn.execute("ALTER TABLE backtest_jobs ADD COLUMN context_json TEXT")
             conn.commit()
 
-    def create(self, request: Mapping[str, object]) -> str:
+    def create(self, request: Mapping[str, object], context=None) -> str:
         job_id = str(uuid.uuid4())
         with closing(_connect(self._db_path)) as conn:
             conn.execute(
-                "INSERT INTO backtest_jobs (job_id, status, request_json, created_at, progress_pct)"
-                " VALUES (?, 'queued', ?, ?, 0)",
-                (job_id, json.dumps(request), _now_iso()),
+                "INSERT INTO backtest_jobs (job_id, status, request_json, created_at,"
+                " progress_pct, context_json)"
+                " VALUES (?, 'queued', ?, ?, 0, ?)",
+                (job_id, json.dumps(request), _now_iso(), json.dumps(context) if context else None),
             )
             conn.commit()
         return job_id
@@ -132,9 +142,7 @@ class BacktestJobStore:
 
     def get(self, job_id: str) -> dict | None:
         with closing(_connect(self._db_path)) as conn:
-            row = conn.execute(
-                "SELECT * FROM backtest_jobs WHERE job_id=?", (job_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM backtest_jobs WHERE job_id=?", (job_id,)).fetchone()
             return dict(row) if row else None
 
     def recover_running(self) -> int:
@@ -172,20 +180,27 @@ class BacktestService:
         symbols = list(payload["symbols"])
         benchmark = payload.get("benchmark")
         if benchmark is not None:
-            supported = {a.symbol for a in self._provider.list_assets(
-                query=None, asset_type="etf", limit=None
-            ) if a.asset_type == "etf" and a.active}
+            supported = {
+                a.symbol
+                for a in self._provider.list_assets(query=None, asset_type="etf", limit=None)
+                if a.asset_type == "etf" and a.active
+            }
+            if getattr(self._provider, "index_snapshot", None) is not None:
+                supported.add("index:CSI:000300")
             if benchmark not in supported:
                 raise ValidationError(
-                    message="基准仅支持资产目录中的ETF；独立指数尚未接入",
+                    message="基准仅支持已接入的独立沪深300价格指数或资产目录中的ETF",
                     details={"field": "benchmark", "benchmark": benchmark},
                 )
             symbols.append(benchmark)
         ResearchDateGuard(self._provider).validate(
-            symbols, date.fromisoformat(str(payload["startDate"])),
+            symbols,
+            date.fromisoformat(str(payload["startDate"])),
             date.fromisoformat(str(payload["endDate"])),
         )
-        job_id = self._store.create(payload)
+        with research_read(self._provider) as context:
+            pass
+        job_id = self._store.create(payload, context)
         return self.get_job(job_id)
 
     def get_job(self, job_id: str) -> Mapping[str, object]:
@@ -201,9 +216,23 @@ class BacktestService:
             return
         try:
             request = _build_request(json.loads(row["request_json"]))
-            result = self._engine.run(request)
-            self._store.mark_succeeded(job_id, json.dumps(_serialize_result(result)))
+            expected = json.loads(row["context_json"]) if row["context_json"] else None
+            if expected is None:
+                raise DataVersionChangedError(message="旧任务未保存数据版本，请重新提交")
+            with research_read(self._provider, expected=expected) as context:
+                result = self._engine.run(request)
+            serialized = {**_serialize_result(result), "dataContext": context}
+            self._store.mark_succeeded(job_id, json.dumps(serialized))
             logger.info("backtest job %s succeeded", job_id)
+        except ServiceError as exc:
+            self._store.mark_failed(
+                job_id,
+                {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "details": exc.details,
+                },
+            )
         except ProviderUpstreamError as exc:
             self._store.mark_failed(
                 job_id,
@@ -243,9 +272,7 @@ class BacktestService:
         # 结构校验：以策略 info() 暴露的 parameterSchema 为唯一来源
         # （与 /strategies 接口给前端的约束一致），再走算法组语义校验。
         parameters = payload.get("parameters") or {}
-        schema_errors = validate_against_schema(
-            strategy.info().parameter_schema, parameters
-        )
+        schema_errors = validate_against_schema(strategy.info().parameter_schema, parameters)
         if schema_errors:
             field, message = schema_errors[0]
             raise ValidationError(
@@ -256,9 +283,7 @@ class BacktestService:
         try:
             strategy.validate_parameters(parameters)
         except ValueError as exc:
-            raise ValidationError(
-                message=str(exc), details={"strategyId": strategy_id}
-            ) from exc
+            raise ValidationError(message=str(exc), details={"strategyId": strategy_id}) from exc
 
 
 class BacktestWorker:
@@ -276,9 +301,7 @@ class BacktestWorker:
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        self._thread = threading.Thread(
-            target=self._loop, name="backtest-worker", daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, name="backtest-worker", daemon=True)
         self._thread.start()
 
     def _loop(self) -> None:
@@ -329,13 +352,12 @@ def _serialize_job(row: Mapping[str, object]) -> Mapping[str, object]:
                 "code": row["error_code"],
                 "message": row["error_message"] or "",
                 "details": (
-                    json.loads(row["error_details_json"])
-                    if row["error_details_json"]
-                    else {}
+                    json.loads(row["error_details_json"]) if row["error_details_json"] else {}
                 ),
             }
         }
     return {
+        "dataContext": json.loads(row["context_json"]) if row.get("context_json") else None,
         "request": json.loads(row["request_json"]),
         "jobId": row["job_id"],
         "status": row["status"],

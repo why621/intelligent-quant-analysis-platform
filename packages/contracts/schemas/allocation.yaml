@@ -33,10 +33,11 @@ AllocationResponse:
   required:
     [basisDate, targetDate, strategyId, positions, cashPct, advisoryOnly, disclaimer]
   properties:
+    dataContext: {$ref: "./common.yaml#/ResearchContext"}
     basisDate:
       type: string
       format: date
-      description: 上海当前日期之前最近交易日的收盘日期；保守排除当天数据
+      description: 已发布截止，必须等于上海当前日期之前最近交易日；缺失503 DATA_NOT_READY，过期503 DATA_STALE，绝不隐式补拉
     targetDate:
       type: string
       format: date

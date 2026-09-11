@@ -2,6 +2,20 @@ DataStatus:
   type: object
   required: [status, timezone, source, assetCount]
   properties:
+    benchmarks:
+      type: array
+      items:
+        type: object
+        required: [assetId, name, returnBasis, adjust]
+        properties:
+          assetId: {const: "index:CSI:000300"}
+          name: {type: string}
+          returnBasis: {const: price_index}
+          adjust: {const: none}
+    dataContext:
+      anyOf:
+        - {$ref: "./common.yaml#/ResearchContext"}
+        - {type: "null"}
     status:
       type: string
       enum: [ready, updating, stale, failed]
@@ -85,6 +99,7 @@ HistoryResponse:
   type: object
   required: [symbol, adjust, currency, items]
   properties:
+    dataContext: {$ref: "./common.yaml#/ResearchContext"}
     symbol: {$ref: "./common.yaml#/Symbol"}
     adjust: {$ref: "./common.yaml#/AdjustMode"}
     currency: {type: string, const: CNY}
@@ -107,6 +122,10 @@ MarketOverview:
     [tradeDate, advancing, declining, unchanged, limitUp, limitDown,
      turnoverCny, northboundNetCny, indices]
   properties:
+    scope: {type: string, enum: [csi300_current_constituents]}
+    dataContext: {$ref: './common.yaml#/ResearchContext'}
+    membershipMode: {const: current_snapshot}
+    suspended: {type: integer, minimum: 0}
     tradeDate: {type: string, format: date}
     advancing: {type: integer, minimum: 0}
     declining: {type: integer, minimum: 0}
@@ -131,10 +150,31 @@ MarketOverview:
         priced: {type: integer, minimum: 1}
     turnoverCny:
       type: [number, "null"]
-      description: 沪深京股票成交额，单位元；任一记录缺失时为 null，不发布部分合计
+      description: 单位元；csi300_current_constituents范围为当前300成分成交额，其余旧接口为沪深京股票；任一记录缺失不发布部分合计
     northboundNetCny:
       type: [number, "null"]
       description: 北向资金净流入，单位元；数据源不可用时为 null
     indices:
       type: array
       items: {$ref: "#/IndexSnapshot"}
+
+PublishedCoverage:
+  type: object
+  required: [dataContext, memberCount, etfCount, items]
+  properties:
+    dataContext: {$ref: './common.yaml#/ResearchContext'}
+    memberCount: {const: 300}
+    etfCount: {const: 27}
+    items:
+      type: array
+      minItems: 327
+      maxItems: 327
+      items:
+        type: object
+        required: [assetId, symbol, startDate, endDate, quality]
+        properties:
+          assetId: {type: string}
+          symbol: {$ref: './common.yaml#/Symbol'}
+          startDate: {type: string, format: date}
+          endDate: {type: string, format: date}
+          quality: {type: object}

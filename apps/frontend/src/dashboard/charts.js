@@ -38,7 +38,9 @@ export function correlationOption(result) {
     visualMap: {
       min: -1,
       max: 1,
-      calculable: true,
+      calculable: false,
+      precision: 1,
+      text: ['1', '-1'],
       orient: 'horizontal',
       left: 'center',
       bottom: 4,
@@ -60,9 +62,12 @@ export function equityOption(result) {
     return points.map(point => typeof point[field] === 'number' && Number.isFinite(point[field])
       && typeof baseline === 'number' && baseline > 0 ? point[field] / baseline : null)
   }
+  const benchmark = normalised('benchmarkEquity')
+  const hasBenchmark = benchmark.some(value => value !== null)
   return {
-    tooltip: { trigger: 'axis' },
-    legend: { top: 4, data: ['策略净值', '基准净值'] },
+    tooltip: { trigger: 'axis', valueFormatter: value =>
+      typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '—' },
+    legend: { top: 4, data: hasBenchmark ? ['策略净值', '基准净值'] : ['策略净值'] },
     grid: { left: 52, right: 18, top: 64, bottom: 38 },
     xAxis: { type: 'category', data: points.map((item) => item.date) },
     yAxis: { name: '净值（首日=1）', type: 'value', scale: true, splitLine: { lineStyle: { color: colors.grid } } },
@@ -74,13 +79,13 @@ export function equityOption(result) {
         data: normalised('equity'),
         lineStyle: { color: colors.blue, width: 2 }
       },
-      {
+      ...(hasBenchmark ? [{
         name: '基准净值',
         type: 'line',
         showSymbol: false,
-        data: normalised('benchmarkEquity'),
+        data: benchmark,
         lineStyle: { color: colors.amber, width: 2, type: 'dashed' }
-      }
+      }] : [])
     ]
   }
 }

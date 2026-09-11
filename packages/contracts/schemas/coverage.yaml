@@ -8,7 +8,7 @@ HistoryCandidate:
              candidateRevision, networkRequestsThisRun, requestCountExact,
              requestUpperBoundThisRun, entries, candidateId]
   properties:
-    schemaVersion: {const: 1}
+    schemaVersion: {enum: [1, 2, 3]}
     kind: {const: isolated_history_candidate}
     published: {const: false}
     universeVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
@@ -27,14 +27,14 @@ HistoryCandidate:
     selectedSymbols:
       type: array
       minItems: 1
-      maxItems: 6
+      maxItems: 300
       uniqueItems: true
       items: {type: string, pattern: '^[036][0-9]{5}$'}
     memberCount: {const: 300}
     statusCounts:
       type: object
-      propertyNames: {enum: [not_attempted, source_error, empty, invalid, gaps, complete]}
-      additionalProperties: {type: integer, minimum: 1, maximum: 300}
+      propertyNames: {enum: [not_attempted, source_error, empty, invalid, gaps, complete, complete_with_exceptions]}
+      additionalProperties: {type: integer, minimum: 1, maximum: 15000}
     priceCoverageComplete:
       type: boolean
       description: 仅全300所选区间基本OHLCV质量/日期覆盖；不证明复权经济正确或授权
@@ -42,15 +42,43 @@ HistoryCandidate:
     networkRequestsThisRun:
       type: integer
       minimum: 0
-      maximum: 30
+      maximum: 1500
       description: 已知发起次数；requestCountExact=false时为下界，不是实际总数
     requestCountExact: {type: boolean}
-    requestUpperBoundThisRun: {type: integer, minimum: 0, maximum: 30}
+    requestUpperBoundThisRun: {type: integer, minimum: 0, maximum: 1500}
+    seedCandidateId: {type: string, pattern: '^[a-f0-9]{64}$'}
+    seededAssetCount: {type: integer, minimum: 0, maximum: 300}
+    requestBudget: {type: integer, minimum: 5, maximum: 1500}
+    secondsBudget: {type: integer, minimum: 41, maximum: 14400}
+    chargedSeconds: {type: number, minimum: 0}
+    eventVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
+    tradingEvents:
+      type: array
+      items: {$ref: "./trading-events.yaml#/TradingEvent"}
     entries:
       type: array
       minItems: 300
       maxItems: 300
       items: {$ref: '#/HistoryCandidate/$defs/Entry'}
+  allOf:
+    - if:
+        properties:
+          schemaVersion: {enum: [1, 2]}
+      then:
+        properties:
+          selectedSymbols: {maxItems: 6}
+          networkRequestsThisRun: {maximum: 30}
+          requestUpperBoundThisRun: {maximum: 30}
+    - if:
+        properties:
+          schemaVersion: {const: 3}
+      then:
+        required: [requestBudget, secondsBudget, chargedSeconds]
+    - if:
+        properties:
+          schemaVersion: {enum: [2, 3]}
+      then:
+        required: [tradingEvents, eventVersion]
   $defs:
     Entry:
       type: object
@@ -60,7 +88,7 @@ HistoryCandidate:
         assetId: {type: string, pattern: '^stock:(SSE|SZSE):[036][0-9]{5}$'}
         symbol: {type: string, pattern: '^[036][0-9]{5}$'}
         exchange: {enum: [SSE, SZSE]}
-        status: {enum: [not_attempted, source_error, empty, invalid, gaps, complete]}
+        status: {enum: [not_attempted, source_error, empty, invalid, gaps, complete, complete_with_exceptions]}
         observationSha256: {type: [string, 'null'], pattern: '^[a-f0-9]{64}$'}
         error: {type: [string, 'null']}
         quality:
@@ -74,7 +102,7 @@ HistoryCandidate:
                  missingSessions, unexpectedSessions, gapReason, duplicateRows, invalidRows,
                  missingColumns, ordered, amountMissingRows]
       properties:
-        status: {enum: [empty, invalid, gaps, complete]}
+        status: {enum: [empty, invalid, gaps, complete, complete_with_exceptions]}
         rowCount: {type: integer, minimum: 0}
         expectedSessions: {type: integer, minimum: 1}
         observedSessions: {type: integer, minimum: 0}
@@ -88,9 +116,28 @@ HistoryCandidate:
           type: array
           uniqueItems: true
           items: {type: string, format: date}
-        gapReason: {enum: [unknown, null]}
+        gapReason: {enum: [unknown, documented, identity_change, null]}
         duplicateRows: {type: integer, minimum: 0}
         invalidRows: {type: integer, minimum: 0}
+        explainedMissingSessions:
+          type: array
+          items:
+            type: object
+            required: [date, reason, evidenceId]
+            properties:
+              date: {type: string, format: date}
+              reason: {enum: [suspension, pre_listing]}
+              evidenceId: {type: string, pattern: '^[a-f0-9]{64}$'}
+        blockedIdentitySessions:
+          type: array
+          items: {type: string, format: date}
+        unknownMissingSessions:
+          type: array
+          items: {type: string, format: date}
+        tradableSessions: {type: integer, minimum: 0}
+        contradictorySessions:
+          type: array
+          items: {type: string, format: date}
         missingColumns:
           type: array
           items: {type: string}

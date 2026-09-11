@@ -89,8 +89,7 @@ def list_assets() -> tuple[dict[str, object], int]:
     limit = int(raw_limit)
 
     raw_offset = request.args.get("offset", "0")
-    if (not re.fullmatch(r"[0-9]{1,6}", raw_offset)
-            or int(raw_offset) > 100000):
+    if not re.fullmatch(r"[0-9]{1,6}", raw_offset) or int(raw_offset) > 100000:
         return error_response(
             code="VALIDATION_ERROR",
             message="offset 必须是 0 到 100000 的整数",
@@ -109,9 +108,9 @@ def list_assets() -> tuple[dict[str, object], int]:
         )
 
     service = current_app.extensions["market_data_service"]
-    return dict(service.list_assets(
-        query=query, asset_type=asset_type, limit=limit, offset=offset
-    )), 200
+    return dict(
+        service.list_assets(query=query, asset_type=asset_type, limit=limit, offset=offset)
+    ), 200
 
 
 @api.get("/assets/<string:symbol>/history")
@@ -211,8 +210,7 @@ def correlation() -> tuple[dict[str, object], int]:
         not isinstance(symbols, list)
         or not 2 <= len(symbols) <= 10
         or not all(
-            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol)
-            for symbol in symbols
+            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol) for symbol in symbols
         )
         or len(set(symbols)) != len(symbols)
     ):
@@ -323,8 +321,15 @@ def create_backtest() -> tuple[dict[str, object], int]:
         return validation_error
 
     extra_fields = set(payload) - {
-        "symbols", "strategyId", "parameters", "startDate", "endDate",
-        "benchmark", "initialCapitalCny", "adjust", "tradingCosts",
+        "symbols",
+        "strategyId",
+        "parameters",
+        "startDate",
+        "endDate",
+        "benchmark",
+        "initialCapitalCny",
+        "adjust",
+        "tradingCosts",
     }
     if extra_fields:
         return error_response(
@@ -339,8 +344,7 @@ def create_backtest() -> tuple[dict[str, object], int]:
         not isinstance(symbols, list)
         or not 1 <= len(symbols) <= 10
         or not all(
-            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol)
-            for symbol in symbols
+            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol) for symbol in symbols
         )
         or len(set(symbols)) != len(symbols)
     ):
@@ -397,11 +401,12 @@ def create_backtest() -> tuple[dict[str, object], int]:
 
     benchmark = payload.get("benchmark")
     if benchmark is not None and not (
-        isinstance(benchmark, str) and re.fullmatch(r"[0-9]{6}", benchmark)
+        isinstance(benchmark, str)
+        and (re.fullmatch(r"[0-9]{6}", benchmark) or benchmark == "index:CSI:000300")
     ):
         return error_response(
             code="VALIDATION_ERROR",
-            message="benchmark 必须是六位数字",
+            message="benchmark 必须是六位ETF代码或 index:CSI:000300",
             status=400,
             details={"field": "benchmark"},
         )
@@ -437,9 +442,7 @@ def create_backtest() -> tuple[dict[str, object], int]:
                 status=400,
                 details={"field": "tradingCosts"},
             )
-        extra_cost_fields = set(trading_costs) - {
-            "commissionPct", "stampDutyPct", "slippagePct"
-        }
+        extra_cost_fields = set(trading_costs) - {"commissionPct", "stampDutyPct", "slippagePct"}
         if extra_cost_fields:
             return error_response(
                 code="VALIDATION_ERROR",
@@ -450,9 +453,7 @@ def create_backtest() -> tuple[dict[str, object], int]:
         for field in ("commissionPct", "stampDutyPct", "slippagePct"):
             value = trading_costs.get(field)
             if value is not None and (
-                not isinstance(value, (int, float))
-                or isinstance(value, bool)
-                or value < 0
+                not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0
             ):
                 return error_response(
                     code="VALIDATION_ERROR",
@@ -520,8 +521,7 @@ def allocation_suggestion() -> tuple[dict[str, object], int]:
         not isinstance(symbols, list)
         or not 1 <= len(symbols) <= 10
         or not all(
-            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol)
-            for symbol in symbols
+            isinstance(symbol, str) and re.fullmatch(r"[0-9]{6}", symbol) for symbol in symbols
         )
         or len(set(symbols)) != len(symbols)
     ):
@@ -569,3 +569,18 @@ def allocation_suggestion() -> tuple[dict[str, object], int]:
             details=exc.details,
         )
     return dict(result), 200
+
+
+@api.get("/data/coverage")
+def data_coverage():
+    from app.services.research_dates import DataNotReadyError, research_read
+
+    provider = current_app.extensions["market_data_service"]._provider
+    try:
+        if not hasattr(provider, "coverage"):
+            raise DataNotReadyError()
+        with research_read(provider):
+            value = provider.coverage()
+        return value, 200
+    except ServiceError as exc:
+        return error_response(code=exc.code, message=exc.message, status=exc.status)

@@ -1,4 +1,5 @@
 """Pure candidate-history checks; never a published-data or suspension assertion."""
+
 from __future__ import annotations
 
 import hashlib
@@ -12,8 +13,9 @@ from quant_platform.data.calendar import sessions
 
 
 def canonical_bytes(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True,
-                      separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
 
 
 def digest(value: object) -> str:
@@ -29,7 +31,9 @@ def expected_sessions(start: date, end: date) -> list[date]:
     return expected
 
 
-def assess_history(frame: pd.DataFrame, start: date, end: date) -> dict:
+def assess_history(
+    frame: pd.DataFrame, start: date, end: date, *, events=None, asset_id=None
+) -> dict:
     """Check each date, not just endpoints; unknown gaps remain unexplained.
 
     Input is adapter-normalized daily bars. Does not verify SDK raw overlap,
@@ -40,8 +44,11 @@ def assess_history(frame: pd.DataFrame, start: date, end: date) -> dict:
     required = ["date", "open", "high", "low", "close", "volume"]
     missing_columns = [key for key in required if key not in frame]
     rows = len(frame)
-    dates = pd.to_datetime(frame.get("date", pd.Series(index=frame.index, dtype=object)),
-                           errors="coerce", format="mixed")
+    dates = pd.to_datetime(
+        frame.get("date", pd.Series(index=frame.index, dtype=object)),
+        errors="coerce",
+        format="mixed",
+    )
     try:
         if dates.dt.tz is not None:
             raise ValueError("daily dates must be timezone-naive")
@@ -73,15 +80,71 @@ def assess_history(frame: pd.DataFrame, start: date, end: date) -> dict:
         status = "gaps"
     else:
         status = "complete"
-    return {
-        "status": status, "rowCount": rows, "expectedSessions": len(expected),
+    result = {
+        "status": status,
+        "rowCount": rows,
+        "expectedSessions": len(expected),
         "observedSessions": len(observed & expected_set),
         "firstDate": min(observed).isoformat() if observed else None,
         "lastDate": max(observed).isoformat() if observed else None,
         "missingSessions": [day.isoformat() for day in missing],
         "unexpectedSessions": [day.isoformat() for day in unexpected],
         "gapReason": "unknown" if missing else None,
-        "duplicateRows": duplicates, "invalidRows": invalid_count,
-        "missingColumns": missing_columns, "ordered": ordered,
+        "duplicateRows": duplicates,
+        "invalidRows": invalid_count,
+        "missingColumns": missing_columns,
+        "ordered": ordered,
         "amountMissingRows": int(amounts.isna().sum()),
     }
+
+    if events is not None:
+        from quant_platform.data.trading_events import classify_sessions
+
+        if not asset_id:
+            raise ValueError("event coverage requires explicit asset_id")
+        classified = classify_sessions(events, asset_id, expected)
+        explained = [
+            day
+            for day in missing
+            if day in classified and classified[day].reason != "identity_change"
+        ]
+        identity = [
+            day
+            for day in missing
+            if day in classified and classified[day].reason == "identity_change"
+        ]
+        unknown = sorted(set(missing) - set(explained) - set(identity))
+        contradictory = [
+            day
+            for day in observed
+            if day in classified and classified[day].reason != "identity_change"
+        ]
+        result.update(
+            explainedMissingSessions=[
+                {
+                    "date": day.isoformat(),
+                    "reason": classified[day].reason,
+                    "evidenceId": classified[day].evidence_id,
+                }
+                for day in explained
+            ],
+            unknownMissingSessions=[day.isoformat() for day in unknown],
+            blockedIdentitySessions=[day.isoformat() for day in identity],
+            tradableSessions=len(expected)
+            - sum(event.reason != "identity_change" for event in classified.values()),
+            contradictorySessions=[day.isoformat() for day in sorted(contradictory)],
+        )
+        if contradictory:
+            result["status"] = "invalid"
+        elif status == "gaps" and not unknown and not identity:
+            result["status"] = "complete_with_exceptions"
+        result["gapReason"] = (
+            "unknown"
+            if unknown
+            else "identity_change"
+            if identity
+            else "documented"
+            if explained
+            else None
+        )
+    return result

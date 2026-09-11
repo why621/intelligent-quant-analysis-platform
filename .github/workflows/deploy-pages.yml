@@ -38,11 +38,11 @@ jobs:
         run: npm ci
       - name: Validate public HTTPS API configuration
         env:
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || 'https://43.161.223.91/api' }}
         run: python3 tools/validate_pages_api.py
       - name: Build frontend
         env:
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || 'https://43.161.223.91/api' }}
         run: npm run build --workspace @intelligent-quant/frontend -- --base /${GITHUB_REPOSITORY#*/}/
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

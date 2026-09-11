@@ -16,6 +16,17 @@ from quant_platform.models import (
 )
 
 
+class PublicationUnavailableError(UpstreamUnavailableError):
+    pass
+
+
+class StalePublicationError(UpstreamUnavailableError):
+    def __init__(self, available, required):
+        super().__init__("published allocation history is stale or ahead of the completed day")
+        self.available = available
+        self.required = required
+
+
 class AllocationService:
     """下一交易日模拟配置建议。
 
@@ -44,7 +55,14 @@ class AllocationService:
 
         strategy = self._strategies[strategy_id]
         try:
-            basis = latest_session(_today() - timedelta(days=1))
+            required = latest_session(_today() - timedelta(days=1))
+            status = self._provider.status()
+            basis = status.latest_trade_date
+            state = status.components.get("history", {}).get("status", status.status)
+            if basis is None or state in {"failed", "updating"}:
+                raise PublicationUnavailableError("no usable history publication")
+            if basis != required:
+                raise StalePublicationError(basis, required)
             target = _next_trading_day(basis)
         except CalendarUnavailableError as exc:
             raise UpstreamUnavailableError(str(exc)) from exc
@@ -56,8 +74,12 @@ class AllocationService:
             if prices.empty or len(prices) < 10:
                 raise UpstreamUnavailableError(f"{sym}: insufficient allocation history")
             dates = pd.to_datetime(prices["date"], errors="coerce")
-            if (dates.isna().any() or dates.duplicated().any()
-                    or not dates.is_monotonic_increasing or dates.iloc[-1].date() != basis):
+            if (
+                dates.isna().any()
+                or dates.duplicated().any()
+                or not dates.is_monotonic_increasing
+                or dates.iloc[-1].date() != basis
+            ):
                 raise UpstreamUnavailableError(f"{sym}: allocation history is stale or invalid")
             sig = strategy.generate_signals(prices, {})
             if len(sig) != len(prices) or not sig.index.equals(prices.index):
@@ -89,12 +111,14 @@ class AllocationService:
             else:
                 w = weight_per
 
-            positions.append(AllocationPosition(
-                symbol=sym,
-                weight_pct=w,
-                action=action,
-                reason=reason,
-            ))
+            positions.append(
+                AllocationPosition(
+                    symbol=sym,
+                    weight_pct=w,
+                    action=action,
+                    reason=reason,
+                )
+            )
 
         return AllocationSuggestion(
             basis_date=basis,

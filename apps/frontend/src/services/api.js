@@ -1,4 +1,6 @@
 const DEFAULT_API_BASE_URL = '/api'
+let researchVersion = null
+let statusGeneration = 0
 
 export const API_BASE_URL = normalizeBaseUrl(
   import.meta.env?.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
@@ -30,7 +32,8 @@ function toQuery(params = {}) {
 }
 
 export async function request(path, options = {}) {
-  const { timeoutMs = 15000, headers, ...fetchOptions } = options
+  const { timeoutMs = 15000, headers, research = false, ...fetchOptions } = options
+  const version = research ? researchVersion : null
   const controller = new AbortController()
   let timer
   const deadline = new Promise((_, reject) => {
@@ -45,6 +48,7 @@ export async function request(path, options = {}) {
         ...fetchOptions, signal: controller.signal,
         headers: { Accept: 'application/json',
           ...(fetchOptions.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...(version ? { 'X-Research-Version': version } : {}),
           ...headers }
       })
       const contentType = response.headers.get('content-type') || ''
@@ -72,7 +76,7 @@ export async function request(path, options = {}) {
 
 function post(path, body) {
   return request(path, {
-    method: 'POST',
+    method: 'POST', research: true,
     body: JSON.stringify(body)
   })
 }
@@ -82,8 +86,12 @@ export const api = {
     return request('/health')
   },
 
-  getDataStatus() {
-    return request('/data/status')
+  async getDataStatus() {
+    const current = ++statusGeneration
+    researchVersion = null
+    const result = await request('/data/status')
+    if (current === statusGeneration) researchVersion = result.dataContext?.dataVersion || null
+    return result
   },
 
   listAssets(params = {}) {
@@ -91,7 +99,7 @@ export const api = {
   },
 
   getAssetHistory(symbol, params) {
-    return request(`/assets/${encodeURIComponent(symbol)}/history${toQuery(params)}`)
+    return request(`/assets/${encodeURIComponent(symbol)}/history${toQuery(params)}`, { research: true })
   },
 
   getMarketOverview(tradeDate) {
@@ -107,7 +115,7 @@ export const api = {
   },
 
   getStrategyRanking(period = '30d') {
-    return request(`/strategies/ranking${toQuery({ period })}`)
+    return request(`/strategies/ranking${toQuery({ period })}`, { research: true })
   },
 
   createBacktest(payload) {

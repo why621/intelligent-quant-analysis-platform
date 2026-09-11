@@ -36,8 +36,10 @@ BacktestRequest:
     startDate: {type: string, format: date}
     endDate: {type: string, format: date}
     benchmark:
-      $ref: "./common.yaml#/Symbol"
-      description: 可省略表示无基准；当前仅支持GET /assets目录中的active ETF，不支持000300独立指数。
+      oneOf:
+        - {$ref: "./common.yaml#/Symbol"}
+        - {const: "index:CSI:000300"}
+      description: 可省略；ETF六位代码或明确的独立沪深300价格指数身份，须已加载并覆盖请求区间。不接受歧义000300。
     initialCapitalCny:
       type: number
       exclusiveMinimum: 0
@@ -90,6 +92,7 @@ BacktestResult:
   type: object
   required: [metrics, equityCurve, trades, assumptions]
   properties:
+    dataContext: {$ref: "./common.yaml#/ResearchContext"}
     metrics: {$ref: "#/BacktestMetrics"}
     equityCurve:
       type: array
@@ -102,13 +105,19 @@ BacktestResult:
       required: [signalAt, executeAt, calendar, currency]
       properties:
         signalAt: {type: string, const: close}
-        executeAt: {type: string, const: next_open}
+        executeAt: {type: string, enum: [next_open, next_tradable_open]}
+        nonTradingValuation:
+          enum: [none, last_observed_close_or_initial_cash]
         calendar: {type: string, const: CN}
         currency: {type: string, const: CNY}
 BacktestJob:
   type: object
   required: [jobId, status, createdAt]
   properties:
+    dataContext:
+      anyOf:
+        - {$ref: "./common.yaml#/ResearchContext"}
+        - {type: "null"}
     request:
       $ref: "#/BacktestRequest"
       description: 提交时请求快照；用于刷新恢复、结果归属及基准披露。旧任务保留原参数。

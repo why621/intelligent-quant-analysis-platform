@@ -1,0 +1,110 @@
+[
+  {
+    "asset_id": "stock:SSE:688981",
+    "start": "2025-09-01",
+    "end": "2025-09-08",
+    "reason": "suspension",
+    "source_url": "https://star.sse.com.cn/disclosure/listedinfo/announcement/c/new/2025-09-09/688981_20250909_2BQ9.pdf",
+    "reviewed_on": "2026-09-08",
+    "evidence_note": "CR-013报告记录已核实的中芯国际2025-024复牌公告：9月1日起停牌，9月9日复牌。证据链见docs/cr013-history-validation-2026-09-08.md；未留存原PDF字节，不声明原PDF哈希或本轮联网复核。"
+  },
+  {
+    "asset_id": "stock:SSE:600438",
+    "start": "2026-02-25",
+    "end": "2026-03-10",
+    "reason": "suspension",
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-03-11/1225004152.PDF",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人复牌公告：2月25日起停牌，3月11日复牌。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SSE:600958",
+    "start": "2026-04-20",
+    "end": "2026-05-06",
+    "reason": "suspension",
+    "source_url": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0506/2026050602620_c.pdf",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人A股600958公告，PDF第154页：4月20日起停牌，5月7日复牌。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SSE:601059",
+    "start": "2025-11-20",
+    "end": "2025-12-17",
+    "reason": "suspension",
+    "source_url": "https://static.sse.com.cn/disclosure/bond/announcement/company/c/new/2025-12-22/115229_20251222_DKKW.pdf",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "23信达01受托管理报告第2页明确A股601059于11月20日停牌、12月18日复牌。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SSE:601995",
+    "start": "2025-11-20",
+    "end": "2025-12-17",
+    "reason": "suspension",
+    "source_url": "https://www.hkexnews.hk/listedco/listconews/sehk/2025/1217/2025121701081_c.pdf",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人临2025-047公告明确A股601995于11月20日起停牌、12月18日复牌。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SSE:688012",
+    "start": "2025-12-19",
+    "end": "2026-01-04",
+    "reason": "suspension",
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-01-01/1224914847.PDF",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人公告：12月19日起停牌，1月5日复牌。非交易日不计入缺口。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SZSE:001280",
+    "start": "2025-09-09",
+    "end": "2025-12-02",
+    "reason": "pre_listing",
+    "source_url": "https://www.szse.cn/www/disclosure/notice/t20251202_617655.html",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "深交所上市交易公告搜索索引明确001280于2025年12月3日上市；正文抓取未成功，依据交易所公告索引核对，前置区间仅限本次一年研究窗。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SZSE:002049",
+    "start": "2025-12-30",
+    "end": "2026-01-14",
+    "reason": "suspension",
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-01-15/1224934010.PDF",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人2026-006公告：12月30日起停牌，1月15日复牌。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SZSE:002602",
+    "start": "2025-11-11",
+    "end": "2025-11-11",
+    "reason": "suspension",
+    "source_url": "https://disc.static.szse.cn/disc/disk03/finalpage/2025-11-11/60abdb3d-7a83-4404-86f7-9c5a1d7fc5d5.PDF",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人2025-066公告：11月11日停牌一天、12日复牌，证券代码仍002602；仅简称与风险警示改变，不认定资产代码更换。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SZSE:300442",
+    "start": "2026-02-06",
+    "end": "2026-02-23",
+    "reason": "suspension",
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-04-10/1225090821.PDF",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人2025年年报第73页：2月6日起停牌，2月24日复牌。非交易日不计入缺口。 本轮网页检索/解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SSE:688521",
+    "start": "2025-08-29",
+    "end": "2025-09-11",
+    "reason": "suspension",
+    "source_url": "https://static.cninfo.com.cn/finalpage/2025-09-12/1224652741.PDF",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人2025-057公告第1至2页：8月29日起停牌，9月12日复牌。 本轮网页解析核实，未保存PDF原始字节，不声明原文哈希。"
+  },
+  {
+    "asset_id": "stock:SSE:688072",
+    "start": "2026-06-29",
+    "end": "2026-07-12",
+    "reason": "suspension",
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-08-11/1225466404.PDF",
+    "reviewed_on": "2026-09-10",
+    "evidence_note": "发行人2026-050进展公告第1至2页：6月29日起停牌，7月13日复牌。 本轮网页解析核实，未保存PDF原始字节，不声明原文哈希。"
+  }
+]

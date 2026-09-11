@@ -1,0 +1,4 @@
+FROM intelligent-quant-regression-backend:release-af02f826
+COPY services/algorithms/src/quant_platform /app/code/quant_platform
+COPY services/backend/src/app /app/code/app
+ENV PYTHONPATH=/app/code

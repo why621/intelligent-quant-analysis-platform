@@ -91,6 +91,7 @@ _HISTORY_BATCH_TIMEOUT_SECONDS = 900
 _SZ000_VOLUME_VERSION = "tx-1.18.94-sz000-shares-v1"
 _OVERVIEW_ATTEMPTS = 1  # HTTP pages retry individually; do not restart a full collection.
 logger = logging.getLogger(__name__)
+_RESEARCH_CUTOFF = ContextVar("research_cutoff", default=None)
 _REQUEST_DEADLINE = ContextVar("history_request_deadline", default=None)
 
 
@@ -130,6 +131,8 @@ class AkShareMarketDataProvider:
         *,
         request_interval_seconds: float = 0.2,
         universe_snapshot: UniverseSnapshot | None = None,
+        trading_events=(),
+        index_snapshot=None,
     ) -> None:
         self._assets: dict[str, Asset] = {
             a["symbol"]: Asset(
@@ -140,6 +143,10 @@ class AkShareMarketDataProvider:
             )
             for a in _DEFAULT_UNIVERSE
         }
+        from quant_platform.data.trading_events import validate_events
+
+        self.trading_events = validate_events(trading_events)
+        self.index_snapshot = index_snapshot
         self.universe_snapshot = universe_snapshot
         if universe_snapshot is not None:
             # Explicit opt-in only. Old histories are retained; ETFs are not constituents.
@@ -180,6 +187,16 @@ class AkShareMarketDataProvider:
     ) -> pd.DataFrame:
         """先读缓存，缓存覆盖请求范围则直接返回；否则调腾讯接口并更新缓存。"""
         self._remaining_budget()
+        cutoff = _RESEARCH_CUTOFF.get()
+        if cutoff is not None and end_date > cutoff:
+            raise UpstreamUnavailableError("research exceeds published cutoff")
+        if symbol == "index:CSI:000300":
+            if self.index_snapshot is None:
+                raise UpstreamUnavailableError("independent index snapshot unavailable")
+            try:
+                return self.index_snapshot.history(start_date, end_date)
+            except ValueError as exc:
+                raise UpstreamUnavailableError(str(exc)) from exc
         try:
             expected = sessions(start_date, end_date)
         except CalendarUnavailableError as exc:
@@ -187,13 +204,27 @@ class AkShareMarketDataProvider:
         if not expected:
             return _empty_ohlcv()
         start_date, end_date = expected[0], expected[-1]
+        exclusions = self.nontrading_sessions(symbol, start_date, end_date)
+        expected = [day for day in expected if day not in exclusions]
+        if not expected:
+            raise UpstreamUnavailableError("no tradable bars in requested interval")
         cached = self._load_history_cache(symbol, adjust)
+        if cutoff is not None and not cached.empty and cached["date"].max().date() > cutoff:
+            raise UpstreamUnavailableError(
+                "cache contains unpublished bars; adjustment version unknown"
+            )
         if not cached.empty:
+            if set(cached["date"].dt.date) & set(exclusions):
+                raise UpstreamUnavailableError("bars contradict verified non-trading evidence")
             lo = pd.Timestamp(start_date)
             hi = pd.Timestamp(end_date)
             if set(expected).issubset(set(cached["date"].dt.date)):
                 return cached[(cached["date"] >= lo) & (cached["date"] <= hi)]
 
+        if cutoff is not None:
+            raise UpstreamUnavailableError(
+                "published history incomplete; research cannot fetch or write"
+            )
         fetch_start, fetch_end = start_date, end_date
         if adjust != "none" and not cached.empty:
             # Adjusted prices may revise the ENTIRE cached range after dividends.
@@ -206,6 +237,8 @@ class AkShareMarketDataProvider:
             raise UpstreamUnavailableError("no history returned for requested trading sessions")
         if not set(expected).issubset(set(raw["date"].dt.date)):
             raise UpstreamUnavailableError("history has missing sessions; coverage is incomplete")
+        if set(raw["date"].dt.date) & set(exclusions):
+            raise UpstreamUnavailableError("fresh bars contradict non-trading evidence")
         self._validate_adjusted_refresh(cached, raw, adjust)
 
         # 合并缓存与 API 数据，去重后写回缓存
@@ -222,6 +255,21 @@ class AkShareMarketDataProvider:
         lo = pd.Timestamp(start_date)
         hi = pd.Timestamp(end_date)
         return merged[(merged["date"] >= lo) & (merged["date"] <= hi)]
+
+    def nontrading_sessions(self, symbol, start, end):
+        from quant_platform.data.trading_events import classify_sessions
+
+        asset = self._assets.get(symbol)
+        if asset is None:
+            return {}
+        identified = classify_sessions(
+            self.trading_events,
+            f"{asset.asset_type}:{asset.exchange}:{symbol}",
+            sessions(start, end),
+        )
+        if any(event.reason == "identity_change" for event in identified.values()):
+            raise UpstreamUnavailableError("identity change requires explicit series mapping")
+        return identified
 
     def status(self) -> DataStatus:
         """返回跨进程的日更状态。包含 fallback 的 asset counts。"""
@@ -240,6 +288,14 @@ class AkShareMarketDataProvider:
     def _save_history_cache(self, symbol, frame, adjust="qfq"):
         version = _SZ000_VOLUME_VERSION if symbol.startswith("000") else None
         self._storage.save(symbol, frame, adjust, volume_version=version)
+
+    @contextmanager
+    def read_only_research(self, cutoff: date):
+        token = _RESEARCH_CUTOFF.set(cutoff)
+        try:
+            yield
+        finally:
+            _RESEARCH_CUTOFF.reset(token)
 
     @contextmanager
     def computation_budget(self, seconds: float):
@@ -345,8 +401,10 @@ class AkShareMarketDataProvider:
                     failed_symbols.append(symbol)
                     upstream_errors += 1
         history_state = (
-            "failed" if available == 0
-            else "stale" if available < len(self._assets) or upstream_errors
+            "failed"
+            if available == 0
+            else "stale"
+            if available < len(self._assets) or upstream_errors
             else "ready"
         )
         overview_state = "ready"
@@ -358,7 +416,8 @@ class AkShareMarketDataProvider:
             logger.exception("market overview refresh failed; retaining previous snapshot")
             overview_state = "stale" if self._overview_storage.load() else "failed"
             overview_message = (
-                "刷新失败，保留上次成功快照" if overview_state == "stale"
+                "刷新失败，保留上次成功快照"
+                if overview_state == "stale"
                 else "市场概览暂不可用，尚无成功快照"
             )
             overview_message += f"（{type(exc).__name__}）"
@@ -420,13 +479,23 @@ class AkShareMarketDataProvider:
     # ------------------------------------------------------------------
 
     def _fetch_tencent(
-        self, symbol: str, start_date: date, end_date: date, adjust: AdjustMode,
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        adjust: AdjustMode,
     ) -> pd.DataFrame:
         try:
-            records = upstream.run("history", {
-                "symbol": symbol, "start": start_date.isoformat(),
-                "end": end_date.isoformat(), "adjust": adjust,
-            }, timeout=self._remaining_budget())
+            records = upstream.run(
+                "history",
+                {
+                    "symbol": symbol,
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat(),
+                    "adjust": adjust,
+                },
+                timeout=self._remaining_budget(),
+            )
             if not isinstance(records, list):
                 raise ValueError("invalid history worker output")
             if not records:
@@ -498,8 +567,12 @@ class AkShareMarketDataProvider:
 
     @staticmethod
     def _fetch_market_overview(trade_date: date) -> dict[str, object]:
-        result = upstream.run("spot", {"date": trade_date.isoformat()},
-                              timeout=_OVERVIEW_TIMEOUT_SECONDS, attempts=_OVERVIEW_ATTEMPTS)
+        result = upstream.run(
+            "spot",
+            {"date": trade_date.isoformat()},
+            timeout=_OVERVIEW_TIMEOUT_SECONDS,
+            attempts=_OVERVIEW_ATTEMPTS,
+        )
         if not isinstance(result, dict) or not isinstance(result.get("tradeDate"), str):
             raise ValueError("invalid market overview worker output")
         observed = date.fromisoformat(result["tradeDate"])
@@ -518,9 +591,21 @@ class AkShareMarketDataProvider:
         # Separate deadlines: a slow index cannot discard the completed market snapshot.
         with ThreadPoolExecutor(max_workers=3) as pool:
             north = pool.submit(optional, "northbound", payload)
-            indices = [(symbol, pool.submit(optional, "index", {
-                **payload, "symbol": symbol, "name": name,
-            })) for symbol, name in INDEX_SYMBOLS]
+            indices = [
+                (
+                    symbol,
+                    pool.submit(
+                        optional,
+                        "index",
+                        {
+                            **payload,
+                            "symbol": symbol,
+                            "name": name,
+                        },
+                    ),
+                )
+                for symbol, name in INDEX_SYMBOLS
+            ]
             result["northboundNetCny"] = north.result()
             if result["northboundNetCny"] is None:
                 unavailable.append("northboundNetCny")

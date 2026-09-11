@@ -18,8 +18,13 @@ def fixed_today(monkeypatch):
 
 
 class FakeProvider:
+    publication = date(2026, 9, 7)
+
     def history(
-        self, symbol: str, start_date: date, end_date: date,
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
         adjust: AdjustMode = "qfq",
     ) -> pd.DataFrame:
         dates = pd.date_range(end=end_date, periods=30, freq="B")
@@ -32,22 +37,29 @@ class FakeProvider:
             close = [100.0 - i * 0.5 for i in range(30)]
         else:
             close = [100.0 + i * 0.1 for i in range(30)]
-        return pd.DataFrame({
-            "date": dates,
-            "open": [c * 0.999 for c in close],
-            "high": [c * 1.005 for c in close],
-            "low": [c * 0.995 for c in close],
-            "close": close,
-            "volume": [10000] * 30,
-            "amount": [c * 10000 for c in close],
-        })
+        return pd.DataFrame(
+            {
+                "date": dates,
+                "open": [c * 0.999 for c in close],
+                "high": [c * 1.005 for c in close],
+                "low": [c * 0.995 for c in close],
+                "close": close,
+                "volume": [10000] * 30,
+                "amount": [c * 10000 for c in close],
+            }
+        )
 
     def list_assets(self, query=None, asset_type=None, limit=50):
         return []
 
     def status(self):
-        return DataStatus(status="ready", source="fake", asset_count=3,
-                          latest_trade_date=None, updated_at=None)
+        return DataStatus(
+            status="ready",
+            source="fake",
+            asset_count=3,
+            latest_trade_date=self.publication,
+            updated_at=None,
+        )
 
     def market_overview(self, trade_date=None):
         return {}
@@ -55,6 +67,7 @@ class FakeProvider:
 
 class FakeStrategy:
     """根据最近收盘价变化自动生成信号。"""
+
     id = "test_strategy"
 
     def info(self):
@@ -158,14 +171,19 @@ class TestAllocation:
             svc.suggest(symbols=["sym1"], strategy_id="test_strategy", cash_pct=0)
 
 
-@pytest.mark.parametrize("today,basis,target", [
-    (date(2026, 9, 7), date(2026, 9, 4), date(2026, 9, 7)),
-    (date(2026, 10, 6), date(2026, 9, 30), date(2026, 10, 8)),
-])
+@pytest.mark.parametrize(
+    "today,basis,target",
+    [
+        (date(2026, 9, 7), date(2026, 9, 4), date(2026, 9, 7)),
+        (date(2026, 10, 6), date(2026, 9, 30), date(2026, 10, 8)),
+    ],
+)
 def test_verified_calendar_dates(monkeypatch, today, basis, target):
     monkeypatch.setattr("quant_platform.allocation._today", lambda: today)
+    monkeypatch.setattr(FakeProvider, "publication", basis)
     result = AllocationService(FakeProvider(), {"test_strategy": FakeStrategy()}).suggest(
-        symbols=["sym1"], strategy_id="test_strategy")
+        symbols=["sym1"], strategy_id="test_strategy"
+    )
     assert (result.basis_date, result.target_date) == (basis, target)
 
 
@@ -173,9 +191,11 @@ def test_stale_history_rejected():
     class StaleProvider(FakeProvider):
         def history(self, *args, **kwargs):
             return super().history(*args, **kwargs).iloc[:-1]
+
     with pytest.raises(UpstreamUnavailableError, match="stale"):
         AllocationService(StaleProvider(), {"test_strategy": FakeStrategy()}).suggest(
-            symbols=["sym1"], strategy_id="test_strategy")
+            symbols=["sym1"], strategy_id="test_strategy"
+        )
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), 0.5])
@@ -183,6 +203,8 @@ def test_invalid_signal_rejected(value):
     class InvalidStrategy(FakeStrategy):
         def generate_signals(self, prices, parameters):
             return pd.Series(value, index=prices.index)
+
     with pytest.raises(UpstreamUnavailableError, match="invalid allocation signal"):
         AllocationService(FakeProvider(), {"test_strategy": InvalidStrategy()}).suggest(
-            symbols=["sym1"], strategy_id="test_strategy")
+            symbols=["sym1"], strategy_id="test_strategy"
+        )

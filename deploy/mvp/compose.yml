@@ -1,0 +1,54 @@
+name: quant-mvp-cr026
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: deploy/mvp/Dockerfile.backend
+    image: quant-mvp-backend:cr026
+    environment:
+      QUANT_PUBLICATION_ROOT: /app/publication
+      BACKTEST_DB_PATH: /app/var/backtests.db
+      ALLOWED_ORIGINS: https://why621.github.io,https://43.161.223.91
+      CORS_ALLOW_HEADERS: Accept,Content-Type,X-Research-Version
+      CORS_ALLOW_METHODS: GET,POST,OPTIONS
+      GUNICORN_WORKERS: 1
+      GUNICORN_THREADS: 2
+      GUNICORN_TIMEOUT: 120
+    volumes:
+      - ./publication:/app/publication:ro
+      - ./jobs:/app/var
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 128
+  gateway:
+    image: intelligent-quant-regression-frontend:release-af02f826
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8080"
+      - "443:8443"
+    volumes:
+      - ./nginx-live:/etc/nginx/conf.d:ro
+      - ./nginx-api.conf:/etc/nginx/quant-api.conf:ro
+      - ./nginx-proxy.conf:/etc/nginx/quant-proxy.conf:ro
+      - ./webroot:/var/www/acme:ro
+      - ./certificates:/etc/letsencrypt:ro
+      - ../../apps/frontend/dist:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      default: {}
+      legacy:
+        aliases: [cr026-gateway]
+    restart: unless-stopped
+    mem_limit: 128m
+    pids_limit: 64
+networks:
+  legacy:
+    external: true
+    name: intelligent-quant-regression_default

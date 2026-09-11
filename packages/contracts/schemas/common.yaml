@@ -41,3 +41,15 @@ ErrorResponse:
             symbols:
               type: array
               items: {$ref: "#/Symbol"}
+
+ResearchContext:
+  type: object
+  additionalProperties: false
+  required: [publicationDate, universeVersion, dataVersion, consistency]
+  properties:
+    publicationDate: {type: string, format: date}
+    universeVersion: {type: string}
+    dataVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
+    consistency:
+      enum: [legacy_revision, published_snapshot]
+      description: legacy_revision 保护旧缓存修订；published_snapshot 标识完整不可变327资产及独立指数发布，dataVersion 为发布内容哈希。

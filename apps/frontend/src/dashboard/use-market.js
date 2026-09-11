@@ -27,6 +27,7 @@ export function useMarket(client = api) {
   const market = ref({ ...fallbackMarket })
   const strategies = ref(fallbackStrategies)
   const ranking = ref([])
+  const rankingContext = ref(null)
   const historyStatusText = computed(() => statusLabel(dataStatus.value.components?.history?.status))
   const overviewStatusText = computed(() => statusLabel(dataStatus.value.components?.overview?.status))
   const marketNotice = computed(() => {
@@ -58,10 +59,12 @@ export function useMarket(client = api) {
     strategies.value = fallbackStrategies
     market.value = { ...fallbackMarket }
     ranking.value = []
+    rankingContext.value = null
     marketError.value = ''
     let completed = 0
+    const statusRequest = client.getDataStatus()
     const jobs = [
-      [() => client.getDataStatus(), value => {
+      [() => statusRequest, value => {
         if (!value || !['ready', 'stale', 'updating', 'failed'].includes(value.status)) throw Error()
         dataStatus.value = value
       }],
@@ -77,9 +80,10 @@ export function useMarket(client = api) {
         if (!Array.isArray(value?.items) || !value.items.length) throw Error()
         strategies.value = value.items
       }],
-      [() => client.getStrategyRanking('30d'), value => {
+      [async () => { await statusRequest; return client.getStrategyRanking('30d') }, value => {
         if (!Array.isArray(value?.items)) throw Error()
         ranking.value = value.items
+        rankingContext.value = value.dataContext || null
       }]
     ]
     const results = await Promise.allSettled(jobs.map(async ([fetchValue, applyValue], index) => {
@@ -118,6 +122,7 @@ export function useMarket(client = api) {
     market,
     strategies,
     ranking,
+    rankingContext,
     historyStatusText,
     overviewStatusText,
     marketNotice,

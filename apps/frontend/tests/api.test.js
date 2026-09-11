@@ -45,3 +45,22 @@ test('deadline bounds connection and response-body waits', async t => {
     json: () => new Promise(() => {}) })
   await assert.rejects(request('/health', { timeoutMs: 10 }), { code: 'REQUEST_TIMEOUT' })
 })
+
+
+test('research requests pin the loaded version; job recovery stays independent', async t => {
+  const calls = []
+  stub(t, async (url, options) => {
+    calls.push([url, options.headers])
+    return Response.json(url.endsWith('/data/status')
+      ? { dataContext: { dataVersion: 'a'.repeat(64) } } : { items: [] })
+  })
+  await api.getDataStatus()
+  await api.getCorrelation({ symbols: ['510300', '510500'] })
+  await api.getStrategyRanking()
+  await api.getAllocationSuggestion({ symbols: ['510300'] })
+  await api.getBacktest('old-task')
+  assert.equal(calls[1][1]['X-Research-Version'], 'a'.repeat(64))
+  assert.equal(calls[2][1]['X-Research-Version'], 'a'.repeat(64))
+  assert.equal(calls[3][1]['X-Research-Version'], 'a'.repeat(64))
+  assert.equal(calls[4][1]['X-Research-Version'], undefined)
+})

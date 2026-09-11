@@ -1,4 +1,5 @@
 """Isolated bounded SDK probe. This worker never constructs or writes a data store."""
+
 from __future__ import annotations
 
 import json
@@ -26,9 +27,14 @@ def bounded_requests(trace: list):
 
     def request(session, method, url, **kwargs):
         target = urlsplit(url)
-        if (method.upper() != "GET" or target.scheme != "https"
-                or target.hostname not in ALLOWED_HOSTS or target.port not in (None, 443)
-                or target.username or target.password):
+        if (
+            method.upper() != "GET"
+            or target.scheme != "https"
+            or target.hostname not in ALLOWED_HOSTS
+            or target.port not in (None, 443)
+            or target.username
+            or target.password
+        ):
             raise ValueError("probe request outside approved HTTPS hosts")
         if len(trace) >= MAX_REQUESTS:
             raise ValueError("probe HTTP request budget exhausted")
@@ -63,12 +69,22 @@ def bounded_requests(trace: list):
 
 
 def probe(payload: dict) -> dict:
-    from quant_platform.data.akshare_provider import AkShareMarketDataProvider, ak
+    from quant_platform.data.akshare_provider import (
+        _DEFAULT_UNIVERSE,
+        AkShareMarketDataProvider,
+        ak,
+    )
 
+    etfs = {a["symbol"] for a in _DEFAULT_UNIVERSE if a["asset_type"] == "etf"}
     symbol = payload["symbol"]
-    if (not isinstance(symbol, str) or len(symbol) != 6 or not symbol.isascii()
-            or not symbol.isdigit() or symbol[0] not in "036"):
-        raise ValueError("probe accepts only six-digit SSE/SZSE stocks")
+    if (
+        not isinstance(symbol, str)
+        or len(symbol) != 6
+        or not symbol.isascii()
+        or not symbol.isdigit()
+        or (symbol[0] not in "036" and symbol not in etfs)
+    ):
+        raise ValueError("probe accepts only SSE/SZSE stocks or explicit legacy ETF whitelist")
     start, end = date.fromisoformat(payload["start"]), date.fromisoformat(payload["end"])
     expected_sessions(start, end)
     if end > datetime.now(ZoneInfo("Asia/Shanghai")).date() - timedelta(days=1):
@@ -76,11 +92,19 @@ def probe(payload: dict) -> dict:
     if ak.__version__ != "1.18.94":
         raise ValueError("revalidate history probe for changed SDK")
     trace = []
-    result = {"symbol": symbol, "start": start.isoformat(), "end": end.isoformat(),
-              "adjust": "qfq", "source": "Tencent", "sdkVersion": ak.__version__,
-              "normalizationVersion": "tx-1.18.94-project-v1",
-              "retrievedAt": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
-              "records": [], "error": None, "httpTrace": trace}
+    result = {
+        "symbol": symbol,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "adjust": "qfq",
+        "source": "Tencent",
+        "sdkVersion": ak.__version__,
+        "normalizationVersion": "tx-1.18.94-project-v1",
+        "retrievedAt": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+        "records": [],
+        "error": None,
+        "httpTrace": trace,
+    }
     try:
         with bounded_requests(trace):
             provider = object.__new__(AkShareMarketDataProvider)
