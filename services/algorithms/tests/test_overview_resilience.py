@@ -106,12 +106,20 @@ def test_worker_stdout_is_json_only(snapshot, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("cached", [False, True])
-def test_overview_failure_does_not_mark_history_failed(provider, snapshot, cached):
+@pytest.mark.parametrize("today, bar_day, history_state", [
+    (date(2026, 9, 11), date(2026, 9, 11), "ready"),
+    (date(2026, 9, 12), date(2026, 9, 11), "ready"),
+    (date(2026, 9, 13), date(2026, 9, 11), "ready"),
+    (date(2026, 9, 12), date(2026, 9, 10), "stale"),
+])
+def test_overview_failure_does_not_mark_history_failed(
+    provider, snapshot, cached, today, bar_day, history_state
+):
     if cached:
         provider._overview_storage.save(snapshot)
     frame = pd.DataFrame(
         {
-            "date": [pd.Timestamp(date.today())],
+            "date": [pd.Timestamp(bar_day)],
             "open": [1],
             "high": [2],
             "low": [1],
@@ -120,12 +128,15 @@ def test_overview_failure_does_not_mark_history_failed(provider, snapshot, cache
         }
     )
     with (
+        patch("quant_platform.data.akshare_provider._today", return_value=today),
         patch.object(provider, "_fetch_tencent", return_value=frame),
         patch.object(provider, "refresh_market_overview", side_effect=UpstreamUnavailableError),
     ):
         status = provider.update_daily()
     assert status.status == "stale"
-    assert status.components["history"]["status"] == "ready"
+    assert status.components["history"]["status"] == history_state
+    assert status.latest_trade_date == bar_day
+    assert status.components["history"]["failedSymbols"] == ([] if history_state == "ready" else ["510300"])
     assert status.components["overview"]["status"] == ("stale" if cached else "failed")
     assert DataStatusStore(provider._storage.data_dir).load(1).components == status.components
     assert status.updated_at.utcoffset() == timedelta(hours=8)
