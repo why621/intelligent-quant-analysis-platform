@@ -18,3 +18,20 @@ CR-033推送结果（2026-09-12）：新UI提交008ecb8f667552cca658e0679e21c990
 仅修改services/algorithms/tests/test_overview_resilience.py，冻结provider._today并显式提供行情日；参数覆盖周五、周六、周日，以及周六只到周四必须stale的反例，分别结合有/无概览缓存。保留历史和概览独立状态、failedSymbols、CLI降级退出码断言；不改生产数据或降低检查。
 
 本地复验该文件15项通过；与CI同范围命令（设置PYTHONPATH=services/algorithms/src:services/backend/src）`.venv/bin/python -m pytest services/algorithms/tests services/backend/tests -m 'not network' -q -o addopts=`：323 passed, 8 deselected in 14.25s。git diff --check通过。接着推送同一PR21分支，GitHub整条容器smoke/前端检查结果需另核实，不以本地离线通过代替远端全CI或Pages发布。
+
+CR-034最终回写（2026-09-12）：原两失败已复现，原因是测试date.today生成周六行情，而生产latest_session要求周五。固定测试时钟/样本并覆盖周五、周六、周日和真实过期反例，保留独立分项状态与CLI失败断言，不修改生产实现。目标文件15项通过；本地与CI同范围323 passed/8 deselected（14.25s），算法全量Ruff通过。首次推送新断言行长超限触发Lint，随后格式修正，不改语义。
+
+最终提交5e8dd68ecca66584abeefa2140909e666f799e6b已推送同PR21。GitHub公开API已确认该提交三项全部success：Frontend CI 34691344458、Algorithms CI 34691344562、Regression stack CI 34691344471。后者包含后端/算法离线、前端测试、容器构建启动及smoke检查。原截图失败解除，可以按保护规则合并PR21。PR尚未在本轮合并，不把CI成功当Pages部署完成；合并后继续网页新UI/云数据验收。
+
+报告链接：https://github.com/why621/intelligent-quant-analysis-platform/pull/21 。本次最终状态回写本地SDD/交接；修复及前一批报告已上传分支。此前文档写入的审批通信中断未执行，最新以本段为准。
+
+
+## CR-033 合并后 Pages 最终验收（2026-09-12）
+
+用户确认PR21已合并，公开GitHub API核实合并提交0e2e09fd64af177a60fe1e0acfdb5700e090c107。Pages工作流34691642784成功，主分支Frontend CI 34691642752、Algorithms CI 34691642751、Regression stack CI 34691642755均success。线上加载index-CCs2woci.js，与生产候选一致，新UI正式上线。
+
+实际Edge无头浏览器访问https://why621.github.io/intelligent-quant-analysis-platform/，复用tools/verify_cr032_ui.cjs并在内存替换为公网URL、增加配置响应断言；没有修改应用实现或云端发布数据。327资产加载、搜索/空结果、ETF27筛选、筛选保留已选、删除标签、10只上限、键盘Space、策略切换及参数展示通过。概览、排行、资产分页、状态、相关性POST和动量反转配置POST均200。配置510300/510500各45%、现金10%，basisDate=2026-09-11、targetDate=2026-09-14，数据版本a668248b3881cbed35e6b57e8372b0403c09a8738fe86b157425ce2dcf7fdd5a，权重合计100%。未出现pageerror或requestfailed；820/390宽度无横向溢出。
+
+证据：artifacts/cr033-pages-20260912/browser/evidence.json及desktop.png、viewport-820.png、viewport-390.png（本地忽略目录，不提交行情响应）。截图已生成，当前图像读取工具未成功展示，因此本轮只确认真实交互、接口与几何检查，不声称新增人工逐像素视觉验收。未重新发起回测任务或行情采集；前一批回测证据仍保留原环境标记。本次完成新UI Pages发布与云API联通验收，不代表连续两个实际交易日自动更新验收已完成；该门槛仍按原日更计划独立跟踪。
+
+页面：https://why621.github.io/intelligent-quant-analysis-platform/ 。本段回写本地SDD及交接，未额外推送文档或触发重复部署。历史“等待合并/未发布”描述仅对应历史批次，以本段为准。

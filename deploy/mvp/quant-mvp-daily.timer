@@ -1,0 +1,11 @@
+[Unit]
+Description=Shanghai morning MVP daily acceptance (four attempts maximum)
+
+[Timer]
+OnCalendar=*-*-* 07:30:00 Asia/Shanghai
+Persistent=false
+AccuracySec=30s
+Unit=quant-mvp-daily.service
+
+[Install]
+WantedBy=timers.target

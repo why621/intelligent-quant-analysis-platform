@@ -1,0 +1,15 @@
+[Unit]
+Description=Bounded MVP daily candidate and protected publication
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/intelligent-quant-cr026-20260910/daily-cr028
+Environment=PYTHONPATH=/opt/intelligent-quant-cr026-20260910/daily-cr028
+ExecStart=/usr/bin/python3 -m tools.run_cloud_daily
+ExecStopPost=-/usr/bin/docker stop -t 10 quant-mvp-daily-cr028
+TimeoutStartSec=6000
+TimeoutStopSec=30
+UMask=0077
