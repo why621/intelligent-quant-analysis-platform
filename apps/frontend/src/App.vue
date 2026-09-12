@@ -17,8 +17,8 @@
     <main id="top" class="content">
       <section class="hero">
         <div>
-          <p class="eyebrow">END-OF-DAY QUANT RESEARCH</p>
-          <h1>用统一数据和可复现回测，完成每日市场复盘</h1>
+          <p class="eyebrow">QUANT LAB / 收盘后的策略实验室</p>
+          <h1>洞察市场信号，<br /><em>构建你的研究策略。</em></h1>
           <p>
             当前可体验 2–10 个资产相关性、两种传统策略回测、策略排行及模拟配置。
             所有结果仅用于教学研究，不会提交真实订单。
@@ -26,7 +26,7 @@
           <p class="notice">研究范围：{{ dataStatus.assetCount || assetCatalog.length }} 只资产，数据截至右侧所示日期。
             当前成分固定名单研究存在幸存者偏差；自动日更验收独立记录，AI策略尚未接入。</p>
           <div class="chips">
-            <span>A 股 / ETF</span><span>AkShare</span><span>Flask + Pandas</span>
+            <a href="#correlation">开始资产研究 ↗</a><a href="#backtest">策略实验室 →</a>
           </div>
         </div>
         <div class="status-card">
@@ -98,26 +98,7 @@
         <div class="split">
           <article class="card form-card">
             <h3>选择 2–10 个资产</h3>
-            <div v-for="(_, index) in correlationSymbols" :key="index" class="input-row">
-              <input
-                v-model.trim="correlationSymbols[index]"
-                inputmode="numeric"
-                maxlength="6"
-                placeholder="六位代码，如 510300"
-              />
-              <button
-                v-if="correlationSymbols.length > 2"
-                class="secondary"
-                type="button"
-                @click="correlation.removeSymbol(index)"
-              >删除</button>
-            </div>
-            <button
-              v-if="correlationSymbols.length < 10"
-              class="secondary full"
-              type="button"
-              @click="correlation.addSymbol"
-            >添加资产</button>
+            <AssetPicker v-model="correlationSymbols" :assets="assetCatalog" label="资产组合" :disabled="correlationBusy" />
             <div class="date-row">
               <label>开始日期<input v-model="correlationStartDate" type="date" :min="correlation.minDate" :max="correlation.maxDate.value" /></label>
               <label>结束日期<input v-model="correlationEndDate" type="date" :min="correlation.minDate" :max="correlation.maxDate.value" /></label>
@@ -155,25 +136,8 @@
         </header>
         <div class="split">
           <article class="card form-card">
-            <label>资产（最多 10 个）
-              <select v-model="backtestSymbols" multiple>
-                <option v-for="asset in assetCatalog" :key="asset.symbol" :value="asset.symbol">
-                  {{ asset.symbol }} · {{ asset.name }}
-                </option>
-              </select>
-            </label>
-            <label>策略
-              <select v-model="backtestStrategyId">
-                <option
-                  v-for="strategy in strategies"
-                  :key="strategy.id"
-                  :value="strategy.id"
-                  :disabled="strategy.status !== 'available'"
-                >
-                  {{ strategy.name }} · {{ strategyStatus(strategy.status) }}
-                </option>
-              </select>
-            </label>
+            <AssetPicker v-model="backtestSymbols" :assets="assetCatalog" label="回测资产" :disabled="backtestBusy" />
+            <StrategyPicker v-model="backtestStrategyId" :strategies="strategies" :disabled="backtestBusy" />
             <label v-for="field in backtest.parameterFields.value" :key="field.key">
               {{ field.label }}
               <input v-model.number="backtestParameters[field.key]" type="number"
@@ -260,20 +224,8 @@
         </header>
         <div class="split">
           <article class="card form-card">
-            <label>资产池
-              <select v-model="allocationSymbols" multiple>
-                <option v-for="asset in assetCatalog" :key="asset.symbol" :value="asset.symbol">
-                  {{ asset.symbol }} · {{ asset.name }}
-                </option>
-              </select>
-            </label>
-            <label>策略
-              <select v-model="allocationStrategyId">
-                <option v-for="strategy in allocation.availableStrategies.value" :key="strategy.id" :value="strategy.id">
-                  {{ strategy.name }}
-                </option>
-              </select>
-            </label>
+            <AssetPicker v-model="allocationSymbols" :assets="assetCatalog" label="配置资产" :disabled="allocationBusy" />
+            <StrategyPicker v-model="allocationStrategyId" :strategies="allocation.availableStrategies.value" :disabled="allocationBusy" />
             <label>现金比例（%）<input v-model.number="allocationCashPct" type="number" min="0" max="100" /></label>
             <button
               class="primary full"
@@ -315,6 +267,9 @@ const contextLabel = context => `发布截止 ${context.publicationDate} · 数�
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import AssetPicker from './components/AssetPicker.vue'
+import StrategyPicker from './components/StrategyPicker.vue'
+
 import { allocationOption, correlationOption, equityOption } from './dashboard/charts'
 import { formatNumber, formatPct } from './dashboard/common'
 import { useAllocation } from './dashboard/use-allocation'
@@ -351,7 +306,6 @@ const formatInteger = (value) => value == null ? '—' : Number(value).toLocaleS
 const formatCny = (value) => value == null ? '—' : `${(Number(value) / 100000000).toFixed(2)} 亿元`
 const plainPct = (value) => value == null ? '—' : `${Number(value).toFixed(2)}%`
 const tone = (value) => value > 0 ? 'positive' : value < 0 ? 'negative' : ''
-const strategyStatus = (status) => ({ available: '可用', experimental: '试验中', planned: '规划中' }[status] || status)
 const actionLabel = (action) => ({ increase: '增加', hold: '持有', decrease: '降低', exit: '退出' }[action] || action)
 
 const resizeCharts = () => Object.values(charts).forEach((chart) => chart?.resize())
@@ -363,7 +317,7 @@ onMounted(async () => {
   const startChart = async (name, load, create, element, option) => {
     const module = await load()
     if (!mounted) return
-    charts[name] = create(module).init(element.value)
+    charts[name] = create(module).init(element.value, 'dark')
     charts[name].setOption(option())
   }
   window.addEventListener('resize', resizeCharts)
