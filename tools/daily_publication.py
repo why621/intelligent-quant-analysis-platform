@@ -4,15 +4,22 @@ import json
 import signal
 import subprocess
 import sys
+from contextlib import redirect_stdout
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from quant_platform.data.calendar import latest_session
 from quant_platform.data.index_snapshot import save_index
-from quant_platform.data.publication import PublishedProvider, checked_document, load_publication, publish
+from quant_platform.data.publication import (
+    PublishedProvider,
+    checked_document,
+    load_publication,
+    publish,
+)
 from quant_platform.data.trading_events import load_events
 from quant_platform.data.universe import load_snapshot
+
 from tools.build_publication import build
 from tools.collect_etf_candidate import collect
 from tools.collect_history_universe import atomic, locked, run
@@ -116,7 +123,8 @@ def main():
     signal.signal(signal.SIGALRM, deadline)
     signal.alarm(5400)
     try:
-        result = execute(ROOT, datetime.now(TZ), args.trigger, dry=args.dry_run)
+        with redirect_stdout(sys.stderr):
+            result = execute(ROOT, datetime.now(TZ), args.trigger, dry=args.dry_run)
         print(json.dumps(result, ensure_ascii=False))
         if result["decision"] == "failed":
             raise SystemExit(1)
