@@ -136,7 +136,8 @@ def test_overview_failure_does_not_mark_history_failed(
     assert status.status == "stale"
     assert status.components["history"]["status"] == history_state
     assert status.latest_trade_date == bar_day
-    assert status.components["history"]["failedSymbols"] == ([] if history_state == "ready" else ["510300"])
+    expected_failures = [] if history_state == "ready" else ["510300"]
+    assert status.components["history"]["failedSymbols"] == expected_failures
     assert status.components["overview"]["status"] == ("stale" if cached else "failed")
     assert DataStatusStore(provider._storage.data_dir).load(1).components == status.components
     assert status.updated_at.utcoffset() == timedelta(hours=8)
