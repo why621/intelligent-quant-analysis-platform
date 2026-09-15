@@ -1,9 +1,13 @@
 <script setup>
-import { onBeforeUnmount, watch } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { useCapability } from '../dashboard/use-capability.js'
-const props = defineProps({ request: { type: Object, required: true }, version: String })
+import { recoveryOptions } from '../dashboard/data-recovery.js'
+const props = defineProps({ request: { type: Object, required: true }, version: String, assets: { type: Array, default: () => [] }, disabled: Boolean })
+const emit = defineEmits(['recover', 'checked'])
 const state = useCapability()
 const { result, message, busy } = state
+const options = computed(() => recoveryOptions(props.request, result.value, props.assets))
+watch(result, value => emit('checked', value?.state || 'unknown'), { flush: 'sync', immediate: true })
 let timer
 function valid() {
   const p = props.request
@@ -25,6 +29,11 @@ onBeforeUnmount(() => { clearTimeout(timer); state.dispose() })
     <span>{{ message }}</span>
     <small v-if="result?.issues.length">涉及 {{ [...new Set(result.issues.map(i => i.symbol).filter(Boolean))].join('、') || '模块所需日期或共同样本' }}</small>
     <button type="button" :disabled="busy || !version || !valid()" @click="run">{{ busy ? '检查中…' : '重新检查' }}</button>
+    <div v-if="options.length" class="recovery-actions">
+      <p>只影响当前所选组合，其他资产仍可使用。选择一种调整方式：</p>
+      <button v-for="option in options" :key="option.label" type="button" :disabled="disabled || busy" @click="emit('recover', option.patch)">{{ option.label }}</button>
+      <small>调整后重新校验区间内缺日和共同样本，最后行情日期不保证整段完整。</small>
+    </div>
   </div>
 </template>
 <style scoped>
@@ -33,5 +42,7 @@ onBeforeUnmount(() => { clearTimeout(timer); state.dispose() })
 .data-capability[data-state="unavailable"] { border-color: #d995b8; }
 span, small { flex: 1 1 15rem; }
 button { font: inherit; padding: .35rem .6rem; color: #cdf8f2; background: #132638; border: 1px solid #547189; border-radius: .3rem; cursor: pointer; }
+.recovery-actions { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: .6rem; }
+.recovery-actions p, .recovery-actions small { flex: 1 1 100%; margin: 0; }
 button:disabled { opacity: .55; cursor: default; }
 </style>
