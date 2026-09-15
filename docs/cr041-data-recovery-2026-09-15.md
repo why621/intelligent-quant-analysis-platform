@@ -12,3 +12,9 @@
 
 
 CR041发布登记（2026-09-15）：用户明确授权修正上线。基于PR24/main发布前端恢复交互，推送新分支并备份更新云端静态资源；后端/行情/任务/日更预算不变。验收哈希、云端双恢复路径实际计算、Pages待合并发布分开记录。
+
+
+## CR041 云端发布回写（2026-09-15）
+用户当次授权修正上线。基于main/8460d18创建codex/data-recovery-cr041，提交4170604已推送。已发布云端静态前端https://43.161.223.91/，11个静态文件逐一SHA256校验，包SHA256 32ec4651c638d56754d6b87e2cd7cb9cf75f41312875b2d789ceb1d89ef50429；备份/opt/intelligent-quant-cr041-20260915/index.backup.html。先写哈希资源再原子切换HTML，失败回滚已准备未触发。后端镜像、行情、任务和日更程序未修改；健康接口200。
+云端Edge直连HTTPS证书正常校验，复现159915+600026+600027：不可用时按钮禁用，明确移除159915后两股相关性HTTP200；重新加入159915，点选结束日期09-11后保留三只且相关性HTTP200。1440/390视口无横向溢出、无页面脚本错误。证据artifacts/cr041-deploy/archive.json、deploy.sh.log、browser.json及截图；命令run_remote.py deploy.sh、Node verify.cjs。此前68前端测试和构建通过，本次未改实现不重复测试。
+GitHub Pages尚待创建合并https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/data-recovery-cr041 后由CI发布并再次浏览器核验。main受PR保护，当前无API写凭据，不能代替用户合并。云端预览已可使用修正；不把Pages待发布说成完成，不改变固定510300排行及实际日更验收限制。
