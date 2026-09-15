@@ -27,6 +27,13 @@ def collect(output, start, end, *, fetch=fetch_one, pause=sleep):
         "requestUpperBoundThisRun": 0,
         "entries": [],
     }
+
+    def checkpoint():
+        document["candidateId"] = digest(
+            {k: v for k, v in document.items() if k != "candidateId"}
+        )
+        atomic(output / "manifest.json", document)
+
     began = monotonic()
     failures = 0
     for asset in assets:
@@ -35,7 +42,7 @@ def collect(output, start, end, *, fetch=fetch_one, pause=sleep):
         symbol = asset["symbol"]
         document["requestUpperBoundThisRun"] += 5
         document["inFlight"] = symbol
-        atomic(output / "manifest.json", document)
+        checkpoint()
         value = fetch(symbol, start, end)
         validate_observation(value, symbol, start, end)
         atomic(
@@ -58,15 +65,14 @@ def collect(output, start, end, *, fetch=fetch_one, pause=sleep):
         )
         failures = failures + 1 if value["error"] else 0
         document["inFlight"] = None
-        atomic(output / "manifest.json", document)
+        checkpoint()
         print(symbol, value["error"] or quality["status"], flush=True)
         pause(1)
     document["complete"] = len(document["entries"]) == 27 and all(
         e["quality"] and e["quality"]["status"] == "complete"
         for e in document["entries"]
     )
-    document["candidateId"] = digest(document)
-    atomic(output / "manifest.json", document)
+    checkpoint()
     return document
 
 

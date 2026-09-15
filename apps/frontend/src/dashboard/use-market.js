@@ -28,11 +28,16 @@ export function useMarket(client = api) {
   const strategies = ref(fallbackStrategies)
   const ranking = ref([])
   const rankingContext = ref(null)
-  const historyStatusText = computed(() => statusLabel(dataStatus.value.components?.history?.status))
+  const historyStatusText = computed(() => dataStatus.value.availability
+    ? `${dataStatus.value.availability.readyCount}/327 覆盖完整，其余见资产状态`
+    : statusLabel(dataStatus.value.components?.history?.status))
   const overviewStatusText = computed(() => statusLabel(dataStatus.value.components?.overview?.status))
   const marketNotice = computed(() => {
     if (marketError.value) return '市场概览暂不可用；历史行情、分析和回测可独立验证。'
     const component = dataStatus.value.components?.overview
+    if (market.value.partial) {
+      return `当前批次部分可用：有效比较 ${market.value.coverage?.priced ?? 0}/300，停牌等已知非交易 ${market.value.suspended ?? 0}，数据缺失 ${market.value.unavailable ?? 0}。缺失数据不计为平盘；指数缺失时不使用旧值冒充。`
+    }
     if (component?.status === 'stale') {
       return `显示上次成功快照（${market.value.tradeDate || '日期未知'}），本次未完成更新。`
     }
@@ -53,7 +58,7 @@ export function useMarket(client = api) {
     connection.live = false
     connection.message = '正在连接后端接口'
     dataStatus.value = { ...dataStatus.value, status: 'stale', components: {},
-      latestTradeDate: null, updatedAt: null, message: '等待后端数据接口' }
+      availability: undefined, latestTradeDate: null, updatedAt: null, message: '等待后端数据接口' }
     assetCatalog.value = []
     assetCatalogError.value = ''
     strategies.value = fallbackStrategies
@@ -117,7 +122,9 @@ export function useMarket(client = api) {
   return {
     connection,
     dataStatus,
-    assetCatalog,
+    assetCatalog: computed(() => assetCatalog.value.map(asset => ({
+      ...asset, availability: dataStatus.value.availability?.assets?.[asset.symbol]
+    }))),
     assetCatalogError,
     market,
     strategies,

@@ -1,15 +1,17 @@
 openapi: 3.1.0
 info:
   title: 智能量化分析平台 API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     前端、Flask 后端与算法模块之间唯一具有约束力的 HTTP 契约。
     平台面向 A 股及场内 ETF，按交易日收盘后更新。配置建议仅用于研究，
     不连接券商、不提交真实订单。
-    研究只读已有数据。published_snapshot 表示启动时载入且经完整校验的不可变327资产发布包；
+    研究只读已有数据。published_snapshot 表示启动时载入且经校验的不可变327资产目录发布包，availability区分完整与部分可用；
     legacy_revision 仅保护旧缓存修订，不代表完整不可变批次。切换发布指针后新进程加载新包。
     研究接口可携带X-Research-Version（来自data/status的dataContext.dataVersion）；
     版本不符或计算期间发生更新返回409 DATA_VERSION_CHANGED，更新中/失败返回503 DATA_NOT_READY。
+    latestTradeDate为批次目标日，逐资产真实末日和未知缺口见availability。
+    研究按请求资产和区间检查，未知缺口拒绝；概览缺口不计停牌或平盘。
     配置若发布截止不等于上海当前日期之前最近交易日返回503 DATA_STALE。
 servers:
   - url: /api
@@ -27,12 +29,12 @@ paths:
       summary: 当前不可变发布的327资产覆盖目录（旧运行未发布时503）
       responses:
         '200':
-          description: 完整覆盖及共享上下文
+          description: 完整目录、逐资产可用性及共享上下文
           content:
             application/json:
               schema: {$ref: './schemas/data.yaml#/PublishedCoverage'}
         '503':
-          description: 尚无完整发布
+          description: 尚无可读发布
         '409':
           description: 请求研究版本冲突
   /health:

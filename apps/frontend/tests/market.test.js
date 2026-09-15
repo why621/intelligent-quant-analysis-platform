@@ -92,3 +92,23 @@ test('failed reload clears old ready status', async () => {
   assert.equal(state.dataStatus.value.status, 'stale')
   assert.equal(state.connection.live, false)
 })
+
+
+test('partial publication exposes per-asset dates and clears them on failed reload', async () => {
+  const client = makeClient()
+  client.getDataStatus = async () => ({ status: 'stale', availability: {
+    complete: false, readyCount: 326, assets: {
+      '510300': { state: 'stale', lastTradeDate: '2026-09-04', suspended: false }
+    }
+  }, components: { overview: { status: 'stale' } } })
+  client.getMarketOverview = async () => ({ ...snapshot, partial: true,
+    coverage: { total: 300, priced: 299 }, suspended: 0, unavailable: 1 })
+  const state = useMarket(client)
+  await state.initialise()
+  assert.match(state.marketNotice.value, /299\/300/)
+  assert.doesNotMatch(state.marketNotice.value, /上次成功快照/)
+  assert.equal(state.assetCatalog.value[0].availability.lastTradeDate, '2026-09-04')
+  client.getDataStatus = async () => { throw Error('503') }
+  await state.initialise()
+  assert.equal(state.assetCatalog.value[0].availability, undefined)
+})

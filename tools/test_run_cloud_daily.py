@@ -59,7 +59,7 @@ def test_existing_candidate_never_acquires(monkeypatch, tmp_path):
     assert not (root/'deploy/mvp/nginx-live/maintenance.enabled').exists()
 
 
-@pytest.mark.parametrize('decision', ['succeeded', 'failed', 'already_attempted'])
+@pytest.mark.parametrize('decision', ['succeeded', 'partial', 'failed', 'already_attempted'])
 def test_real_child_process_output_contract(decision):
     import subprocess
     script = """import sys

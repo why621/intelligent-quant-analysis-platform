@@ -39,6 +39,11 @@ RankingResponse:
   type: object
   required: [asOfDate, period, items]
   properties:
+    evaluationSymbols:
+      type: array
+      items: {$ref: "./common.yaml#/Symbol"}
+      description: 实际排行研究资产，当前为510300
+
     dataContext: {$ref: "./common.yaml#/ResearchContext"}
     asOfDate: {type: string, format: date}
     period: {type: string, enum: [1d, 7d, 30d, 1y]}

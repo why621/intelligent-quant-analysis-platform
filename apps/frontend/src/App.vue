@@ -3,7 +3,7 @@
     <header class="topbar">
       <a class="brand" href="#top" aria-label="智能量化分析平台首页">
         <span class="brand-mark">量</span>
-        <span><strong>智能量化分析平台</strong><small>A 股与场内 ETF · 收盘后日更</small></span>
+        <span><strong>智能量化分析平台</strong><small>A 股与场内 ETF · 次日早晨更新</small></span>
       </a>
       <nav>
         <a href="#market">市场概况</a>
@@ -23,7 +23,7 @@
             当前可体验 2–10 个资产相关性、两种传统策略回测、策略排行及模拟配置。
             所有结果仅用于教学研究，不会提交真实订单。
           </p>
-          <p class="notice">研究范围：{{ dataStatus.assetCount || assetCatalog.length }} 只资产，数据截至右侧所示日期。
+          <p class="notice">研究范围：{{ dataStatus.assetCount || assetCatalog.length }} 只资产，批次目标日见右侧，各资产实际末日与缺口见选择列表。
             当前成分固定名单研究存在幸存者偏差；自动日更验收独立记录，AI策略尚未接入。</p>
           <div class="chips">
             <a href="#correlation">开始资产研究 ↗</a><a href="#backtest">策略实验室 →</a>
@@ -35,7 +35,8 @@
             <strong>{{ connection.loading ? '连接中' : connection.message }}</strong>
           </div>
           <dl>
-            <div><dt>最新交易日</dt><dd>{{ dataStatus.latestTradeDate || '等待数据' }}</dd></div>
+            <div><dt>发布批次目标日</dt><dd>{{ dataStatus.latestTradeDate || '等待数据' }}</dd></div>
+            <div v-if="dataStatus.availability && !dataStatus.availability.complete"><dt>发布状态</dt><dd>部分更新 · 查看资产状态</dd></div>
             <div><dt>资产池</dt><dd>{{ dataStatus.assetCount || assetCatalog.length }} 个</dd></div>
             <div><dt>数据源</dt><dd>{{ dataStatus.source || 'AkShare' }}</dd></div>
             <div><dt>历史行情更新</dt><dd>{{ historyStatusText }}</dd></div>
@@ -69,6 +70,7 @@
           <article class="card">
             <h3>{{ market.scope ? "沪深300价格指数" : "主流指数" }}</h3>
             <div class="metric-list">
+              <p v-if="!market.indices.length" class="hint">本批次指数暂不可用，其他有效资产仍可研究。</p>
               <div v-for="index in market.indices" :key="index.symbol">
                 <span>{{ index.name }}<small>{{ index.symbol }}</small></span>
                 <b :class="tone(index.changePct)">
@@ -197,6 +199,7 @@
       </section>
 
       <section id="ranking" class="panel">
+        <p class="notice">比较范围：沪深300ETF（510300）；该资产数据不足时排行不可用，不代表全300只股票组合表现。</p>
         <p v-if="rankingContext" class="hint">{{ contextLabel(rankingContext) }} · 510300ETF代表资产 · 默认参数及费用</p>
         <header class="panel-head">
           <div><p>STRATEGY RANKING</p><h2>策略排行榜</h2></div>
