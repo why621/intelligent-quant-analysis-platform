@@ -84,6 +84,11 @@ class MarketDataService:
             "components": dict(status.components),
         }
 
+    def capability(self, payload):
+        from app.services.capabilities import check
+
+        return check(self._provider, payload)
+
     def list_assets(
         self,
         *,

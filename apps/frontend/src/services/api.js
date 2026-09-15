@@ -106,6 +106,10 @@ export const api = {
     return request(`/market/overview${toQuery({ tradeDate })}`)
   },
 
+  checkDataCapability(payload) {
+    return post('/data/capability', payload)
+  },
+
   getCorrelation(payload) {
     return post('/analytics/correlation', payload)
   },

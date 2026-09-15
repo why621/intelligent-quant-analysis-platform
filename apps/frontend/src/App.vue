@@ -37,6 +37,7 @@
           <dl>
             <div><dt>发布批次目标日</dt><dd>{{ dataStatus.latestTradeDate || '等待数据' }}</dd></div>
             <div v-if="dataStatus.availability && !dataStatus.availability.complete"><dt>发布状态</dt><dd>部分更新 · 查看资产状态</dd></div>
+            <div v-if="dataStatus.availability?.eventMaintenance"><dt>停复牌核验</dt><dd>{{ dataStatus.availability.eventMaintenance.state === 'ready' ? '已核实' : '部分待确认' }}</dd></div>
             <div><dt>资产池</dt><dd>{{ dataStatus.assetCount || assetCatalog.length }} 个</dd></div>
             <div><dt>数据源</dt><dd>{{ dataStatus.source || 'AkShare' }}</dd></div>
             <div><dt>历史行情更新</dt><dd>{{ historyStatusText }}</dd></div>
@@ -54,6 +55,7 @@
           <div><p>MARKET OVERVIEW</p><h2>市场概况</h2></div>
           <span>{{ market.tradeDate ? `交易日 ${market.tradeDate}` : '等待收盘后日更' }}</span>
         </header>
+        <DataCapability :request="{ module: 'overview' }" :version="dataStatus.dataContext?.dataVersion" />
         <p v-if="assetCatalogError" class="notice" role="alert">{{ assetCatalogError }}</p>
         <p v-if="market.scope" class="notice">当前300成分固定名单 · 有效比较 {{ market.coverage.priced }}/300 · 不含ETF；复权收盘变化与价格指数收益口径不同。</p>
         <p v-if="marketNotice" class="notice" role="status">{{ marketNotice }}</p>
@@ -97,6 +99,7 @@
           <div><p>CORRELATION</p><h2>资产相关性</h2></div>
           <span>收益率口径 · 前复权</span>
         </header>
+        <DataCapability :request="{ module: 'correlation', symbols: correlationSymbols, startDate: correlationStartDate, endDate: correlationEndDate }" :version="dataStatus.dataContext?.dataVersion" />
         <div class="split">
           <article class="card form-card">
             <h3>选择 2–10 个资产</h3>
@@ -136,6 +139,7 @@
           <div><p>BACKTEST</p><h2>策略回测</h2></div>
           <span>收盘出信号 · 下一开盘成交</span>
         </header>
+        <DataCapability :request="{ module: 'backtest', symbols: backtestSymbols, startDate: backtestStartDate, endDate: backtestEndDate, benchmark: backtestBenchmark || null }" :version="dataStatus.dataContext?.dataVersion" />
         <div class="split">
           <article class="card form-card">
             <AssetPicker v-model="backtestSymbols" :assets="assetCatalog" label="回测资产" :disabled="backtestBusy" />
@@ -205,6 +209,7 @@
           <div><p>STRATEGY RANKING</p><h2>策略排行榜</h2></div>
           <span>近 30 个自然日 · 收盘后更新</span>
         </header>
+        <DataCapability :request="{ module: 'ranking', period: '30d' }" :version="dataStatus.dataContext?.dataVersion" />
         <article class="card table-card">
           <table>
             <thead><tr><th>排名</th><th>策略</th><th>类型</th><th>区间收益</th><th>最大回撤</th><th>夏普</th></tr></thead>
@@ -225,6 +230,7 @@
           <div><p>NEXT-DAY ALLOCATION</p><h2>下一交易日模拟配置</h2></div>
           <span>非实盘 · 不连接券商</span>
         </header>
+        <DataCapability :request="{ module: 'allocation', symbols: allocationSymbols }" :version="dataStatus.dataContext?.dataVersion" />
         <div class="split">
           <article class="card form-card">
             <AssetPicker v-model="allocationSymbols" :assets="assetCatalog" label="配置资产" :disabled="allocationBusy" />
@@ -266,11 +272,12 @@
 </template>
 
 <script setup>
-const contextLabel = context => `发布截止 ${context.publicationDate} · 数据 ${context.dataVersion.slice(0, 12)} · 名单 ${context.universeVersion.slice(0, 12)}（${context.consistency === 'published_snapshot' ? '完整不可变发布' : '旧池修订'}）`
+const contextLabel = context => `发布截止 ${context.publicationDate} · 数据 ${context.dataVersion.slice(0, 12)} · 名单 ${context.universeVersion.slice(0, 12)}（${context.consistency === 'published_snapshot' ? '不可变研究批次' : '旧池修订'}）`
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import AssetPicker from './components/AssetPicker.vue'
+import DataCapability from './components/DataCapability.vue'
 import StrategyPicker from './components/StrategyPicker.vue'
 
 import { allocationOption, correlationOption, equityOption } from './dashboard/charts'

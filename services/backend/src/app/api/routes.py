@@ -67,6 +67,62 @@ def data_status() -> tuple[dict[str, object], int]:
     return dict(service.data_status()), 200
 
 
+@api.post("/data/capability")
+def data_capability():
+    payload, error = require_json_object()
+    if error:
+        return error
+    module = payload.get("module")
+    allowed = {
+        "overview": {"module"},
+        "ranking": {"module", "period"},
+        "allocation": {"module", "symbols"},
+        "correlation": {"module", "symbols", "startDate", "endDate"},
+        "backtest": {"module", "symbols", "startDate", "endDate", "benchmark"},
+    }
+    valid = isinstance(module, str) and module in allowed
+    if valid:
+        valid = not (set(payload) - allowed[module])
+    if valid and module in {"correlation", "backtest", "allocation"}:
+        symbols = payload.get("symbols")
+        minimum = 2 if module == "correlation" else 1
+        valid = (
+            isinstance(symbols, list)
+            and minimum <= len(symbols) <= 10
+            and all(isinstance(s, str) and re.fullmatch(r"[0-9]{6}", s) for s in symbols)
+            and len(set(symbols)) == len(symbols)
+        )
+    if valid and module in {"correlation", "backtest"}:
+        try:
+            if not all(
+                isinstance(payload.get(k), str)
+                and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", payload[k])
+                for k in ("startDate", "endDate")
+            ):
+                raise ValueError("invalid date format")
+            start, end = (date.fromisoformat(payload[key]) for key in ("startDate", "endDate"))
+            valid = start <= end and (end - start).days <= 366
+        except (ValueError, TypeError, KeyError):
+            valid = False
+    if valid and module == "ranking":
+        valid = payload.get("period", "30d") in _RANKING_PERIODS
+    if valid and payload.get("benchmark") is not None:
+        benchmark = payload["benchmark"]
+        valid = isinstance(benchmark, str) and (
+            re.fullmatch(r"[0-9]{6}", benchmark) or benchmark == "index:CSI:000300"
+        )
+    if not valid:
+        return error_response(
+            code="VALIDATION_ERROR", message="预检模块、资产或日期参数不合法", status=400
+        )
+    try:
+        return dict(current_app.extensions["market_data_service"].capability(payload)), 200
+    except ServiceError as exc:
+        return error_response(
+            code=exc.code, message=exc.message, status=exc.status, details=exc.details
+        )
+
+
 @api.get("/assets")
 def list_assets() -> tuple[dict[str, object], int]:
     asset_type = request.args.get("assetType")

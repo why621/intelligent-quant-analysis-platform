@@ -103,7 +103,7 @@ def test_corrupted_budget_accounting_rejected(tmp_path, sample_snapshot):
 def test_three_failures_stop_batch(tmp_path, sample_snapshot):
     def fail(symbol, start, end):
         value = observation(symbol, start, end)
-        return {**value, "error": "synthetic failure", "records": [], "httpTrace": None}
+        return {**value, "error": "ReadTimeout", "records": [], "httpTrace": None}
 
     fetch = Mock(side_effect=fail)
     result = run(
@@ -226,3 +226,17 @@ def test_offline_reclassification_explains_only_verified_gap_without_fetch(
             tmp_path / "bad",
             offline_reclassify=True,
         )
+
+
+def test_three_invalid_assets_do_not_block_next_stock(tmp_path, sample_snapshot):
+    calls = []
+    def fetch(symbol, start, end):
+        calls.append(symbol)
+        value = observation(symbol, start, end)
+        if len(calls) <= 3:
+            value.update(error="JSONDecodeError", records=[])
+        return value
+    result = run(sample_snapshot, [str(600000 + i) for i in range(4)], START, END,
+                 tmp_path / "candidate", fetch=fetch, pause=lambda _: None)
+    assert len(calls) == 4
+    assert result["entries"][3]["status"] == "complete"

@@ -5,23 +5,23 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-
 from quant_platform.data.coverage import assess_history, digest
 from quant_platform.data.index_snapshot import load_index
 from quant_platform.data.publication import PublishedProvider, checked_document
 from quant_platform.data.trading_events import load_events
 from quant_platform.data.universe import load_snapshot
+from quant_platform.data.update_results import RETRYABLE, failure_code
+
 from tools.prepare_history_batch import load_observation, validate_observation
 
 
-def build_partial(
-    output, start, end, baseline, universe_dir, event_path, stage_errors=None
-):
+def build_partial(output, start, end, baseline, universe_dir, event_path, stage_errors=None):
     previous = PublishedProvider(baseline)
     universe = load_snapshot(universe_dir)
     if universe.to_dict() != previous.universe_snapshot.to_dict():
         raise ValueError("partial publication requires the same constituent snapshot")
     events = load_events(event_path)
+    updates = {}
     histories, errors, manifests, sources = {}, {}, {}, []
     stages = dict(stage_errors or {})
     for stage in ("stocks", "etfs"):
@@ -45,8 +45,7 @@ def build_partial(
             ):
                 raise ValueError("source universe mismatch")
             manifests[stage] = {
-                e.get("symbol", e.get("asset", {}).get("symbol")): e
-                for e in manifest["entries"]
+                e.get("symbol", e.get("asset", {}).get("symbol")): e for e in manifest["entries"]
             }
             sources.append(manifest["candidateId"])
         except (OSError, KeyError, ValueError, TypeError) as exc:
@@ -54,13 +53,13 @@ def build_partial(
     for symbol, asset in previous._assets.items():
         stage = "stocks" if asset.asset_type == "stock" else "etfs"
         entry = manifests.get(stage, {}).get(symbol)
+        collected = bool(entry and entry.get("observationSha256"))
         rows = None
+        observation, quality = None, None
         try:
-            if entry is None:
+            if not collected:
                 raise ValueError("asset not collected or stage incomplete")
-            wrapper = load_observation(
-                output / stage / "observations" / (symbol + ".json")
-            )
+            wrapper = load_observation(output / stage / "observations" / (symbol + ".json"))
             if wrapper["sha256"] != entry["observationSha256"]:
                 raise ValueError("observation hash differs from manifest")
             observation = wrapper["observation"]
@@ -85,13 +84,24 @@ def build_partial(
                 errors[symbol] = "unexplained trading-day gaps"
         except (KeyError, ValueError, OSError, TypeError) as exc:
             errors[symbol] = str(exc)[:200]
-        if rows is None:
+        retained = rows is None
+        code = failure_code(
+            observation, quality, fallback="invalid_response" if collected else "not_collected"
+        )
+        if retained:
             rows = [
                 r
                 for r in baseline["histories"][symbol]
                 if start.isoformat() <= r["date"][:10] <= end.isoformat()
             ]
         histories[symbol] = rows
+        updates[symbol] = {
+            "outcome": "retained" if retained else "partial" if code != "none" else "updated",
+            "reason": code,
+            "retryable": code in RETRYABLE,
+            "lastTradeDate": rows[-1]["date"][:10] if rows else None,
+            "attempted": bool(entry and entry.get("status") != "not_attempted"),
+        }
     index_raw = baseline.get("indexRaw")
     index_window = copy.deepcopy(
         baseline.get(
@@ -122,6 +132,12 @@ def build_partial(
         "sourceCandidates": sources,
         "histories": histories,
         "assetErrors": errors,
+        "assetUpdates": updates,
+        "eventMaintenance": (
+            checked_document(output / "event-maintenance.json")
+            if (output / "event-maintenance.json").exists()
+            else None
+        ),
         "stageErrors": stages,
     }
     document = {**value, "publicationId": digest(value)}
@@ -129,10 +145,7 @@ def build_partial(
     advanced = any(
         a["lastTradeDate"] and a["lastTradeDate"] > previous.end.isoformat()
         for a in provider.availability["assets"].values()
-    ) or (
-        provider.index_snapshot is not None
-        and provider.index_snapshot.end > previous.end
-    )
+    ) or (provider.index_snapshot is not None and provider.index_snapshot.end > previous.end)
     if not advanced:
         raise ValueError("no independently validated data advanced")
     return document
