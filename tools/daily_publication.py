@@ -167,8 +167,14 @@ def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline
                         baseline / "releases" / (pointer["publicationId"] + ".json")
                     ),
                 )
+            source_root = root / "publication"
+            if (
+                build_candidate is pipeline
+                and baseline_provider.end > load_publication(source_root).end
+            ):
+                source_root = baseline
             document = (
-                pipeline(output, target, root / "publication")
+                pipeline(output, target, source_root)
                 if build_candidate is pipeline
                 else build_candidate(output, target)
             )

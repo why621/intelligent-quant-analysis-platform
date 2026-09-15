@@ -272,3 +272,35 @@ def test_partial_status_contract():
     Draft202012Validator(
         {"$ref": "#/PublicationAvailability", **schema}, format_checker=FormatChecker()
     ).validate(PublishedProvider(partial()).availability)
+
+
+def test_manual_live_release_is_preferred_over_older_daily_candidate(
+    tmp_path, monkeypatch
+):
+    import tools.daily_publication as daily
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    daily_root = tmp_path / "daily"
+    live = tmp_path / "live"
+    publish(daily_root / "publication", document())
+    newer = partial()
+    newer["endDate"] = "2026-09-08"
+    newer["indexWindow"] = {"startDate": START.isoformat(), "endDate": END.isoformat()}
+    publish(live, rehash(newer))
+    selected = []
+
+    def pipeline(output, target, source):
+        selected.append(source)
+        raise ValueError("stop after source selection")
+
+    monkeypatch.setattr(daily, "pipeline", pipeline)
+    result = daily.execute(
+        daily_root,
+        datetime(2026, 9, 10, 7, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        "scheduled",
+        baseline=live,
+        build_candidate=pipeline,
+    )
+    assert result["decision"] == "failed"
+    assert selected == [live]

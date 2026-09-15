@@ -120,3 +120,12 @@ state SHA256仍8dd9a85f809cfac4311246d356c0f2bdd2c09c8bdf6e5d1299be6e89480eb258�
 验证：PYTHONPATH=services/algorithms/src:services/backend/src .venv/bin/python artifacts/cr036-suspension-20260915/verify.py通过；PYTHONPATH=.:services/algorithms/src:services/backend/src .venv/bin/python artifacts/cr036-suspension-20260915/verify_all.py通过（首次缺项目根目录导致导入失败，补路径后完成）；pytest services/algorithms/tests/test_trading_events.py services/algorithms/tests/test_coverage.py -q -o addopts=，29 passed/0.71s。
 
 未完成：云端事件文件尚未安装；09-14 ETF/指数未采集、五模块和发布未执行；不能把股票离线重分类当完整恢复或自动成功日。预算仍3/4、剩1次。下一具体动作仅需将上述已验证事件配置备份安装到43.161.223.91:/opt/intelligent-quant-cr026-20260910/daily-cr028/config/trading-events.json，供既有09-16调度识别09-14/15停牌；此动作不重跑今日、不扩大预算。根AGENTS.md第6条要求当次发布/线上修改授权，本轮用户“继续”按此前诊断与本地修正执行，云安装须明确授权后做。不推送GitHub；源码修正、详细证据和文档均留本地。
+
+
+## CR-038 云端上线结果（2026-09-15）
+
+用户授权后已配套升级43.161.223.91后端、日更固定镜像/工具、事件配置和云端前端；新版本1f3a8ff2f3a1ce2bfade6ca64d689c62a35719b89c14cd57045ec8be79b67447。300股更新09-14（含已核实停牌），27ETF/指数保留线上09-11，未使用本地09-09基线，未重采。28旧回测任务备份恢复及全部线上API请求/结果逐项一致。严格HTTPS、新版云页面Edge交互/三视口及GitHub Pages实际CORS成功，健康股票相关性/配置200，缺失ETF区间503。
+
+部署时补正人工发布后日更基线选择，6项回归通过；日更禁网预检waiting_new_day，原账本哈希ed004988d2d4ec191671770f04e80d040c55dec5c25f559fe4cb09f734906252不变，预算3/4、剩1次，下一09-16 07:30。新镜像sha256:f0b6f98637727ed5821ef0df9af035ddae61c747d0a4d7ea465f8e227c273ec0，备份/审计在/opt/intelligent-quant-cr038-20260915。
+
+GitHub分支codex/partial-publication-cr038已推送；main要求PR且本环境无API写入凭据，尚未创建/合并PR，Pages新UI未部署（pagesNewUi=false）。云端预览https://43.161.223.91/已是新版。下一步创建并合并https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/partial-publication-cr038，再查Pages部署。人工部分发布不计两实际交易日完整自动验收。详细证据：[CR038上线报告](cr038-online-publication-2026-09-15.md)。

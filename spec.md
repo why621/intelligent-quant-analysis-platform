@@ -504,3 +504,12 @@ state SHA256仍8dd9a85f809cfac4311246d356c0f2bdd2c09c8bdf6e5d1299be6e89480eb258�
 ## CR-038 配套上线（2026-09-15，登记）
 
 用户明确“更新到线上”，授权将CR036/037已验证源码、事件配置和前端同步GitHub与43.161.223.91既有服务，备份后配套部署。先升级兼容v1/v2的读端及日更固定镜像，在原09-11发布上验证；再用云端已有09-14股票观察和线上09-11旧ETF/指数构建并验证部分候选，人工发布，不重采、不修改原失败账本或4次预算。保留维护窗口、任务排空、SQLite备份恢复与失败回滚。前端通过既有GitHub Pages工作流发布，不绕过main保护；若需仓库端合并，先完成云端、分支和可审阅结果。验收严格HTTPS同版/真实日期、健康资产研究、异常资产提示、旧任务保留、日更禁网预检、Pages版本及浏览器交互，分别记录实际结果。
+
+
+## CR-038 云端上线结果（2026-09-15）
+
+用户授权后已配套升级43.161.223.91后端、日更固定镜像/工具、事件配置和云端前端；新版本1f3a8ff2f3a1ce2bfade6ca64d689c62a35719b89c14cd57045ec8be79b67447。300股更新09-14（含已核实停牌），27ETF/指数保留线上09-11，未使用本地09-09基线，未重采。28旧回测任务备份恢复及全部线上API请求/结果逐项一致。严格HTTPS、新版云页面Edge交互/三视口及GitHub Pages实际CORS成功，健康股票相关性/配置200，缺失ETF区间503。
+
+部署时补正人工发布后日更基线选择，6项回归通过；日更禁网预检waiting_new_day，原账本哈希ed004988d2d4ec191671770f04e80d040c55dec5c25f559fe4cb09f734906252不变，预算3/4、剩1次，下一09-16 07:30。新镜像sha256:f0b6f98637727ed5821ef0df9af035ddae61c747d0a4d7ea465f8e227c273ec0，备份/审计在/opt/intelligent-quant-cr038-20260915。
+
+GitHub分支codex/partial-publication-cr038已推送；main要求PR且本环境无API写入凭据，尚未创建/合并PR，Pages新UI未部署（pagesNewUi=false）。云端预览https://43.161.223.91/已是新版。下一步创建并合并https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/partial-publication-cr038，再查Pages部署。人工部分发布不计两实际交易日完整自动验收。详细证据：[CR038上线报告](docs/cr038-online-publication-2026-09-15.md)。
