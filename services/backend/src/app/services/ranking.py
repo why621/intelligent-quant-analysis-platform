@@ -48,6 +48,7 @@ class RankingService:
         return {
             "dataContext": context,
             "asOfDate": as_of_date.isoformat(),
+            "evaluationSymbols": ["510300"],
             "period": period,
             "items": [_serialize_item(item) for item in items],
         }

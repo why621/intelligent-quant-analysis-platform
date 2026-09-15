@@ -1,4 +1,4 @@
-"""Content-addressed complete local releases; readers never mutate or fetch data."""
+"""Validated immutable releases with per-asset availability; readers never fetch data."""
 
 from __future__ import annotations
 
@@ -37,8 +37,9 @@ class PublishedProvider(AkShareMarketDataProvider):
     def __init__(self, document):
         value = copy.deepcopy(document)
         version = value.pop("publicationId")
-        if digest(value) != version or value.get("schemaVersion") != 1:
+        if digest(value) != version or value.get("schemaVersion") not in {1, 2}:
             raise ValueError("publication hash or schema mismatch")
+        self._partial_schema = value["schemaVersion"] == 2
         self._version = version
         self._document = value
         self.start = date.fromisoformat(value["startDate"])
@@ -54,7 +55,18 @@ class PublishedProvider(AkShareMarketDataProvider):
         )
         if self.universe_snapshot.to_dict() != universe:
             raise ValueError("publication universe mismatch")
-        self.index_snapshot = parse_index(value["indexRaw"].encode("utf-8"), self.start, self.end)
+        self.index_snapshot = None
+        if value.get("indexRaw"):
+            window = value.get("indexWindow", {}) if self._partial_schema else {}
+            index_start = date.fromisoformat(window.get("startDate", value["startDate"]))
+            index_end = date.fromisoformat(window.get("endDate", value["endDate"]))
+            if index_end > self.end:
+                raise ValueError("index cannot be ahead of publication")
+            self.index_snapshot = parse_index(
+                value["indexRaw"].encode("utf-8"), index_start, index_end
+            )
+        elif not self._partial_schema:
+            raise ValueError("complete publication requires index")
         self.trading_events = validate_events(
             tuple(
                 TradingEvent(
@@ -74,6 +86,7 @@ class PublishedProvider(AkShareMarketDataProvider):
             raise ValueError("publication requires exactly 300 constituents and 27 legacy ETFs")
         self._frames = {}
         self._coverage = []
+        self._availability = {}
         for symbol, asset in self._assets.items():
             frame = pd.DataFrame(value["histories"][symbol])
             quality = assess_history(
@@ -83,9 +96,33 @@ class PublishedProvider(AkShareMarketDataProvider):
                 events=self.trading_events,
                 asset_id=f"{asset.asset_type}:{asset.exchange}:{symbol}",
             )
-            if quality["status"] not in {"complete", "complete_with_exceptions"}:
-                raise ValueError("publication incomplete: " + symbol)
+            allowed = {"complete", "complete_with_exceptions"}
+            if self._partial_schema:
+                allowed |= {"gaps", "empty"}
+            if quality["status"] not in allowed:
+                raise ValueError("publication invalid or incomplete: " + symbol)
+            frame = frame.reindex(
+                columns=["date", "open", "high", "low", "close", "volume", "amount"]
+            )
             frame["date"] = pd.to_datetime(frame["date"])
+            known_days = classify_sessions(
+                self.trading_events, f"{asset.asset_type}:{asset.exchange}:{symbol}", [self.end]
+            )
+            state = (
+                "ready"
+                if quality["status"] in {"complete", "complete_with_exceptions"}
+                else "unavailable"
+                if frame.empty
+                else "stale"
+                if quality["lastDate"] < self.end.isoformat()
+                else "partial"
+            )
+            self._availability[symbol] = {
+                "state": state,
+                "lastTradeDate": quality["lastDate"],
+                "suspended": self.end in known_days and known_days[self.end].reason == "suspension",
+                "missingSessions": quality.get("unknownMissingSessions", []),
+            }
             self._frames[symbol] = frame
             self._coverage.append(
                 {
@@ -97,6 +134,23 @@ class PublishedProvider(AkShareMarketDataProvider):
                 }
             )
         self._overview = self._build_overview()
+
+    @property
+    def availability(self):
+        ready = sum(a["state"] == "ready" for a in self._availability.values())
+        index_ready = self.index_snapshot is not None and self.index_snapshot.end == self.end
+        return {
+            "complete": ready == 327 and index_ready and not self._document.get("stageErrors"),
+            "readyCount": ready,
+            "affectedCount": 327 - ready,
+            "indexState": "ready"
+            if index_ready
+            else "stale"
+            if self.index_snapshot
+            else "unavailable",
+            "indexTradeDate": self.index_snapshot.end.isoformat() if self.index_snapshot else None,
+            "assets": copy.deepcopy(self._availability),
+        }
 
     @property
     def publication_context(self):
@@ -113,16 +167,29 @@ class PublishedProvider(AkShareMarketDataProvider):
     def status(self):
         today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
         fresh = self.end == latest_session(today - timedelta(days=1))
+        availability = self.availability
+        overview_ready = (
+            not self._overview.get("unavailable", 0) and availability["indexState"] == "ready"
+        )
         return DataStatus(
-            "ready" if fresh else "stale",
+            "ready" if fresh and availability["complete"] else "stale",
             "Tencent",
             327,
             self.end,
             datetime.fromisoformat(self._document["createdAt"]),
-            "完整固定名单研究批次；存在幸存者偏差",
+            "固定名单研究批次；逐资产校验，存在幸存者偏差",
             components={
-                "history": {"status": "ready", "message": "327资产覆盖验证通过"},
-                "overview": {"status": "ready", "message": "同批次300成分日频概览"},
+                "history": {
+                    "status": "ready" if availability["readyCount"] == 327 else "stale",
+                    "message": f"{availability['readyCount']}/327资产完整覆盖；其余按区间使用",
+                    "failedSymbols": [
+                        s for s, a in self._availability.items() if a["state"] != "ready"
+                    ],
+                },
+                "overview": {
+                    "status": "ready" if overview_ready else "stale",
+                    "message": f"当前批次概览，有效比较{self._overview['coverage']['priced']}/300",
+                },
             },
         )
 
@@ -134,7 +201,12 @@ class PublishedProvider(AkShareMarketDataProvider):
 
     def history(self, symbol, start_date, end_date, adjust="qfq"):
         if symbol == INDEX_ID:
-            return self.index_snapshot.history(start_date, end_date)
+            if self.index_snapshot is None:
+                raise UpstreamUnavailableError("index unavailable in this publication")
+            try:
+                return self.index_snapshot.history(start_date, end_date)
+            except ValueError as exc:
+                raise UpstreamUnavailableError("index range unavailable") from exc
         if (
             adjust != "qfq"
             or symbol not in self._frames
@@ -148,7 +220,19 @@ class PublishedProvider(AkShareMarketDataProvider):
             (frame["date"] >= pd.Timestamp(start_date)) & (frame["date"] <= pd.Timestamp(end_date))
         ].copy(deep=True)
         if selected.empty:
-            raise UpstreamUnavailableError("no tradable history in requested interval")
+            raise UpstreamUnavailableError(f"{symbol}: no tradable history in requested interval")
+        asset = self._assets[symbol]
+        quality = assess_history(
+            selected,
+            start_date,
+            end_date,
+            events=self.trading_events,
+            asset_id=f"{asset.asset_type}:{asset.exchange}:{symbol}",
+        )
+        if quality["status"] not in {"complete", "complete_with_exceptions"}:
+            raise UpstreamUnavailableError(
+                f"{symbol}: requested interval contains unexplained gaps"
+            )
         return selected
 
     def nontrading_sessions(self, symbol, start, end):
@@ -169,7 +253,13 @@ class PublishedProvider(AkShareMarketDataProvider):
             "dataContext": self.publication_context,
             "memberCount": 300,
             "etfCount": 27,
-            "items": copy.deepcopy(self._coverage),
+            "items": [
+                {
+                    **copy.deepcopy(item),
+                    "availability": copy.deepcopy(self._availability[item["symbol"]]),
+                }
+                for item in self._coverage
+            ],
         }
 
     def _build_overview(self):
@@ -178,13 +268,21 @@ class PublishedProvider(AkShareMarketDataProvider):
         turnover = 0.0
         suspended = 0
         priced = 0
+        unavailable = 0
         for asset in self.universe_snapshot.members:
             frame = self._frames[asset.symbol].set_index("date")
             if (
                 pd.Timestamp(self.end) not in frame.index
                 or pd.Timestamp(previous) not in frame.index
             ):
-                suspended += 1
+                known = self.nontrading_sessions(asset.symbol, previous, self.end)
+                missing = {
+                    day for day in (previous, self.end) if pd.Timestamp(day) not in frame.index
+                }
+                if missing <= known:
+                    suspended += 1
+                else:
+                    unavailable += 1
                 continue
             current = frame.loc[pd.Timestamp(self.end)]
             prior = frame.loc[pd.Timestamp(previous)]
@@ -196,10 +294,22 @@ class PublishedProvider(AkShareMarketDataProvider):
             elif turnover is not None:
                 turnover += float(current["amount"])
         # Missing current/prior bars are excluded from breadth, never labelled flat.
-        if suspended:
+        if suspended or unavailable:
             turnover = None
-        index = self.index_snapshot.history(previous, self.end)
-        return dict(
+        indices = []
+        if self.index_snapshot and self.index_snapshot.end == self.end:
+            index = self.index_snapshot.history(previous, self.end)
+            indices = [
+                {
+                    "symbol": "000300",
+                    "name": "沪深300价格指数",
+                    "close": float(index.iloc[-1]["close"]),
+                    "changePct": float(
+                        (index.iloc[-1]["close"] / index.iloc[0]["close"] - 1) * 100
+                    ),
+                }
+            ]
+        result = dict(
             tradeDate=self.end.isoformat(),
             scope="csi300_current_constituents",
             membershipMode="current_snapshot",
@@ -213,17 +323,14 @@ class PublishedProvider(AkShareMarketDataProvider):
             unavailableMetrics=["limitUp", "limitDown"]
             + (["turnoverCny"] if turnover is None else []),
             coverage={"total": 300, "priced": priced},
-            indices=[
-                {
-                    "symbol": "000300",
-                    "name": "沪深300价格指数",
-                    "close": float(index.iloc[-1]["close"]),
-                    "changePct": float(
-                        (index.iloc[-1]["close"] / index.iloc[0]["close"] - 1) * 100
-                    ),
-                }
-            ],
+            indices=indices,
         )
+        if not indices:
+            result["unavailableMetrics"].append("index:000300")
+        if self._partial_schema:
+            result["unavailable"] = unavailable
+            result["partial"] = unavailable > 0 or not indices
+        return result
 
     def market_overview(self):
         return copy.deepcopy(self._overview)

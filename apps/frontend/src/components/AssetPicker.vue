@@ -11,6 +11,12 @@ function toggle(symbol) {
   if (props.disabled) return
   emit('update:modelValue', selected.value.includes(symbol) ? selected.value.filter(s => s !== symbol) : selected.value.length < props.max ? [...selected.value, symbol] : [...selected.value])
 }
+function availabilityLabel(asset) {
+  const a = asset.availability
+  if (!a) return ''
+  const label = a.suspended ? '停牌' : ({ ready: '覆盖完整', stale: '更新未完成', partial: '区间有缺口', unavailable: '暂无行情' }[a.state] || '状态未知')
+  return `${label} · 最后行情 ${a.lastTradeDate || '无'}${a.state !== 'ready' ? '；仅完整历史区间可研究' : ''}`
+}
 const name = symbol => props.assets.find(a => a.symbol === symbol)?.name || symbol
 </script>
 <template>
@@ -27,7 +33,7 @@ const name = symbol => props.assets.find(a => a.symbol === symbol)?.name || symb
     <div class="asset-results">
       <label v-for="asset in matches" :key="asset.symbol" class="asset-option" :class="{selected: selected.includes(asset.symbol)}">
         <input type="checkbox" :checked="selected.includes(asset.symbol)" :disabled="!asset.active || (!selected.includes(asset.symbol) && selected.length >= max)" @change="toggle(asset.symbol)" />
-        <span class="asset-name">{{ asset.name }}<small>{{ asset.symbol }} · {{ asset.exchange }}</small></span><span class="asset-type">{{ asset.assetType === 'etf' ? 'ETF' : '股票' }}</span>
+        <span class="asset-name">{{ asset.name }}<small>{{ asset.symbol }} · {{ asset.exchange }}</small><small v-if="asset.availability" class="asset-availability" :data-state="asset.availability.state">{{ availabilityLabel(asset) }}</small></span><span class="asset-type">{{ asset.assetType === 'etf' ? 'ETF' : '股票' }}</span>
       </label>
       <p v-if="!matches.length" class="picker-hint">{{ assets.length ? '没有匹配项，请尝试名称或六位代码。' : '资产目录尚不可用，请等待加载或查看连接提示。' }}</p>
     </div>

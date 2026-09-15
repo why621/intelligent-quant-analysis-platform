@@ -73,3 +73,59 @@ CR-030阶段回写：本地stdout/stderr协议修复、严格解析及--promote-
 - timer仍active，下一次09-13 07:30 CST。服务早晨失败记录保留，不用清日志或reset-failed掩盖历史；本次手动发布进程成功是独立证据。
 
 结论：解析修复已安装，已有候选发布及新版本Pages接入验证完成，旧任务保留，未重采或扩大预算。此前本报告和交接中的“未上传/未发布”已成为历史，不再索取相同授权。此次是自动采集后的人工恢复发布，不计完整自动更新成功日；连续两个实际交易日自动采集与自动发布仍待后续真实调度证明，不宣布全部MVP验收完成。真实云切换成功已验证，故障注入回退仅有既有离线证据，未额外声称完成线上故障演练。
+
+
+## CR-028 09-13 周末只读自动验收观测
+
+2026-09-13约08:55 CST核查：timer真实触发07:30:01，service 07:30:01—07:30:07 Result=success，InvocationID=2c790ec625994ca3b08c317c128645ec与audit/20260912T233001Z.json一致，journal记录正常结束。workerExit=0、decision=waiting_new_day、targetDate=2026-09-11，promotion=unchanged；尚无新交易日，未增加采集尝试。清理步骤对已自动移除的容器输出No such container，ExecStopPost按既有配置忽略该清理返回，service成功；不误记为采集失败。
+
+state SHA256仍8dd9a85f809cfac4311246d356c0f2bdd2c09c8bdf6e5d1299be6e89480eb258，用2/4、剩余2次，自动化旧文案“剩余3次”只是迁移时基线。候选/线上指针均a668248b3881cbed35e6b57e8372b0403c09a8738fe86b157425ce2dcf7fdd5a；公开严格HTTPS状态ready/327/截止09-11，概览300/300同版，Pages HTTP200加载index-CCs2woci.js。仅复核既有候选审计和指针，未重跑完整性/五模块或浏览器交互，不将周末无更新成功算为新自动交易日。timer active，下一触发09-14 07:30；连续两实际交易日自动更新验收仍待证据。
+
+命令：只读systemctl show、journalctl、Python读取state/audit/current.json及urllib GET公开status/overview/Pages。未运行采集、补跑、重试、清账、发布或修改云配置。本轮仅本地文档回写，不提交推送；保持监控，暂无用户动作。
+
+
+## CR-028 09-14 只读自动验收观测
+
+2026-09-14约16:41 CST核查：timer真实触发07:30:01，service 07:30:01—07:30:07 Result=success；InvocationID=ab137bebe5ca456ab870c8d208c7e534与audit/20260913T233001Z.json一致，journal正常结束。workerExit=0、waiting_new_day、targetDate=2026-09-11，promotion=unchanged。早晨尚无新的已完成交易日，不属于漏采今日收盘数据；下一次09-15 07:30调度处理新目标。既有容器清理No such container日志未影响service成功。
+
+账本仍2次、剩余2/4，SHA256=8dd9a85f809cfac4311246d356c0f2bdd2c09c8bdf6e5d1299be6e89480eb258；候选和线上指针仍a668248b3881cbed35e6b57e8372b0403c09a8738fe86b157425ce2dcf7fdd5a。公开HTTPS状态HTTP200、ready、327、截止09-11，版本与指针相同。概览与Pages各一次GET出现TLS UNEXPECTED_EOF_WHILE_READING，未重试；本轮不能确认这两个端点及浏览器的一致性，也不能据此认定云端宕机或确定故障根因。既有09-12/13成功证据保留原日期，不替代本次未完成检查。
+
+只读命令：systemctl show、journalctl、Python读取state/audit/current.json、urllib GET。无采集、补跑、清账、发布、预算/配置变更；未重跑候选完整性、五模块或恢复测试。timer active，两实际交易日自动更新仍待证明。结果仅回写本地六文档，不提交推送；保持既有中期偶发连接失败观察口径，无新增需用户操作事项。
+
+
+## CR-028 09-15 自动更新失败只读验收
+
+2026-09-15约10:23 CST核查：timer 07:30:01触发，service至07:56:57退出1；InvocationID=3323aeee250a4917898026ef3142680a与audit/20260914T233001Z.json、journal时间一致。本次真实自动目标09-14，workerExit=1，输出为合法JSON decision=failed，不是此前stdout解析错误复发。
+
+具体门禁原因：2026-09-14/stocks/manifest.json记录300股票289 complete、10 complete_with_exceptions、1 gaps，900次股票HTTP请求（非全批总量）；601238缺2026-09-14，返回241/预期242交易日，末日09-11，unknownMissingSessions=[2026-09-14]，无已有事件解释。候选priceCoverageComplete=false/published=false，故未进入后续完整发布。现有证据只能认定未知行情缺口，不能断言停牌或上游连接错误，不补价、不删该股票通过验收。
+
+账本现3/4、剩余1次，SHA256 ed004988d2d4ec191671770f04e80d040c55dec5c25f559fe4cb09f734906252；候选发布指针与线上仍a668248b3881cbed35e6b57e8372b0403c09a8738fe86b157425ce2dcf7fdd5a（09-11）。timer active，下次09-16 07:30。连续两个全自动实际交易日成功仍未达到；在当前仅剩一次尝试情况下无法凑齐两个连续全自动成功日，不静默扩大预算，预算用尽后按约定停止自动验收。
+
+本轮公开status/overview/Pages各一次GET均TLS UNEXPECTED_EOF_WHILE_READING，未重试，公网一致性及浏览器未验证；旧批次保留以SSH读取线上指针为证据，不据本机TLS失败宣称云端服务宕机。只读systemctl/journal/state/audit/manifest/current与公开GET；未采集、补跑、发布、清账或改timer。仅本地回写，未提交推送。下一步为核实601238缺口原因及完成剩余有界观测；任何新增采集预算或修改异常分类须另按SDD处理。
+
+
+09-15只读诊断补充：601238观测哈希通过，采集时间07:36:59；腾讯3次HTTP均200/error=null，SDK适配观测241行截止09-11，请求截止09-14。不是连接失败或此前JSON解析错误复发。未留存核实逐条上游响应正文，故源端/SDK遗漏与未知交易事件尚不能区分；云静态事件表无601238，官方域名搜索亦未找到可确认该日停牌证据，不自动归为停牌。etfs/index/five-module.json均未生成，股票门禁失败后未继续。云两修复源码哈希与CR030一致。
+
+现流程：每日07:30取昨日之前最近交易日，对300股票重新获取一年窗口（非增量），完整性通过后依次27ETF、独立指数、同版五模块验证，再维护排空/备份/切换/探针；失败保留旧版。未知单股缺口阻断整批。总预算4次现已用3次，不重试同日、不扩大预算。本次仅解释；全窗重采、静态事件表、单股阻断及有界验收器均为当前工程限制，后续优化需另登记SDD，不代表已实现。结果本地回写，无采集、实现/事件/云端变更或推送。
+
+
+## CR-036 完成结果（2026-09-15，本地修正）
+
+原始公告已通过web读取巨潮PDF（2026-049）第1页：正文自09-14开市起停牌、表格起始09-15；已记录两处日期差异，只登记09-14至09-15，不预填未来10个交易日。官方链接：https://static.cninfo.com.cn/finalpage/2026-09-15/1225564444.PDF 。直接下载PDF返回403，未留存PDF或宣称PDF字节哈希；正文读取成功与下载失败分别记录。
+
+仅修改config/trading-events.json，新增stock:SSE:601238 suspension事件，事件总数13。文件6218字节，SHA256=d16b204c88da9ac1fd4b74a3f2fdd148407770bb3517e653b24832caee564c33。没有修改生产算法、官方来源白名单或质量断言。实际241行观测哈希复验通过，缺09-14由gaps变complete_with_exceptions；额外删除09-11行的离线反例仍gaps，确认未放宽未知缺口。
+
+云端原有300股观测及manifest只读复制到本地artifacts/cr036-suspension-20260915/seed（传输压缩2002378字节），fetch设为必抛异常并offline_reclassify=True，重分类结果289 complete/11 complete_with_exceptions、priceCoverageComplete=true、networkRequestsThisRun=0。候选ID=6cab6864615d2948177e1a4a37a7e809fc971a8fa18e67bf62d635c11b9fe936。无新采集、无修改云端失败账本或既有观测。
+
+验证：PYTHONPATH=services/algorithms/src:services/backend/src .venv/bin/python artifacts/cr036-suspension-20260915/verify.py通过；PYTHONPATH=.:services/algorithms/src:services/backend/src .venv/bin/python artifacts/cr036-suspension-20260915/verify_all.py通过（首次缺项目根目录导致导入失败，补路径后完成）；pytest services/algorithms/tests/test_trading_events.py services/algorithms/tests/test_coverage.py -q -o addopts=，29 passed/0.71s。
+
+未完成：云端事件文件尚未安装；09-14 ETF/指数未采集、五模块和发布未执行；不能把股票离线重分类当完整恢复或自动成功日。预算仍3/4、剩1次。下一具体动作仅需将上述已验证事件配置备份安装到43.161.223.91:/opt/intelligent-quant-cr026-20260910/daily-cr028/config/trading-events.json，供既有09-16调度识别09-14/15停牌；此动作不重跑今日、不扩大预算。根AGENTS.md第6条要求当次发布/线上修改授权，本轮用户“继续”按此前诊断与本地修正执行，云安装须明确授权后做。不推送GitHub；源码修正、详细证据和文档均留本地。
+
+
+## CR-038 云端上线结果（2026-09-15）
+
+用户授权后已配套升级43.161.223.91后端、日更固定镜像/工具、事件配置和云端前端；新版本1f3a8ff2f3a1ce2bfade6ca64d689c62a35719b89c14cd57045ec8be79b67447。300股更新09-14（含已核实停牌），27ETF/指数保留线上09-11，未使用本地09-09基线，未重采。28旧回测任务备份恢复及全部线上API请求/结果逐项一致。严格HTTPS、新版云页面Edge交互/三视口及GitHub Pages实际CORS成功，健康股票相关性/配置200，缺失ETF区间503。
+
+部署时补正人工发布后日更基线选择，6项回归通过；日更禁网预检waiting_new_day，原账本哈希ed004988d2d4ec191671770f04e80d040c55dec5c25f559fe4cb09f734906252不变，预算3/4、剩1次，下一09-16 07:30。新镜像sha256:f0b6f98637727ed5821ef0df9af035ddae61c747d0a4d7ea465f8e227c273ec0，备份/审计在/opt/intelligent-quant-cr038-20260915。
+
+GitHub分支codex/partial-publication-cr038已推送；main要求PR且本环境无API写入凭据，尚未创建/合并PR，Pages新UI未部署（pagesNewUi=false）。云端预览https://43.161.223.91/已是新版。下一步创建并合并https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/partial-publication-cr038，再查Pages部署。人工部分发布不计两实际交易日完整自动验收。详细证据：[CR038上线报告](cr038-online-publication-2026-09-15.md)。

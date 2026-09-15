@@ -48,8 +48,20 @@ def probe(version, end):
     status, overview = result['status'], result['overview']
     if status['assetCount'] != 327 or status['dataContext']['dataVersion'] != version or status['latestTradeDate'] != end:
         raise ValueError('cloud status gate failed')
-    if overview['dataContext'] != status['dataContext'] or overview['coverage']['priced'] != 300:
+    if overview['dataContext'] != status['dataContext'] or overview['coverage']['total'] != 300 or not 0 <= overview['coverage']['priced'] <= 300:
         raise ValueError('cloud overview gate failed')
+    availability = status.get('availability')
+    if availability:
+        states = availability['assets']
+        ready = sum(a['state'] == 'ready' for a in states.values())
+        if len(states) != 327 or ready != availability['readyCount'] or ready + availability['affectedCount'] != 327:
+            raise ValueError('cloud asset availability gate failed')
+        if overview['tradeDate'] != end or sum(overview[k] for k in ('advancing', 'declining', 'unchanged')) != overview['coverage']['priced']:
+            raise ValueError('cloud breadth date/count gate failed')
+        if overview['coverage']['priced'] + overview.get('suspended', 0) + overview.get('unavailable', 0) != 300:
+            raise ValueError('cloud missing-data classification gate failed')
+        if availability['indexState'] != 'ready' and overview['indices']:
+            raise ValueError('cloud stale index must not appear current')
 
 
 def restart():
@@ -64,7 +76,7 @@ def restart():
 
 def parse_outcome(output):
     value = json.loads(output)
-    decisions = {'succeeded', 'failed', 'already_attempted', 'waiting_new_day',
+    decisions = {'succeeded', 'partial', 'failed', 'already_attempted', 'waiting_new_day',
                  'budget_exhausted', 'two_day_candidate_requires_scheduler_audit', 'eligible'}
     if not isinstance(value, dict) or value.get('decision') not in decisions:
         raise ValueError('invalid worker outcome')
@@ -105,8 +117,8 @@ def main():
             state = json.loads((DAILY / 'artifacts/cr025-daily-20260910/state.json').read_text())
             if outcome['decision'] in ('budget_exhausted', 'two_day_candidate_requires_scheduler_audit'):
                 command(['systemctl', 'disable', '--now', 'quant-mvp-daily.timer'])
-            successes = [a for a in state['attempts'] if a['status'] == 'succeeded']
-            if args.promote_existing and (not successes or state['attempts'][-1]['status'] != 'succeeded'):
+            successes = [a for a in state['attempts'] if a['status'] in {'succeeded', 'partial'}]
+            if args.promote_existing and (not successes or state['attempts'][-1]['status'] not in {'succeeded', 'partial'}):
                 raise ValueError('latest attempt must be successful for existing-candidate publication')
             if successes:
                 candidate = DAILY / 'artifacts/cr025-daily-20260910/publication'

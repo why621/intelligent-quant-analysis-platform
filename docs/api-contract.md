@@ -208,3 +208,10 @@ Content-Type: application/json
 ## CR-012磁盘快照契约（非HTTP接口）
 
 新增packages/contracts/schemas/universe.yaml#/UniverseSnapshot，schemaVersion=1；当前官方名单300股票及源文件哈希/日期/来源绑定，effectiveDate为null、historicalMembershipVerified=false。API仍0.4.0，没有新增快照路由，也未把index:CSI:000300作为当前股票/ETF研究请求。显式provider注入仅在隔离验证启用，默认运行资产池未切换。详见 [CR-012报告](cr012-universe-validation-2026-09-08.md)。
+
+
+## CR-037：逐资产部分发布（0.8.0，2026-09-15）
+
+不可变发布schemaVersion=2保留全部327资产目录，每只资产可含经校验的部分真实行情或上个已发布版本的整段历史。API的latestTradeDate/dataContext.publicationDate是批次目标日，不能推断327资产均已有当日成交；data/status新增availability，包含readyCount、affectedCount、indexState/indexTradeDate及逐symbol的state、lastTradeDate、suspended、missingSessions。旧v1读取仍要求完整，HTTP新增字段可选以兼容旧服务。
+
+历史查询只接受所选资产在所选区间内完整覆盖或已核实非交易事件；未知缺口返回503，不静默删除资产，不补造OHLCV。MarketOverview新增unavailable与partial；priced+已知非交易suspended+unavailable=300，未知缺失不计为平盘；同日指数不可用时indices为空。策略排行明确evaluationSymbols=[510300]；该依赖缺数据时排行不可用，其他股票分析不受其阻断。日更partial不计入连续两实际交易日完整自动验收；新读端与执行器须配套升级，旧云镜像不能读取v2。

@@ -2,6 +2,7 @@ DataStatus:
   type: object
   required: [status, timezone, source, assetCount]
   properties:
+    availability: {$ref: "#/PublicationAvailability"}
     benchmarks:
       type: array
       items:
@@ -20,7 +21,7 @@ DataStatus:
       type: string
       enum: [ready, updating, stale, failed]
     timezone: {type: string, const: Asia/Shanghai}
-    source: {type: string, const: AkShare}
+    source: {type: string, enum: [AkShare, Tencent]}
     assetCount: {type: integer, minimum: 0}
     latestTradeDate:
       type: [string, "null"]
@@ -126,6 +127,8 @@ MarketOverview:
     dataContext: {$ref: './common.yaml#/ResearchContext'}
     membershipMode: {const: current_snapshot}
     suspended: {type: integer, minimum: 0}
+    unavailable: {type: integer, minimum: 0, description: 未知缺口资产数，不计为停牌或平盘}
+    partial: {type: boolean, description: 当前批次概览部分可用}
     tradeDate: {type: string, format: date}
     advancing: {type: integer, minimum: 0}
     declining: {type: integer, minimum: 0}
@@ -147,7 +150,7 @@ MarketOverview:
       required: [total, priced]
       properties:
         total: {type: integer, minimum: 1}
-        priced: {type: integer, minimum: 1}
+        priced: {type: integer, minimum: 0}
     turnoverCny:
       type: [number, "null"]
       description: 单位元；csi300_current_constituents范围为当前300成分成交额，其余旧接口为沪深京股票；任一记录缺失不发布部分合计
@@ -178,3 +181,29 @@ PublishedCoverage:
           startDate: {type: string, format: date}
           endDate: {type: string, format: date}
           quality: {type: object}
+          availability: {$ref: "#/AssetAvailability"}
+
+AssetAvailability:
+  type: object
+  required: [state, lastTradeDate, suspended, missingSessions]
+  properties:
+    state: {type: string, enum: [ready, partial, stale, unavailable]}
+    lastTradeDate: {type: [string, "null"], format: date}
+    suspended: {type: boolean}
+    missingSessions:
+      type: array
+      items: {type: string, format: date}
+PublicationAvailability:
+  type: object
+  required: [complete, readyCount, affectedCount, indexState, indexTradeDate, assets]
+  properties:
+    complete: {type: boolean, description: 全327资产及指数覆盖完整，部分发布为false}
+    readyCount: {type: integer, minimum: 0, maximum: 327}
+    affectedCount: {type: integer, minimum: 0, maximum: 327}
+    indexState: {type: string, enum: [ready, stale, unavailable]}
+    indexTradeDate: {type: [string, "null"], format: date}
+    assets:
+      type: object
+      minProperties: 327
+      maxProperties: 327
+      additionalProperties: {$ref: "#/AssetAvailability"}

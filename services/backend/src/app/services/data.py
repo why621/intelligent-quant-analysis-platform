@@ -56,6 +56,11 @@ class MarketDataService:
         except (DataNotReadyError, DataVersionChangedError):
             context = None
         return {
+            **(
+                {"availability": self._provider.availability}
+                if hasattr(self._provider, "availability")
+                else {}
+            ),
             "benchmarks": (
                 [
                     {

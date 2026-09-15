@@ -1,4 +1,5 @@
 """Bounded local daily acceptance; actual scheduled evidence remains separately audited."""
+
 import argparse
 import json
 import signal
@@ -20,7 +21,7 @@ from quant_platform.data.publication import (
 from quant_platform.data.trading_events import load_events
 from quant_platform.data.universe import load_snapshot
 
-from tools.build_publication import build
+from tools.build_partial_publication import build_partial
 from tools.collect_etf_candidate import collect
 from tools.collect_history_universe import atomic, locked, run
 from tools.prepare_history_batch import worker_environment
@@ -32,29 +33,81 @@ UNIVERSE = Path("artifacts/cr012-universe-20260908")
 TZ = ZoneInfo("Asia/Shanghai")
 
 
+class DailyBudgetExceeded(TimeoutError):
+    pass
+
+
 def consecutive(attempts):
-    days = sorted({date.fromisoformat(a["targetDate"]) for a in attempts if a["status"] == "succeeded" and a["trigger"] == "scheduled"})
-    return any(latest_session(b - timedelta(days=1)) == a for a, b in zip(days, days[1:]))
+    days = sorted(
+        {
+            date.fromisoformat(a["targetDate"])
+            for a in attempts
+            if a["status"] == "succeeded" and a["trigger"] == "scheduled"
+        }
+    )
+    return any(
+        latest_session(b - timedelta(days=1)) == a for a, b in zip(days, days[1:])
+    )
 
 
-def pipeline(output, target):
+def pipeline(output, target, baseline_root=None):
     start = target.replace(year=target.year - 1)
     universe = load_snapshot(UNIVERSE)
-    stock = run(universe, [a.symbol for a in universe.members], start, target, output / "stocks", events=load_events(Path("config/trading-events.json")), request_budget=1500, seconds_budget=3600)
-    if not stock["priceCoverageComplete"]:
-        raise ValueError("stock candidate incomplete; inspect stocks/manifest.json")
-    etf = collect(output / "etfs", start, target)
-    if not etf["complete"]:
-        raise ValueError("ETF candidate incomplete; inspect etfs/manifest.json")
-    result = subprocess.run([sys.executable, "-m", "tools.index_probe"], input=json.dumps({"start": start.isoformat(), "end": target.isoformat()}), capture_output=True, text=True, timeout=45, check=True, env=worker_environment())
+    errors = {}
+    stages = {
+        "stocks": lambda: run(
+            universe,
+            [a.symbol for a in universe.members],
+            start,
+            target,
+            output / "stocks",
+            events=load_events(Path("config/trading-events.json")),
+            request_budget=1500,
+            seconds_budget=3600,
+        ),
+        "etfs": lambda: collect(output / "etfs", start, target),
+        "index": lambda: collect_index(output, start, target),
+    }
+    for name, collect_stage in stages.items():
+        try:
+            collect_stage()
+        except DailyBudgetExceeded:
+            raise
+        except Exception as exc:
+            errors[name] = type(exc).__name__
+    baseline_root = baseline_root or BASE
+    base = checked_document(baseline_root / "current.json")
+    baseline = checked_document(
+        baseline_root / "releases" / (base["publicationId"] + ".json")
+    )
+    document = build_partial(
+        output,
+        start,
+        target,
+        baseline,
+        UNIVERSE,
+        Path("config/trading-events.json"),
+        errors,
+    )
+    atomic(output / "five-module.json", verify(PublishedProvider(document)))
+    return document
+
+
+def collect_index(output, start, target):
+    result = subprocess.run(
+        [sys.executable, "-m", "tools.index_probe"],
+        input=json.dumps({"start": start.isoformat(), "end": target.isoformat()}),
+        capture_output=True,
+        text=True,
+        timeout=45,
+        check=True,
+        env=worker_environment(),
+    )
     if len(result.stdout) > 4 * 1024 * 1024:
         raise ValueError("index worker output oversized")
     index = json.loads(result.stdout)
     save_index(index["raw"].encode("utf-8"), start, target, output / "index")
     atomic(output / "index" / "http-trace.json", index["httpTrace"])
-    document = build(output / "stocks", output / "etfs", UNIVERSE, output / "index")
-    atomic(output / "five-module.json", verify(PublishedProvider(document)))
-    return document
 
 
 def decision(state, target, baseline_end):
@@ -80,30 +133,70 @@ def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline
     state = checked_document(state_path) if state_path.exists() else {"attempts": []}
     status = decision(state, target, baseline_provider.end)
     if dry or status != "eligible":
-        return {"decision": status, "targetDate": target.isoformat(), "dryRun": dry, "maxRequestsPerAttempt": 1637}
+        return {
+            "decision": status,
+            "targetDate": target.isoformat(),
+            "dryRun": dry,
+            "maxRequestsPerAttempt": 1637,
+        }
     root.mkdir(parents=True, exist_ok=True)
     with locked(root):
-        state = checked_document(state_path) if state_path.exists() else {"attempts": []}
+        state = (
+            checked_document(state_path) if state_path.exists() else {"attempts": []}
+        )
         status = decision(state, target, baseline_provider.end)
         if status != "eligible":
             return {"decision": status}
         output = root / target.isoformat()
         output.mkdir(exist_ok=False)
-        attempt = {"targetDate": target.isoformat(), "startedAt": now.isoformat(), "trigger": trigger, "status": "running", "requestUpperBound": 1637}
+        attempt = {
+            "targetDate": target.isoformat(),
+            "startedAt": now.isoformat(),
+            "trigger": trigger,
+            "status": "running",
+            "requestUpperBound": 1637,
+        }
         state["attempts"].append(attempt)
         atomic(state_path, state)
         try:
             if not (root / "publication" / "current.json").exists():
                 pointer = checked_document(baseline / "current.json")
-                publish(root / "publication", checked_document(baseline / "releases" / (pointer["publicationId"] + ".json")))
-            document = build_candidate(output, target)
+                publish(
+                    root / "publication",
+                    checked_document(
+                        baseline / "releases" / (pointer["publicationId"] + ".json")
+                    ),
+                )
+            source_root = root / "publication"
+            if (
+                build_candidate is pipeline
+                and baseline_provider.end > load_publication(source_root).end
+            ):
+                source_root = baseline
+            document = (
+                pipeline(output, target, source_root)
+                if build_candidate is pipeline
+                else build_candidate(output, target)
+            )
             candidate = PublishedProvider(document)
-            if candidate.end != target or candidate.start != target.replace(year=target.year - 1):
-                raise ValueError("candidate interval differs from requested actual trading day")
+            if candidate.end != target or candidate.start != target.replace(
+                year=target.year - 1
+            ):
+                raise ValueError(
+                    "candidate interval differs from requested actual trading day"
+                )
             provider = publish(root / "publication", document)
-            attempt.update(status="succeeded", publicationId=provider.cache_revision())
+            attempt.update(
+                status="succeeded" if provider.availability["complete"] else "partial",
+                publicationId=provider.cache_revision(),
+                availability={
+                    k: v for k, v in provider.availability.items() if k != "assets"
+                },
+            )
         except Exception as exc:
-            attempt.update(status="failed", errorType=type(exc).__name__, error=str(exc)[:2000])
+            attempt.update(
+                status="failed", errorType=type(exc).__name__, error=str(exc)[:2000]
+            )
         finally:
             attempt["finishedAt"] = datetime.now(TZ).isoformat()
             state["automaticTwoDayCandidate"] = consecutive(state["attempts"])
@@ -118,7 +211,7 @@ def main():
     args = parser.parse_args()
 
     def deadline(signum, frame):
-        raise TimeoutError("5400 second daily budget exhausted")
+        raise DailyBudgetExceeded("5400 second daily budget exhausted")
 
     signal.signal(signal.SIGALRM, deadline)
     signal.alarm(5400)
