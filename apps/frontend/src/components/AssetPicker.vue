@@ -15,7 +15,11 @@ function availabilityLabel(asset) {
   const a = asset.availability
   if (!a) return ''
   const label = a.suspended ? '停牌' : ({ ready: '覆盖完整', stale: '更新未完成', partial: '区间有缺口', unavailable: '暂无行情' }[a.state] || '状态未知')
-  return `${label} · 最后行情 ${a.lastTradeDate || '无'}${a.state !== 'ready' ? '；仅完整历史区间可研究' : ''}`
+  const reasons = { rate_limited: '数据源限流', access_denied: '数据源拒绝访问', provider_unavailable: '数据源服务异常', timeout: '请求超时', connection_failed: '连接失败', invalid_response: '响应格式异常', empty_response: '数据源返回空记录', invalid_prices: '价格校验未通过', missing_sessions: '存在未知缺日', not_collected: '本次未完成采集' }
+  const update = a.update
+  const note = update && update.reason !== 'none' ? `；${reasons[update.reason] || '更新待核实'}${update.outcome === 'retained' ? '，保留历史数据' : ''}` : ''
+  const trading = a.tradingState === 'resumed' ? '复牌后已有成交' : label
+  return `${trading} · 最后行情 ${a.lastTradeDate || '无'}${note}${a.state !== 'ready' ? '；仅完整历史区间可研究' : ''}`
 }
 const name = symbol => props.assets.find(a => a.symbol === symbol)?.name || symbol
 </script>

@@ -67,8 +67,10 @@ def fetch_one(symbol: str, start: date, end: date) -> dict:
         )
         if len(process.stdout.encode("utf-8")) > MAX_FILE_BYTES:
             raise ValueError("worker output oversized")
-        return json.loads(process.stdout)
-    except (subprocess.SubprocessError, ValueError, OSError) as exc:
+        value = json.loads(process.stdout)
+        validate_observation(value, symbol, start, end)
+        return value
+    except (subprocess.SubprocessError, ValueError, OSError, TypeError, KeyError) as exc:
         return {
             **payload,
             "adjust": "qfq",
@@ -101,18 +103,19 @@ def validate_observation(value: dict, symbol: str, start: date, end: date):
         "sdkVersion": "1.18.94",
         "normalizationVersion": "tx-1.18.94-project-v1",
     }
+    if not isinstance(value, dict):
+        raise ValueError("observation must be an object")
     if any(value.get(key) != item for key, item in expected.items()):
         raise ValueError("observation identity, interval or provenance mismatch")
     fetched = datetime.fromisoformat(value["retrievedAt"])
-    if (
-        fetched.tzinfo is None
-        or fetched.astimezone(ZoneInfo("Asia/Shanghai")).date() <= end
-    ):
-        raise ValueError(
-            "observation timestamp does not establish a completed interval"
-        )
+    if fetched.tzinfo is None or fetched.astimezone(ZoneInfo("Asia/Shanghai")).date() <= end:
+        raise ValueError("observation timestamp does not establish a completed interval")
     if not isinstance(value.get("records"), list) or len(value["records"]) > 1000:
         raise ValueError("invalid or oversized history records")
+    if "error" not in value or (value["error"] is not None and not isinstance(value["error"], str)):
+        raise ValueError("invalid observation error")
+    if any(not isinstance(row, dict) for row in value["records"]):
+        raise ValueError("invalid history record shape")
     trace = value.get("httpTrace")
     if trace is not None and (not isinstance(trace, list) or len(trace) > 5):
         raise ValueError("invalid HTTP budget evidence")
@@ -172,9 +175,7 @@ def prepare_batch(
             "observation": value,
             "sha256": digest(value),
         }
-        (output / "observations" / f"{symbol}.json").write_bytes(
-            canonical_bytes(wrapper)
-        )
+        (output / "observations" / f"{symbol}.json").write_bytes(canonical_bytes(wrapper))
         observations[symbol] = wrapper
         if not replay:
             pause(1)
@@ -244,10 +245,7 @@ def prepare_batch(
             )
         ),
         "requestCountExact": replay is not None
-        or all(
-            item["observation"]["httpTrace"] is not None
-            for item in observations.values()
-        ),
+        or all(item["observation"]["httpTrace"] is not None for item in observations.values()),
         "requestUpperBoundThisRun": 0 if replay else len(observations) * 5,
         "entries": entries,
     }
@@ -269,9 +267,7 @@ def prepare_batch(
 
 
 def _deadline(_signum, _frame):
-    raise TimeoutError(
-        "candidate batch exceeded 300 seconds; observations retained, not published"
-    )
+    raise TimeoutError("candidate batch exceeded 300 seconds; observations retained, not published")
 
 
 def main():

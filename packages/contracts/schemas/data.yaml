@@ -190,9 +190,22 @@ AssetAvailability:
     state: {type: string, enum: [ready, partial, stale, unavailable]}
     lastTradeDate: {type: [string, "null"], format: date}
     suspended: {type: boolean}
+    tradingState: {type: string, enum: [trading, suspended, resumed, unknown]}
+    update: {$ref: '#/AssetUpdate'}
     missingSessions:
       type: array
       items: {type: string, format: date}
+AssetUpdate:
+  type: object
+  additionalProperties: false
+  required: [outcome, reason, retryable, lastTradeDate, attempted]
+  properties:
+    outcome: {enum: [updated, partial, retained]}
+    reason:
+      enum: [none, rate_limited, access_denied, provider_unavailable, timeout, connection_failed, invalid_response, empty_response, invalid_prices, missing_sessions, not_collected]
+    retryable: {type: boolean, description: 是否适合后续计划重试；不表示本次自动增加重试}
+    lastTradeDate: {type: [string, "null"], format: date}
+    attempted: {type: boolean}
 PublicationAvailability:
   type: object
   required: [complete, readyCount, affectedCount, indexState, indexTradeDate, assets]
@@ -202,8 +215,95 @@ PublicationAvailability:
     affectedCount: {type: integer, minimum: 0, maximum: 327}
     indexState: {type: string, enum: [ready, stale, unavailable]}
     indexTradeDate: {type: [string, "null"], format: date}
+    eventMaintenance:
+      oneOf:
+        - {type: "null"}
+        - {$ref: "#/EventMaintenance"}
     assets:
       type: object
       minProperties: 327
       maxProperties: 327
       additionalProperties: {$ref: "#/AssetAvailability"}
+
+EventMaintenance:
+  type: object
+  required: [asOfDate, checkedAt, state, requests, sources, conflicts]
+  properties:
+    asOfDate: {type: string, format: date}
+    checkedAt: {type: string, format: date-time}
+    state: {enum: [ready, partial, pending]}
+    requests: {type: integer, minimum: 0, maximum: 1}
+    conflicts: {type: array, items: {type: string}}
+    sources:
+      type: object
+      additionalProperties:
+        type: object
+        required: [state]
+        properties:
+          state: {enum: [ready, pending]}
+          reason: {type: string}
+          sourceUrl: {type: string, format: uri}
+          responseSha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+          confirmedCount: {type: integer, minimum: 0}
+ModuleCapabilityRequest:
+  oneOf:
+    - type: object
+      additionalProperties: false
+      required: [module]
+      properties:
+        module: {const: overview}
+    - type: object
+      additionalProperties: false
+      required: [module]
+      properties:
+        module: {const: ranking}
+        period: {enum: [1d, 7d, 30d, 1y], default: 30d}
+    - type: object
+      additionalProperties: false
+      required: [module, symbols]
+      properties:
+        module: {const: allocation}
+        symbols: {type: array, minItems: 1, maxItems: 10, uniqueItems: true, items: {$ref: './common.yaml#/Symbol'}}
+    - type: object
+      additionalProperties: false
+      required: [module, symbols, startDate, endDate]
+      properties:
+        module: {const: correlation}
+        symbols: {type: array, minItems: 2, maxItems: 10, uniqueItems: true, items: {$ref: './common.yaml#/Symbol'}}
+        startDate: {type: string, format: date}
+        endDate: {type: string, format: date}
+    - type: object
+      additionalProperties: false
+      required: [module, symbols, startDate, endDate]
+      properties:
+        module: {const: backtest}
+        symbols: {type: array, minItems: 1, maxItems: 10, uniqueItems: true, items: {$ref: './common.yaml#/Symbol'}}
+        startDate: {type: string, format: date}
+        endDate: {type: string, format: date}
+        benchmark: {type: [string, "null"], pattern: '^([0-9]{6}|index:CSI:000300)$'}
+ModuleCapability:
+  type: object
+  additionalProperties: false
+  required: [module, state, dataContext, startDate, endDate, issues, message]
+  description: 仅检查数据覆盖；不保证策略参数、数值样本或计算结果有效。无采集、无任务创建。
+  properties:
+    module: {enum: [overview, correlation, backtest, ranking, allocation]}
+    state: {enum: [ready, partial, unavailable, unknown]}
+    dataContext:
+      oneOf:
+        - {type: "null"}
+        - {$ref: './common.yaml#/ResearchContext'}
+    startDate: {type: [string, "null"], format: date}
+    endDate: {type: [string, "null"], format: date}
+    message: {type: string}
+    issues:
+      type: array
+      maxItems: 23
+      items:
+        type: object
+        additionalProperties: false
+        required: [symbol, code, message]
+        properties:
+          symbol: {type: [string, "null"]}
+          code: {enum: [DATA_STALE, CALENDAR_UNAVAILABLE, ASSET_NOT_FOUND, DATE_OUT_OF_RANGE, DATA_GAP, INSUFFICIENT_HISTORY, NO_CURRENT_BAR, INSUFFICIENT_COMMON_HISTORY]}
+          message: {type: string}

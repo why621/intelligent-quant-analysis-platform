@@ -215,3 +215,10 @@ Content-Type: application/json
 不可变发布schemaVersion=2保留全部327资产目录，每只资产可含经校验的部分真实行情或上个已发布版本的整段历史。API的latestTradeDate/dataContext.publicationDate是批次目标日，不能推断327资产均已有当日成交；data/status新增availability，包含readyCount、affectedCount、indexState/indexTradeDate及逐symbol的state、lastTradeDate、suspended、missingSessions。旧v1读取仍要求完整，HTTP新增字段可选以兼容旧服务。
 
 历史查询只接受所选资产在所选区间内完整覆盖或已核实非交易事件；未知缺口返回503，不静默删除资产，不补造OHLCV。MarketOverview新增unavailable与partial；priced+已知非交易suspended+unavailable=300，未知缺失不计为平盘；同日指数不可用时indices为空。策略排行明确evaluationSymbols=[510300]；该依赖缺数据时排行不可用，其他股票分析不受其阻断。日更partial不计入连续两实际交易日完整自动验收；新读端与执行器须配套升级，旧云镜像不能读取v2。
+
+
+## CR039 / OpenAPI 0.9.0（2026-09-15，本地实现）
+
+新增POST /api/data/capability：按module=overview/correlation/backtest/ranking/allocation预检当前不可变批次。相关性/回测提供symbols、startDate/endDate，回测可附benchmark；配置提供symbols；排行period默认30d，实际依赖510300及90日预热。返回state=ready/partial/unavailable/unknown、dataContext、实际所需起止日和issues（具体symbol/code/message）。沿用X-Research-Version，冲突409；格式错误400。ready只保证数据覆盖，不代替计算时的参数和数值有效性检查；旧提供者返回unknown，不触发采集。
+
+/data/status.availability及/data/coverage.items[].availability增加tradingState和可选update。update含outcome=updated/partial/retained、标准失败reason、retryable、attempted、真实lastTradeDate。retryable不授予额外采集预算。availability.eventMaintenance记录核验日/目标日、源状态、原响应SHA256及冲突；SSE股票源已验证，SZSE/ETF仍pending，不能把它解释为全市场停复牌覆盖。响应Schema以packages/contracts/schemas/data.yaml为准，前端五模块预检与资产提示同步；预检断网/旧接口缺失给可重试提示，实际提交仍保留原校验。

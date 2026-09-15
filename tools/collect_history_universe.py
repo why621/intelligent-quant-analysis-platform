@@ -25,6 +25,7 @@ from quant_platform.data.coverage import (
 )
 from quant_platform.data.trading_events import load_events, validate_events
 from quant_platform.data.universe import load_snapshot
+from quant_platform.data.update_results import RETRYABLE, failure_code
 
 from tools.prepare_history_batch import (
     fetch_one,
@@ -105,9 +106,7 @@ def run(
     seeded = {}
     if seed is not None:
         source = json.loads((seed / "manifest.json").read_text())
-        if source["candidateId"] != digest(
-            {k: v for k, v in source.items() if k != "candidateId"}
-        ):
+        if source["candidateId"] != digest({k: v for k, v in source.items() if k != "candidateId"}):
             raise ValueError("seed manifest hash mismatch")
         if any(
             source[k] != config[k]
@@ -128,9 +127,7 @@ def run(
                 }
                 | ({"gaps"} if offline_reclassify else set())
             ):
-                wrapper = load_observation(
-                    checked_path(seed, f"observations/{symbol}.json")
-                )
+                wrapper = load_observation(checked_path(seed, f"observations/{symbol}.json"))
                 validate_observation(wrapper["observation"], symbol, start, end)
                 if (
                     wrapper["universeVersion"] != config["universeVersion"]
@@ -218,9 +215,7 @@ def run(
                 if symbol in observations:
                     wrapper = observations[symbol]
                     value = wrapper["observation"]
-                    entry.update(
-                        observationSha256=wrapper["sha256"], error=value["error"]
-                    )
+                    entry.update(observationSha256=wrapper["sha256"], error=value["error"])
                     if value["error"]:
                         entry["status"] = "source_error"
                     else:
@@ -230,8 +225,7 @@ def run(
                         )
                         entry.update(status=quality["status"], quality=quality)
                         if (
-                            quality["status"]
-                            in {"complete", "complete_with_exceptions"}
+                            quality["status"] in {"complete", "complete_with_exceptions"}
                             and ledger["cacheHashes"].get(symbol) != wrapper["sha256"]
                         ):
                             provider._save_history_cache(symbol, frame)
@@ -246,21 +240,15 @@ def run(
                             expected = expected.reindex(columns=cached.columns)
                             if json.loads(
                                 cached.to_json(orient="records", date_format="iso")
-                            ) != json.loads(
-                                expected.to_json(orient="records", date_format="iso")
-                            ):
+                            ) != json.loads(expected.to_json(orient="records", date_format="iso")):
                                 raise ValueError(
                                     "candidate cache differs from validated observation"
                                 )
                             validated_cache.add(symbol)
                 entries.append(entry)
             counts = dict(Counter(e["status"] for e in entries))
-            acquired = {
-                s: w for s, w in observations.items() if ledger["attempts"][s] != "seed"
-            }
-            known = sum(
-                len(w["observation"]["httpTrace"] or []) for w in acquired.values()
-            )
+            acquired = {s: w for s, w in observations.items() if ledger["attempts"][s] != "seed"}
+            known = sum(len(w["observation"]["httpTrace"] or []) for w in acquired.values())
             exact = len(observations) == len(ledger["attempts"]) and all(
                 w["observation"]["httpTrace"] is not None for w in acquired.values()
             )
@@ -320,9 +308,7 @@ def run(
                 break
             ledger["attempts"][symbol] = "reserved"
             ledger["reservedRequests"] += 5
-            ledger["chargedSeconds"] += (
-                41  # Keep conservative charge if killed mid-worker.
-            )
+            ledger["chargedSeconds"] += 41  # Keep conservative charge if killed mid-worker.
             atomic(ledger_path, ledger)
             began = monotonic()
             value = fetch(symbol, start, end)
@@ -350,7 +336,11 @@ def run(
                 ),
                 flush=True,
             )
-            consecutive_failures = consecutive_failures + 1 if value["error"] else 0
+            consecutive_failures = (
+                consecutive_failures + 1
+                if failure_code(value) in RETRYABLE | {"access_denied"}
+                else 0
+            )
             if consecutive_failures >= 3:
                 break
         return checkpoint()

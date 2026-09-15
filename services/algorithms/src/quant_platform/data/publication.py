@@ -24,6 +24,7 @@ from quant_platform.data.coverage import assess_history, canonical_bytes, digest
 from quant_platform.data.index_snapshot import INDEX_ID, parse_index
 from quant_platform.data.trading_events import TradingEvent, classify_sessions, validate_events
 from quant_platform.data.universe import UniverseSnapshot
+from quant_platform.data.update_results import CODES
 from quant_platform.models import Asset, DataStatus
 
 
@@ -123,6 +124,43 @@ class PublishedProvider(AkShareMarketDataProvider):
                 "suspended": self.end in known_days and known_days[self.end].reason == "suspension",
                 "missingSessions": quality.get("unknownMissingSessions", []),
             }
+            update = value.get("assetUpdates", {}).get(symbol)
+            if update is not None:
+                if (
+                    not isinstance(update, dict)
+                    or update.get("reason") not in CODES
+                    or update.get("outcome") not in {"updated", "partial", "retained"}
+                    or type(update.get("retryable")) is not bool
+                    or type(update.get("attempted")) is not bool
+                    or update.get("lastTradeDate") != quality["lastDate"]
+                ):
+                    raise ValueError("invalid per-asset update evidence")
+                self._availability[symbol]["update"] = copy.deepcopy(update)
+            last_event = max(
+                (
+                    e.end
+                    for e in self.trading_events
+                    if e.asset_id == f"{asset.asset_type}:{asset.exchange}:{symbol}"
+                    and e.reason == "suspension"
+                    and e.end < self.end
+                ),
+                default=None,
+            )
+            actual_trade = (
+                not frame.empty
+                and quality["lastDate"] == self.end.isoformat()
+                and frame.iloc[-1]["volume"] > 0
+            )
+            resumed = actual_trade and last_event == latest_session(self.end - timedelta(days=1))
+            self._availability[symbol]["tradingState"] = (
+                "suspended"
+                if self._availability[symbol]["suspended"]
+                else "resumed"
+                if resumed
+                else "trading"
+                if actual_trade
+                else "unknown"
+            )
             self._frames[symbol] = frame
             self._coverage.append(
                 {
@@ -150,6 +188,7 @@ class PublishedProvider(AkShareMarketDataProvider):
             else "unavailable",
             "indexTradeDate": self.index_snapshot.end.isoformat() if self.index_snapshot else None,
             "assets": copy.deepcopy(self._availability),
+            "eventMaintenance": copy.deepcopy(self._document.get("eventMaintenance")),
         }
 
     @property

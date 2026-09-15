@@ -7,10 +7,12 @@ import subprocess
 import sys
 from contextlib import redirect_stdout
 from datetime import date, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from quant_platform.data.calendar import latest_session
+from quant_platform.data.coverage import digest
 from quant_platform.data.index_snapshot import save_index
 from quant_platform.data.publication import (
     PublishedProvider,
@@ -24,6 +26,7 @@ from quant_platform.data.universe import load_snapshot
 from tools.build_partial_publication import build_partial
 from tools.collect_etf_candidate import collect
 from tools.collect_history_universe import atomic, locked, run
+from tools.maintain_trading_events import maintain, merge_confirmed
 from tools.prepare_history_batch import worker_environment
 from tools.verify_published_provider import verify
 
@@ -33,8 +36,8 @@ UNIVERSE = Path("artifacts/cr012-universe-20260908")
 TZ = ZoneInfo("Asia/Shanghai")
 
 
-class DailyBudgetExceeded(TimeoutError):
-    pass
+class DailyBudgetExceeded(RuntimeError):
+    """Fatal whole-run deadline, distinct from recoverable provider I/O timeouts."""
 
 
 def consecutive(attempts):
@@ -45,13 +48,11 @@ def consecutive(attempts):
             if a["status"] == "succeeded" and a["trigger"] == "scheduled"
         }
     )
-    return any(
-        latest_session(b - timedelta(days=1)) == a for a, b in zip(days, days[1:])
-    )
+    return any(latest_session(b - timedelta(days=1)) == a for a, b in pairwise(days))
 
 
 def pipeline(output, target, baseline_root=None):
-    start = target.replace(year=target.year - 1)
+    start = target - timedelta(days=365)
     universe = load_snapshot(UNIVERSE)
     errors = {}
     stages = {
@@ -77,16 +78,35 @@ def pipeline(output, target, baseline_root=None):
             errors[name] = type(exc).__name__
     baseline_root = baseline_root or BASE
     base = checked_document(baseline_root / "current.json")
-    baseline = checked_document(
-        baseline_root / "releases" / (base["publicationId"] + ".json")
+    baseline = checked_document(baseline_root / "releases" / (base["publicationId"] + ".json"))
+    previous = PublishedProvider(baseline)
+    events, conflicts = merge_confirmed(
+        previous.trading_events, load_events(Path("config/trading-events.json"))
     )
+    # Reuse only proven unused request capacity, otherwise retain the conservative
+    # stock reservation. ETF + index still reserve 135 + 2. No extra trial budget.
+    capacity = 0
+    manifest_path = output / "stocks" / "manifest.json"
+    if manifest_path.exists():
+        manifest = checked_document(manifest_path)
+        if manifest.get("requestCountExact") is True and manifest.get("candidateId") == digest(
+            {k: v for k, v in manifest.items() if k != "candidateId"}
+        ):
+            used = manifest.get("networkRequestsThisRun")
+            if type(used) is int and 0 <= used <= 1500:
+                capacity = max(0, min(1, 1637 - used - 135 - 2))
+    maintenance = maintain(output, target, events, previous._assets, request_budget=capacity)
+    if conflicts:
+        maintenance["conflicts"] = sorted(set(maintenance["conflicts"] + conflicts))
+        maintenance["state"] = "pending"
+        atomic(output / "event-maintenance.json", maintenance)
     document = build_partial(
         output,
         start,
         target,
         baseline,
         UNIVERSE,
-        Path("config/trading-events.json"),
+        output / "trading-events.json",
         errors,
     )
     atomic(output / "five-module.json", verify(PublishedProvider(document)))
@@ -141,9 +161,7 @@ def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline
         }
     root.mkdir(parents=True, exist_ok=True)
     with locked(root):
-        state = (
-            checked_document(state_path) if state_path.exists() else {"attempts": []}
-        )
+        state = checked_document(state_path) if state_path.exists() else {"attempts": []}
         status = decision(state, target, baseline_provider.end)
         if status != "eligible":
             return {"decision": status}
@@ -163,9 +181,7 @@ def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline
                 pointer = checked_document(baseline / "current.json")
                 publish(
                     root / "publication",
-                    checked_document(
-                        baseline / "releases" / (pointer["publicationId"] + ".json")
-                    ),
+                    checked_document(baseline / "releases" / (pointer["publicationId"] + ".json")),
                 )
             source_root = root / "publication"
             if (
@@ -179,24 +195,16 @@ def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline
                 else build_candidate(output, target)
             )
             candidate = PublishedProvider(document)
-            if candidate.end != target or candidate.start != target.replace(
-                year=target.year - 1
-            ):
-                raise ValueError(
-                    "candidate interval differs from requested actual trading day"
-                )
+            if candidate.end != target or candidate.start != target - timedelta(days=365):
+                raise ValueError("candidate interval differs from requested actual trading day")
             provider = publish(root / "publication", document)
             attempt.update(
                 status="succeeded" if provider.availability["complete"] else "partial",
                 publicationId=provider.cache_revision(),
-                availability={
-                    k: v for k, v in provider.availability.items() if k != "assets"
-                },
+                availability={k: v for k, v in provider.availability.items() if k != "assets"},
             )
         except Exception as exc:
-            attempt.update(
-                status="failed", errorType=type(exc).__name__, error=str(exc)[:2000]
-            )
+            attempt.update(status="failed", errorType=type(exc).__name__, error=str(exc)[:2000])
         finally:
             attempt["finishedAt"] = datetime.now(TZ).isoformat()
             state["automaticTwoDayCandidate"] = consecutive(state["attempts"])

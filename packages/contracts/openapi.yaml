@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智能量化分析平台 API
-  version: 0.8.0
+  version: 0.9.0
   description: |
     前端、Flask 后端与算法模块之间唯一具有约束力的 HTTP 契约。
     平台面向 A 股及场内 ETF，按交易日收盘后更新。配置建议仅用于研究，
@@ -24,6 +24,25 @@ tags:
   - {name: Backtest}
   - {name: Allocation}
 paths:
+  /data/capability:
+    post:
+      tags: [Data]
+      summary: 按模块及实际依赖预检同版数据覆盖，不采集或创建任务
+      operationId: checkDataCapability
+      parameters:
+        - $ref: '#/components/parameters/ResearchVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './schemas/data.yaml#/ModuleCapabilityRequest'}
+      responses:
+        '200':
+          description: ready仅表示数据覆盖；partial可展示部分概览，unavailable说明具体依赖，旧模式unknown
+          content:
+            application/json:
+              schema: {$ref: './schemas/data.yaml#/ModuleCapability'}
+        default: {$ref: '#/components/responses/Error'}
   /data/coverage:
     get:
       summary: 当前不可变发布的327资产覆盖目录（旧运行未发布时503）

@@ -8,6 +8,7 @@ from time import monotonic, sleep
 import pandas as pd
 from quant_platform.data.akshare_provider import _DEFAULT_UNIVERSE
 from quant_platform.data.coverage import assess_history, digest
+from quant_platform.data.update_results import RETRYABLE, failure_code
 
 from tools.collect_history_universe import atomic
 from tools.prepare_history_batch import fetch_one, new_output, validate_observation
@@ -29,9 +30,7 @@ def collect(output, start, end, *, fetch=fetch_one, pause=sleep):
     }
 
     def checkpoint():
-        document["candidateId"] = digest(
-            {k: v for k, v in document.items() if k != "candidateId"}
-        )
+        document["candidateId"] = digest({k: v for k, v in document.items() if k != "candidateId"})
         atomic(output / "manifest.json", document)
 
     began = monotonic()
@@ -50,9 +49,7 @@ def collect(output, start, end, *, fetch=fetch_one, pause=sleep):
             {"observation": value, "sha256": digest(value)},
         )
         quality = (
-            None
-            if value["error"]
-            else assess_history(pd.DataFrame(value["records"]), start, end)
+            None if value["error"] else assess_history(pd.DataFrame(value["records"]), start, end)
         )
         document["entries"].append(
             {
@@ -63,14 +60,13 @@ def collect(output, start, end, *, fetch=fetch_one, pause=sleep):
                 "httpTrace": value["httpTrace"],
             }
         )
-        failures = failures + 1 if value["error"] else 0
+        failures = failures + 1 if failure_code(value) in RETRYABLE | {"access_denied"} else 0
         document["inFlight"] = None
         checkpoint()
         print(symbol, value["error"] or quality["status"], flush=True)
         pause(1)
     document["complete"] = len(document["entries"]) == 27 and all(
-        e["quality"] and e["quality"]["status"] == "complete"
-        for e in document["entries"]
+        e["quality"] and e["quality"]["status"] == "complete" for e in document["entries"]
     )
     checkpoint()
     return document
