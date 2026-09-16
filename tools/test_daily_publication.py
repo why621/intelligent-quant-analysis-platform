@@ -72,3 +72,49 @@ def test_index_range_rejected_before_http(monkeypatch):
     for start, end in [("2024-01-01", "2026-09-09"), ("2026-09-09", "2026-09-09"), ("2099-01-01", "2099-09-09")]:
         with pytest.raises(ValueError):
             probe({"start": start, "end": end})
+
+
+@pytest.mark.parametrize('history', [
+    [attempt('2026-09-08', 'failed'), attempt('2026-09-09', 'failed'), attempt('2026-09-10', 'failed'), attempt('2026-09-11', 'failed')],
+    [attempt('2026-09-10'), attempt('2026-09-11')],
+])
+def test_continuous_does_not_inherit_acceptance_stop(history):
+    from datetime import date
+    state = {'mode': 'continuous', 'attempts': history}
+    assert decision(state, date(2026,9,15), date(2026,9,14), mode='continuous') == 'eligible'
+    assert decision(state, date(2026,9,15), date(2026,9,15), mode='continuous') == 'waiting_new_day'
+    state['attempts'].append(attempt('2026-09-15', 'failed'))
+    assert decision(state, date(2026,9,15), date(2026,9,14), mode='continuous') == 'already_attempted'
+
+
+def test_continuous_ledger_is_independent_and_dry_run_no_writes(tmp_path):
+    import json
+    baseline = tmp_path/'baseline'
+    publish(baseline, document())
+    root = tmp_path/'continuous'
+    now = datetime(2026,9,10,7,30,tzinfo=TZ)
+    old = tmp_path/'acceptance.json'
+    old.write_text(json.dumps({'attempts':[attempt('2026-09-08','failed')]*4}))
+    original = old.read_bytes()
+    def fail(*args):
+        raise ValueError('controlled failure')
+    assert execute(root,now,'scheduled',mode='continuous',dry=True,baseline=baseline,build_candidate=fail)['decision']=='eligible'
+    assert not root.exists()
+    result=execute(root,now,'scheduled',mode='continuous',baseline=baseline,build_candidate=fail)
+    assert result['state']['mode']=='continuous' and result['decision']=='failed'
+    assert 'automaticTwoDayCandidate' not in result['state']
+    assert execute(root,now,'scheduled',mode='continuous',baseline=baseline,build_candidate=fail)['decision']=='already_attempted'
+    assert old.read_bytes()==original
+    with pytest.raises(ValueError,match='own ledger'):
+        other=tmp_path/'legacy';other.mkdir();(other/'state.json').write_bytes(original)
+        execute(other,now,'scheduled',mode='continuous',dry=True,baseline=baseline)
+
+
+def test_continuous_low_disk_prevents_acquisition(monkeypatch,tmp_path):
+    from types import SimpleNamespace
+    baseline=tmp_path/'baseline';publish(baseline,document())
+    monkeypatch.setattr('tools.daily_publication.shutil.disk_usage',lambda p:SimpleNamespace(free=1024))
+    def forbidden(*args):pytest.fail('must not acquire')
+    with pytest.raises(RuntimeError,match='2 GiB'):
+        execute(tmp_path/'continuous',datetime(2026,9,10,7,30,tzinfo=TZ),'scheduled',mode='continuous',baseline=baseline,build_candidate=forbidden)
+    assert not (tmp_path/'continuous/state.json').exists()

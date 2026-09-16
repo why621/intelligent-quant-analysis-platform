@@ -1,8 +1,9 @@
-"""Bounded local daily acceptance; actual scheduled evidence remains separately audited."""
+"""Bounded daily acquisition: separate acceptance and continuous operation ledgers."""
 
 import argparse
 import json
 import signal
+import shutil
 import subprocess
 import sys
 from contextlib import redirect_stdout
@@ -31,6 +32,7 @@ from tools.prepare_history_batch import worker_environment
 from tools.verify_published_provider import verify
 
 ROOT = Path("artifacts/cr025-daily-20260910")
+CONTINUOUS_ROOT = Path("artifacts/continuous-daily")
 BASE = Path("artifacts/cr024-publication-20260910")
 UNIVERSE = Path("artifacts/cr012-universe-20260908")
 TZ = ZoneInfo("Asia/Shanghai")
@@ -130,11 +132,13 @@ def collect_index(output, start, target):
     atomic(output / "index" / "http-trace.json", index["httpTrace"])
 
 
-def decision(state, target, baseline_end):
+def decision(state, target, baseline_end, *, mode="acceptance"):
+    if mode not in {"acceptance", "continuous"}:
+        raise ValueError("unknown run mode")
     attempts = state["attempts"]
-    if consecutive(attempts):
+    if mode == "acceptance" and consecutive(attempts):
         return "two_day_candidate_requires_scheduler_audit"
-    if len(attempts) >= 4:
+    if mode == "acceptance" and len(attempts) >= 4:
         return "budget_exhausted"
     if target <= baseline_end:
         return "waiting_new_day"
@@ -143,7 +147,7 @@ def decision(state, target, baseline_end):
     return "eligible"
 
 
-def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline=BASE):
+def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline=BASE, mode="acceptance"):
     if trigger not in {"manual", "scheduled"} or now.tzinfo is None:
         raise ValueError("explicit trigger and timezone required")
     now = now.astimezone(TZ)
@@ -151,18 +155,27 @@ def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline
     baseline_provider = load_publication(baseline)
     state_path = root / "state.json"
     state = checked_document(state_path) if state_path.exists() else {"attempts": []}
-    status = decision(state, target, baseline_provider.end)
+    if mode == "continuous" and state_path.exists() and state.get("mode") != "continuous":
+        raise ValueError("continuous mode requires its own ledger")
+    status = decision(state, target, baseline_provider.end, mode=mode)
     if dry or status != "eligible":
         return {
             "decision": status,
             "targetDate": target.isoformat(),
             "dryRun": dry,
+            "mode": mode,
             "maxRequestsPerAttempt": 1637,
         }
     root.mkdir(parents=True, exist_ok=True)
     with locked(root):
         state = checked_document(state_path) if state_path.exists() else {"attempts": []}
-        status = decision(state, target, baseline_provider.end)
+        if mode == "continuous":
+            if state_path.exists() and state.get("mode") != "continuous":
+                raise ValueError("continuous mode requires its own ledger")
+            state["mode"] = "continuous"
+            if shutil.disk_usage(root).free < 2 * 1024**3:
+                raise RuntimeError("less than 2 GiB free; acquisition not started")
+        status = decision(state, target, baseline_provider.end, mode=mode)
         if status != "eligible":
             return {"decision": status}
         output = root / target.isoformat()
@@ -207,7 +220,8 @@ def execute(root, now, trigger, *, dry=False, build_candidate=pipeline, baseline
             attempt.update(status="failed", errorType=type(exc).__name__, error=str(exc)[:2000])
         finally:
             attempt["finishedAt"] = datetime.now(TZ).isoformat()
-            state["automaticTwoDayCandidate"] = consecutive(state["attempts"])
+            if mode == "acceptance":
+                state["automaticTwoDayCandidate"] = consecutive(state["attempts"])
             atomic(state_path, state)
         return {"decision": attempt["status"], "state": state}
 
@@ -216,6 +230,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trigger", choices=["manual", "scheduled"], default="manual")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--mode", choices=["acceptance", "continuous"], default="acceptance")
     args = parser.parse_args()
 
     def deadline(signum, frame):
@@ -225,7 +240,8 @@ def main():
     signal.alarm(5400)
     try:
         with redirect_stdout(sys.stderr):
-            result = execute(ROOT, datetime.now(TZ), args.trigger, dry=args.dry_run)
+            result = execute(CONTINUOUS_ROOT if args.mode == "continuous" else ROOT,
+                             datetime.now(TZ), args.trigger, dry=args.dry_run, mode=args.mode)
         print(json.dumps(result, ensure_ascii=False))
         if result["decision"] == "failed":
             raise SystemExit(1)

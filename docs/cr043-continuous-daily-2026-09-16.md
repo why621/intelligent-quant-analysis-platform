@@ -13,3 +13,6 @@
 最终systemctl证据：timer ActiveState=active、UnitFileState=enabled、NextElapseUSecRealtime=Thu 2026-09-17 07:30:00 CST；service ExecStart含--mode continuous，当前inactive是等待定时触发的正常oneshot状态。未启动今日采集。日志artifacts/cr043-continuous/deploy.sh.log以及云stage/deployment.json。追加只读磁盘/HTTPS检查被自动审核通信故障中断，未取得新证据，不影响上述已完成部署与启用。
 下一次将处理09-16或届时日历确定的最近已完成交易日，休市/同目标跳过；每次1637请求/5400秒采集上限、外层6000秒及容器限额、锁、备份/回滚和逐资产门禁维持。任务失败写audit和systemd journal，无新增邮件/消息主动通知渠道；不能把日志留存说成已配置外部推送告警。历史四次验收仍4/4耗尽且未完成连续自动两日，本模式的实际自动采集/发布需从09-17真实触发后观察，当前是已启用而非已验证长期稳定。
 本地源码与文档尚未Git提交/推送，云工具已配套安装；新模式无累计次数上限，持续至明确停用。运维停用：systemctl disable --now quant-mvp-daily.timer（不清空任何账本）。旧300-mvp任务监控仍使用历史验收指令且本会话无automation_update能力，不应由该旧监控自动停掉新持续timer；后续只读监控需以本CR043为当前入口。
+
+
+2026-09-16完整同步入口：按用户要求将CR041前端恢复、CR042发布权限、CR043持续日更的源码/测试及中期文档汇总至新分支 codex/mvp-complete-updates-20260916。本分支包含此前尚未Git提交的6份工具和测试，前文“源码未提交/仅同步文档”是历史状态。无新增采集、云发布或运行规则变更；既有80项专项回归及前端68项测试证据沿用，不重复累计。用户合并此汇总分支即可，无需再分别合并旧CR041分支。
