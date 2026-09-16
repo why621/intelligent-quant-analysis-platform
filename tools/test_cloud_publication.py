@@ -65,3 +65,41 @@ def test_success_and_tamper_detection(tmp_path):
     assert result['status']=='promoted' and result['publicationId']==new
     file=tmp_path/'live'/'releases'/(new+'.json');doc=json.loads(file.read_text());doc['endDate']='2026-09-11';atomic_json(file,doc)
     with pytest.raises(ValueError,match='hash'):read_release(tmp_path/'live')
+
+
+@pytest.mark.parametrize('existing', [False, True])
+@pytest.mark.parametrize('rollback', [False, True])
+def test_restrictive_umask_publication_and_rollback(tmp_path, existing, rollback):
+    import os
+    import stat
+    old = release(tmp_path/'live', '2026-09-14')
+    new = release(tmp_path/'candidate', '2026-09-15')
+    live = tmp_path/'live'
+    db = tmp_path/'jobs.db'
+    jobs(db)
+    destination = live/'releases'/(new+'.json')
+    if existing:
+        destination.write_bytes((tmp_path/'candidate'/'releases'/(new+'.json')).read_bytes())
+        destination.chmod(0o600)
+    (live/'current.json').chmod(0o600)
+    seen = []
+    def restart():
+        version = json.loads((live/'current.json').read_text())['publicationId']
+        for path in [live/'current.json', live/'releases'/(version+'.json')]:
+            assert stat.S_IMODE(path.stat().st_mode) == 0o644
+        seen.append(version)
+    def probe(version, day):
+        if rollback and version == new:
+            raise ValueError('forced probe failure')
+    previous = os.umask(0o077)
+    try:
+        if rollback:
+            with pytest.raises(ValueError, match='forced probe'):
+                promote(tmp_path/'candidate', live, tmp_path/'backup', db, restart, probe)
+        else:
+            promote(tmp_path/'candidate', live, tmp_path/'backup', db, restart, probe)
+        for name in ['previous-pointer.json', 'evidence.json']:
+            assert stat.S_IMODE((tmp_path/'backup'/name).stat().st_mode) == 0o600
+    finally:
+        os.umask(previous)
+    assert seen == ([new, old] if rollback else [new])

@@ -99,7 +99,7 @@
           <div><p>CORRELATION</p><h2>资产相关性</h2></div>
           <span>收益率口径 · 前复权</span>
         </header>
-        <DataCapability :request="{ module: 'correlation', symbols: correlationSymbols, startDate: correlationStartDate, endDate: correlationEndDate }" :version="dataStatus.dataContext?.dataVersion" />
+        <DataCapability :request="{ module: 'correlation', symbols: correlationSymbols, startDate: correlationStartDate, endDate: correlationEndDate }" :version="dataStatus.dataContext?.dataVersion" :assets="assetCatalog" :disabled="correlationBusy" @recover="recoverData('correlation', $event)" @checked="capabilityStates.correlation = $event" />
         <div class="split">
           <article class="card form-card">
             <h3>选择 2–10 个资产</h3>
@@ -111,7 +111,7 @@
             <button
               class="primary full"
               type="button"
-              :disabled="!correlation.canSubmit.value || correlationBusy"
+              :disabled="!correlation.canSubmit.value || correlationBusy || capabilityStates.correlation === 'unavailable'"
               @click="correlation.submit"
             >{{ correlationBusy ? '计算中…' : '计算相关矩阵' }}</button>
             <p class="hint" role="status">{{ correlation.dateNotice.value }}</p>
@@ -139,7 +139,7 @@
           <div><p>BACKTEST</p><h2>策略回测</h2></div>
           <span>收盘出信号 · 下一开盘成交</span>
         </header>
-        <DataCapability :request="{ module: 'backtest', symbols: backtestSymbols, startDate: backtestStartDate, endDate: backtestEndDate, benchmark: backtestBenchmark || null }" :version="dataStatus.dataContext?.dataVersion" />
+        <DataCapability :request="{ module: 'backtest', symbols: backtestSymbols, startDate: backtestStartDate, endDate: backtestEndDate, benchmark: backtestBenchmark || null }" :version="dataStatus.dataContext?.dataVersion" :assets="assetCatalog" :disabled="backtestBusy" @recover="recoverData('backtest', $event)" @checked="capabilityStates.backtest = $event" />
         <div class="split">
           <article class="card form-card">
             <AssetPicker v-model="backtestSymbols" :assets="assetCatalog" label="回测资产" :disabled="backtestBusy" />
@@ -166,7 +166,7 @@
             <button
               class="primary full"
               type="button"
-              :disabled="!backtest.canSubmit.value"
+              :disabled="!backtest.canSubmit.value || capabilityStates.backtest === 'unavailable'"
               @click="backtest.submit"
             >{{ backtestBusy ? '任务运行中…' : '提交异步回测' }}</button>
             <p class="hint" role="status">{{ backtest.dateNotice.value }}</p>
@@ -219,7 +219,7 @@
                 <td :class="tone(item.returnPct)">{{ formatPct(item.returnPct) }}</td>
                 <td>{{ plainPct(item.maxDrawdownPct) }}</td><td>{{ formatNumber(item.sharpe) }}</td>
               </tr>
-              <tr v-if="!ranking.length"><td colspan="6" class="empty">暂无真实排行；算法完成并日更后自动显示。</td></tr>
+              <tr v-if="!ranking.length"><td colspan="6" class="empty">510300 ETF 所需行情未齐或排行请求失败；这不影响其他股票的相关性、回测和配置。</td></tr>
             </tbody>
           </table>
         </article>
@@ -230,7 +230,7 @@
           <div><p>NEXT-DAY ALLOCATION</p><h2>下一交易日模拟配置</h2></div>
           <span>非实盘 · 不连接券商</span>
         </header>
-        <DataCapability :request="{ module: 'allocation', symbols: allocationSymbols }" :version="dataStatus.dataContext?.dataVersion" />
+        <DataCapability :request="{ module: 'allocation', symbols: allocationSymbols }" :version="dataStatus.dataContext?.dataVersion" :assets="assetCatalog" :disabled="allocationBusy" @recover="recoverData('allocation', $event)" @checked="capabilityStates.allocation = $event" />
         <div class="split">
           <article class="card form-card">
             <AssetPicker v-model="allocationSymbols" :assets="assetCatalog" label="配置资产" :disabled="allocationBusy" />
@@ -239,7 +239,7 @@
             <button
               class="primary full"
               type="button"
-              :disabled="!allocation.canSubmit.value"
+              :disabled="!allocation.canSubmit.value || capabilityStates.allocation === 'unavailable'"
               @click="allocation.submit"
             >{{ allocationBusy ? '生成中…' : '生成模拟建议' }}</button>
             <p v-if="allocationError || allocation.validationError.value" class="error">{{ allocationError || allocation.validationError.value }}</p>
@@ -302,6 +302,17 @@ const { symbols: backtestSymbols, strategyId: backtestStrategyId, startDate: bac
   parameters: backtestParameters, benchmark: backtestBenchmark, recoveryId: backtestRecoveryId } = backtest
 const { symbols: allocationSymbols, strategyId: allocationStrategyId, cashPct: allocationCashPct,
   result: allocationResult, busy: allocationBusy, error: allocationError } = allocation
+
+const capabilityStates = ref({})
+function recoverData(module, patch) {
+  const form = { correlation, backtest, allocation }[module]
+  if (!form || form.busy.value || (module === 'backtest' && backtest.activeJob.value)) return
+  if (patch.symbols) form.symbols.value = [...patch.symbols]
+  if (patch.endDate && form.endDate) form.endDate.value = patch.endDate
+  if ('benchmark' in patch && module === 'backtest') form.benchmark.value = patch.benchmark || ''
+  form.error.value = ''
+  if (form.result) form.result.value = null
+}
 
 const backtestResult = computed(() => backtestJob.value?.result || null)
 const backtestMetrics = computed(() => backtestResult.value?.metrics || null)

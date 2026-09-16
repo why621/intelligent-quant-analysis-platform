@@ -8,11 +8,13 @@ from contextlib import closing
 from pathlib import Path
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, *, mode=None):
     path = Path(path)
     temporary = path.with_suffix(path.suffix + ".tmp")
     with temporary.open("w", encoding="utf-8") as stream:
         json.dump(value, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        if mode is not None:
+            os.fchmod(stream.fileno(), mode)
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
@@ -81,13 +83,14 @@ def promote(candidate, live, backup_directory, database, restart, probe):
         if json.loads(destination.read_text()) != document:
             raise ValueError("existing release differs")
     else:
-        atomic_json(destination, document)
+        atomic_json(destination, document, mode=0o644)
+    destination.chmod(0o644)
     try:
-        atomic_json(live / "current.json", pointer)
+        atomic_json(live / "current.json", pointer, mode=0o644)
         restart()
         probe(pointer["publicationId"], document["endDate"])
     except Exception:
-        atomic_json(live / "current.json", old_pointer)
+        atomic_json(live / "current.json", old_pointer, mode=0o644)
         restart()
         probe(old_pointer["publicationId"], old_document["endDate"])
         raise

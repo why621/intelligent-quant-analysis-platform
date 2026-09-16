@@ -22,3 +22,8 @@ CR039实现提交2340c56已推送codex/data-maintenance-cr039。云端后端、�
 验证命令及证据：artifacts/cr040-deploy-20260915/内run_remote.py分别执行prepare.sh、validate.sh、cutover.sh、source_probe.sh及日志；.venv/bin/python运行check_contracts.py、check_cors.py；Node运行verify_ui.cjs、verify_ui_direct.cjs，browser/browser-retry失败、browser-direct通过。此前501项离线测试及构建见CR039，此次未改实现、不重复计数。
 
 下一步：main受PR保护且当前无GitHub API写凭据；分支已推送，需创建合并 https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/data-maintenance-cr039 后等CI发布Pages，再验Pages五预检UI。云预览已更新，Pages尚不能标记CR039完成。次日真实日更后验新日志和自动维护结果。
+
+
+### CR040 合并后Pages最终验收（2026-09-15）
+PR #24已合并，提交8460d186e643a2faa0cad130f3a27b32326fa099，合并时间08:17:23 UTC。Algorithms、Backend、Frontend、Regression stack CI和Pages发布全部success；Pages运行34946140582，Regression运行34946140596。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 已显示五模块新预检。Edge禁代理直连且正常验证HTTPS证书：327资产、五预检面板、正常股相关性HTTP200、增加510300后明确不可用、移除恢复ready、1440/820/390无横向溢出、无页面脚本错误，通过。
+证据：artifacts/cr040-deploy-20260915/merged.json、pages-merged/browser.json及截图；命令为.venv/bin/python artifacts/cr040-deploy-20260915/check_merge.py，以及Node verify_pages.cjs。当前Pages与云端新代码链路已闭环，以上“Pages待合并”仅为历史阶段记录。本次无实现或线上数据修改；实际日更新日志、两实际交易日验收、SZSE/ETF自动官方源等待项不因代码发布通过而标完成。本段为合并后的本地验收回写，尚未另行推送文档提交。

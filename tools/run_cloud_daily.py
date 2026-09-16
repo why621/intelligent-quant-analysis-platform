@@ -1,4 +1,4 @@
-"""Fixed cloud daily acceptance runner; no hidden retries or budget expansion."""
+"""Fixed cloud daily runner with explicit operation mode and bounded per-day acquisition."""
 import argparse
 import fcntl
 import json
@@ -21,7 +21,7 @@ def command(arguments, timeout=120):
     return subprocess.run(arguments, capture_output=True, text=True, timeout=timeout, check=True).stdout
 
 
-def runtime(dry):
+def runtime(dry, mode="acceptance"):
     image = (DAILY / 'image-id').read_text().strip()
     if not image.startswith('sha256:') or len(image) != 71:
         raise ValueError('fixed image digest required')
@@ -37,6 +37,10 @@ def runtime(dry):
         args += ['--mount', 'type=bind,src=' + str(source) + ',dst=' + target + (',readonly' if readonly else '')]
     trigger = 'scheduled' if os.environ.get('INVOCATION_ID') else 'manual'
     args += ['--entrypoint', 'python', image, '-m', 'tools.daily_publication', '--trigger', trigger]
+    if mode == "continuous":
+        args += ["--mode", "continuous"]
+    elif mode != "acceptance":
+        raise ValueError("unknown run mode")
     if dry:
         args.append('--dry-run')
     return args
@@ -88,14 +92,16 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--dry-run', action='store_true')
     modes.add_argument('--promote-existing', action='store_true', help='Publish successful candidate without acquisition')
+    parser.add_argument("--mode", choices=["acceptance", "continuous"], default="acceptance")
     args = parser.parse_args()
+    work = DAILY / ("artifacts/continuous-daily" if args.mode == "continuous" else "artifacts/cr025-daily-20260910")
     with (DAILY / 'runner.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.dry_run:
-            print(command(runtime(True), timeout=90))
+            print(command(runtime(True, args.mode), timeout=90))
             return
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-        audit = {'startedAt': datetime.now(timezone.utc).isoformat(), 'invocationId': os.environ.get('INVOCATION_ID'),
+        audit = {'runMode': args.mode, 'startedAt': datetime.now(timezone.utc).isoformat(), 'invocationId': os.environ.get('INVOCATION_ID'),
                  'timerObservation': command(['systemctl', 'show', 'quant-mvp-daily.timer', '-p', 'LastTriggerUSec', '-p', 'ActiveState']).strip(),
                  'schedulerOriginVerified': False}
         sentinel = ROOT / 'deploy/mvp/nginx-live/maintenance.enabled'
@@ -106,7 +112,7 @@ def main():
                 audit['invocationId'] = None
                 outcome = {'decision': 'promote_existing'}
             else:
-                result = subprocess.run(runtime(False), capture_output=True, text=True, timeout=5520, check=False)
+                result = subprocess.run(runtime(False, args.mode), capture_output=True, text=True, timeout=5520, check=False)
                 audit['workerExit'] = result.returncode
                 audit['workerOutput'] = result.stdout[-20000:]
                 audit['workerError'] = result.stderr[-4000:]
@@ -114,14 +120,16 @@ def main():
                     raise RuntimeError('bounded daily worker failed; inspect persistent candidate ledger')
                 outcome = parse_outcome(result.stdout)
             audit['decision'] = outcome['decision']
-            state = json.loads((DAILY / 'artifacts/cr025-daily-20260910/state.json').read_text())
-            if outcome['decision'] in ('budget_exhausted', 'two_day_candidate_requires_scheduler_audit'):
+            if outcome['decision'] in {'waiting_new_day', 'already_attempted'}:
+                return  # Never re-promote an earlier candidate on a skipped day.
+            state = json.loads((work / 'state.json').read_text())
+            if args.mode == 'acceptance' and outcome['decision'] in ('budget_exhausted', 'two_day_candidate_requires_scheduler_audit'):
                 command(['systemctl', 'disable', '--now', 'quant-mvp-daily.timer'])
             successes = [a for a in state['attempts'] if a['status'] in {'succeeded', 'partial'}]
             if args.promote_existing and (not successes or state['attempts'][-1]['status'] not in {'succeeded', 'partial'}):
                 raise ValueError('latest attempt must be successful for existing-candidate publication')
             if successes:
-                candidate = DAILY / 'artifacts/cr025-daily-20260910/publication'
+                candidate = work / 'publication'
                 current = json.loads((candidate / 'current.json').read_text())['publicationId']
                 if current != successes[-1]['publicationId']:
                     raise ValueError('candidate differs from success ledger')

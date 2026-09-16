@@ -30,10 +30,11 @@ def test_invalid_or_mixed_output_rejected(output):
         cloud.parse_outcome(output)
 
 
-def test_existing_candidate_never_acquires(monkeypatch, tmp_path):
+@pytest.mark.parametrize("mode", ["acceptance", "continuous"])
+def test_existing_candidate_never_acquires(monkeypatch, tmp_path, mode):
     root = tmp_path
     d = root / 'daily'
-    c = d / 'artifacts/cr025-daily-20260910'
+    c = d / ('artifacts/continuous-daily' if mode == 'continuous' else 'artifacts/cr025-daily-20260910')
     (c / 'publication').mkdir(parents=True)
     (root / 'deploy/mvp/nginx-live').mkdir(parents=True)
     (d / 'audit').mkdir()
@@ -43,7 +44,7 @@ def test_existing_candidate_never_acquires(monkeypatch, tmp_path):
     (c / 'publication/current.json').write_text(json.dumps({'publicationId':'a'*64}))
     monkeypatch.setattr(cloud, 'ROOT', root)
     monkeypatch.setattr(cloud, 'DAILY', d)
-    monkeypatch.setattr(sys, 'argv', ['runner', '--promote-existing'])
+    monkeypatch.setattr(sys, 'argv', ['runner', '--promote-existing', '--mode', mode])
     def forbidden(*args, **kwargs):
         raise AssertionError('acquisition must never run')
     monkeypatch.setattr(cloud, 'runtime', forbidden)
@@ -124,3 +125,28 @@ def test_runner_failure_protection(monkeypatch, tmp_path, scenario):
         assert not maintenance.exists()
     audit=json.loads(next((d/'audit').glob('*.json')).read_text())
     assert 'failure' in audit and 'finishedAt' in audit and 'promotion' not in audit
+
+
+
+def test_continuous_runtime_is_explicit_and_dry_is_network_none(monkeypatch,tmp_path):
+    (tmp_path/'image-id').write_text('sha256:'+'a'*64)
+    monkeypatch.setattr(cloud,'DAILY',tmp_path)
+    argv=cloud.runtime(True,'continuous')
+    assert argv[-3:]==['--mode','continuous','--dry-run']
+    assert argv[argv.index('--network')+1]=='none'
+    assert '--mode' not in cloud.runtime(True)
+
+
+@pytest.mark.parametrize('outcome',['waiting_new_day','already_attempted'])
+def test_continuous_skipped_day_does_not_read_acceptance_or_promote(monkeypatch,tmp_path,outcome):
+    from types import SimpleNamespace
+    d=tmp_path/'daily';d.mkdir();(d/'audit').mkdir()
+    monkeypatch.setattr(cloud,'ROOT',tmp_path);monkeypatch.setattr(cloud,'DAILY',d)
+    monkeypatch.setattr(sys,'argv',['runner','--mode','continuous'])
+    monkeypatch.setattr(cloud,'runtime',lambda dry,mode:['worker',mode])
+    monkeypatch.setattr(cloud.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=0,stdout=json.dumps({'decision':outcome}),stderr=''))
+    monkeypatch.setattr(cloud,'command',lambda *a,**k:'ActiveState=active')
+    monkeypatch.setattr(cloud,'promote',lambda *a:pytest.fail('skipped day cannot publish'))
+    cloud.main()
+    audit=json.loads(next((d/'audit').glob('*.json')).read_text())
+    assert audit['runMode']=='continuous' and audit['decision']==outcome
