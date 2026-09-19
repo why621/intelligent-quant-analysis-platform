@@ -100,7 +100,9 @@ class TestHistory:
 
 
 class TestStatus:
-    def test_initial_status(self, provider):
+    def test_initial_status(self, tmp_path):
+        # 用隔离目录，避免依赖"本机从未执行过日更"这一外部状态
+        provider = AkShareMarketDataProvider(tmp_path)
         s = provider.status()
         assert s.source == "AkShare"
         assert s.asset_count == len(provider.list_assets())
