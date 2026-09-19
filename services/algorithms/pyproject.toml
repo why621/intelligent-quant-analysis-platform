@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 quant-data-update = "quant_platform.cli:main"
+quant-rl-train = "quant_platform.rl.train:main"
 
 [project.optional-dependencies]
 notebooks = [
@@ -24,6 +25,19 @@ notebooks = [
   "ipykernel>=6.29,<8",
   "jsonschema>=4.26,<5",
   "PyYAML>=6,<7",
+]
+# Heavy single-agent RL stack. Intentionally kept OUT of [dev] so the default
+# test-suite and CI never install torch. For CPU-only wheels install torch from
+# the PyTorch CPU index first, then: pip install -e ".[rl]".
+# Verified on Python 3.13.5 (repo .venv, D drive) with the Tsinghua mirror on
+# 2026-09-19 — offline suite green, ruff clean:
+#   torch==2.14.0+cpu  stable-baselines3==2.9.0  gymnasium==1.3.0
+#   transitive: cloudpickle==3.1.2, farama-notifications==0.0.6, filelock==4.0.1,
+#               fsspec==2026.9.0, mpmath==1.3.0, networkx==3.6.1, sympy==1.14.0
+rl = [
+  "stable-baselines3>=2.4,<3.0",
+  "gymnasium>=1.0,<2.0",
+  "torch>=2.4,<3.0",
 ]
 dev = [
   "jsonschema>=4.26,<5",
@@ -41,6 +55,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
     "network: tests that require live AkShare network calls",
+    "rl: tests that require the optional stable-baselines3/torch/gymnasium stack",
 ]
 
 [tool.ruff]
