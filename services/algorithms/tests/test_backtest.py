@@ -76,6 +76,54 @@ class RangeIndexStrategy:
         return pd.Series([1.0, -1.0] + [0.0] * (len(prices) - 2))
 
 
+class ContinuousStrategy:
+    """Emits target weights in [0,1]; NaN marks the warm-up region."""
+
+    id = "continuous"
+
+    def __init__(self, signals, band_pct=0.005, min_trade_cny=100.0):
+        self._signals = signals
+        self.rebalance_band_pct = band_pct
+        self.min_trade_cny = min_trade_cny
+
+    def info(self) -> StrategyInfo:
+        return StrategyInfo(
+            strategy_id=self.id,
+            name="Continuous target strategy",
+            category="ai",
+            status="experimental",
+            description="test",
+            signal_semantics="continuous_target_weight",
+            requires_trained_model=True,
+        )
+
+    def validate_parameters(self, parameters):
+        pass
+
+    def generate_signals(self, prices, parameters):
+        return pd.Series(self._signals, dtype="float64")
+
+
+class FixedPriceProvider:
+    """Flat OHLC so only target-weight changes drive trades."""
+
+    def __init__(self, close_levels):
+        dates = pd.date_range("2025-01-01", periods=len(close_levels), freq="B")
+        self._frame = pd.DataFrame({
+            "date": dates,
+            "open": list(close_levels),
+            "high": list(close_levels),
+            "low": list(close_levels),
+            "close": list(close_levels),
+            "volume": [1000.0] * len(close_levels),
+            "amount": [10000.0] * len(close_levels),
+        })
+
+    def history(self, symbol, start_date, end_date, adjust="qfq"):
+        return self._frame.copy()
+
+
+
 class InvalidLengthStrategy(RangeIndexStrategy):
     id = "invalid_length"
 
@@ -229,3 +277,110 @@ class TestBacktest:
         ))
         assert result.equity_curve.empty
         assert len(result.trades) == 0
+
+    # ---- Step A: continuous target-weight semantics -----------------------
+
+    def _run_continuous(self, signals, levels=None, **kwargs):
+        levels = levels or [10.0, 10.0, 10.0, 10.0]
+        strategy = ContinuousStrategy(signals, **kwargs)
+        engine = BacktestEngine(FixedPriceProvider(levels), {"continuous": strategy})
+        return engine.run(BacktestRequest(
+            symbols=("510300",),
+            strategy_id="continuous",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 1, 31),
+            initial_capital_cny=10_000.0,
+        ))
+
+    def test_continuous_partial_weight_and_next_open_execution(self):
+        # weight 0.5 decided on bar0 close, filled at bar1 open (no look-ahead).
+        result = self._run_continuous([0.5, 0.5, 0.5, 0.5])
+        assert len(result.trades) == 1
+        buy = result.trades[0]
+        assert buy.side == "buy"
+        # 10.0002 = bar1 open * (1 + slippage 0.02%)
+        assert buy.price == pytest.approx(10.0 * 1.0002)
+        assert buy.trade_date == date(2025, 1, 2)
+        # invested market value ~= half of capital, not all-in
+        assert buy.amount_cny == pytest.approx(5000.0, rel=0.01)
+
+    def test_continuous_zero_target_liquidates(self):
+        # bar0 -> 0.5 buys at bar1; bar1 -> 0.0 sells everything at bar2.
+        result = self._run_continuous([0.5, 0.0, 0.0, 0.0])
+        assert [t.side for t in result.trades] == ["buy", "sell"]
+        sell = result.trades[1]
+        assert sell.price == pytest.approx(10.0 * 0.9998)
+        assert sell.trade_date == date(2025, 1, 3)
+
+    def test_continuous_rebalance_band_skips_tiny_changes(self):
+        # Flat prices + constant 0.5 target: only the initial buy fires;
+        # subsequent deltas fall under the band and churn nothing.
+        result = self._run_continuous([0.5, 0.5, 0.5, 0.5])
+        assert len(result.trades) == 1
+
+    def test_continuous_warmup_nan_carries_previous_target(self):
+        # bar1 is NaN -> forward-filled to 0.5 (hold), NOT a forced liquidation.
+        # Only the later drop to 0.25 triggers a partial sell at bar3.
+        result = self._run_continuous([0.5, float("nan"), 0.25, 0.25])
+        sides = [t.side for t in result.trades]
+        assert sides == ["buy", "sell"]
+        # the sell happens at bar3 (exec of bar2 decision), not at bar2 (NaN)
+        assert result.trades[1].trade_date == date(2025, 1, 6)
+
+    def test_continuous_zero_is_not_discrete_hold(self):
+        # Discrete: 0.0 means "hold" -> a buy then two zeros is a single trade.
+        discrete = BacktestEngine(
+            FixedPriceProvider([10.0, 10.0, 10.0, 10.0]),
+            {"range_index": _DiscreteBuyHold()},
+        )
+        dres = discrete.run(BacktestRequest(
+            symbols=("510300",),
+            strategy_id="range_index",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 1, 31),
+            initial_capital_cny=10_000.0,
+        ))
+        assert [t.side for t in dres.trades] == ["buy"]
+        # Continuous: the same [1.0->flat? no] 0 target would sell.
+        cres = self._run_continuous([1.0, 0.0, 0.0, 0.0])
+        assert [t.side for t in cres.trades] == ["buy", "sell"]
+
+    def test_continuous_assumptions_expose_semantics(self):
+        result = self._run_continuous([0.5, 0.5, 0.5, 0.5])
+        assert result.assumptions["signalSemantics"] == "continuous_target_weight"
+        assert result.assumptions["rebalanceBandPct"] == "0.005"
+
+    def test_per_request_instance_used_when_factory_present(self):
+        # A shared strategy exposing create_for_request must be replaced by the
+        # fresh instance it returns; the shared one never emits signals.
+        class Fresh(RangeIndexStrategy):
+            id = "factory"
+
+            def generate_signals(self, prices, parameters):
+                return pd.Series([0.0] * len(prices))  # hold -> no trades
+
+        class Shared(RangeIndexStrategy):
+            id = "factory"
+
+            def generate_signals(self, prices, parameters):
+                return pd.Series([1.0, -1.0] + [0.0] * (len(prices) - 2))  # would trade
+
+            def create_for_request(self, parameters):
+                return Fresh()
+
+        engine = BacktestEngine(FakeProvider(), {"factory": Shared()})
+        result = engine.run(BacktestRequest(
+            symbols=("510300",),
+            strategy_id="factory",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 12, 31),
+        ))
+        assert result.trades == ()
+
+
+class _DiscreteBuyHold(RangeIndexStrategy):
+    id = "range_index"
+
+    def generate_signals(self, prices, parameters):
+        return pd.Series([1.0, 0.0, 0.0, 0.0][: len(prices)])
+
