@@ -54,6 +54,11 @@ class AllocationService:
             raise ValueError(f"未知策略: {strategy_id}")
 
         strategy = self._strategies[strategy_id]
+        info = strategy.info()
+        # Allocation consumes discrete {-1,0,1} signals with empty parameters;
+        # RL (trained-model) and continuous-target strategies cannot supply them.
+        if info.requires_trained_model or info.signal_semantics != "discrete_hold":
+            raise ValueError("配置建议仅支持离散持仓策略，强化学习/连续权重策略不适用")
         try:
             required = latest_session(_today() - timedelta(days=1))
             status = self._provider.status()
