@@ -42,7 +42,9 @@ class StrategyRankingService:
         for sid in strategy_ids:
             strategy = self._engine._strategies[sid]
             info = strategy.info()
-            if info.status != "available":
+            # experimental/planned never rank; a trained-model strategy (RL) is
+            # skipped explicitly rather than relying on the broad except below.
+            if info.status != "available" or info.requires_trained_model:
                 continue
 
             try:

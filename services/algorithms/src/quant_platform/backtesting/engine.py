@@ -32,7 +32,13 @@ class BacktestEngine:
     def run(self, request: BacktestRequest) -> BacktestResult:
         self._validate(request)
 
-        strategy = self._strategies[request.strategy_id]
+        strategy = self._resolve_strategy(request)
+        # Tolerate strategies that predate the info() metadata contract:
+        # default to the historical discrete-hold behaviour when unavailable.
+        info = strategy.info() if hasattr(strategy, "info") else None
+        semantics = getattr(info, "signal_semantics", "discrete_hold")
+        band_pct = float(getattr(strategy, "rebalance_band_pct", 0.005))
+        min_trade_cny = float(getattr(strategy, "min_trade_cny", 100.0))
         cash_per_symbol = request.initial_capital_cny / len(request.symbols)
 
         uses_nontrading_valuation = False
@@ -47,7 +53,14 @@ class BacktestEngine:
                 continue
             signals = strategy.generate_signals(prices, request.parameters)
             trades, equity = self._simulate(
-                sym, prices, signals, cash_per_symbol, request.trading_costs
+                sym,
+                prices,
+                signals,
+                cash_per_symbol,
+                request.trading_costs,
+                semantics,
+                band_pct,
+                min_trade_cny,
             )
             all_trades.extend(trades)
             nontrading = getattr(self._provider, "nontrading_sessions", None)
@@ -87,6 +100,10 @@ class BacktestEngine:
                 "nonTradingValuation": "last_observed_close_or_initial_cash"
                 if uses_nontrading_valuation
                 else "none",
+                "signalSemantics": semantics,
+                "rebalanceBandPct": (
+                    str(band_pct) if semantics == "continuous_target_weight" else "n/a"
+                ),
                 "calendar": "CN",
                 "currency": "CNY",
                 "benchmarkReturnBasis": "price_index"
@@ -109,6 +126,20 @@ class BacktestEngine:
         if request.initial_capital_cny <= 0:
             raise ValueError("initial_capital_cny 必须大于 0")
 
+    def _resolve_strategy(self, request: BacktestRequest) -> Strategy:
+        """Return the strategy instance to run this request with.
+
+        Strategies that expose ``create_for_request(parameters)`` (duck-typed,
+        same convention as ``nontrading_sessions`` / ``cache_revision``) get a
+        fresh per-request instance so trained model state never races across
+        concurrent backtests. Everything else keeps the shared singleton.
+        """
+        strategy = self._strategies[request.strategy_id]
+        factory = getattr(strategy, "create_for_request", None)
+        if callable(factory):
+            return factory(request.parameters)
+        return strategy
+
     def _simulate(
         self,
         symbol: str,
@@ -116,6 +147,9 @@ class BacktestEngine:
         signals: pd.Series,
         capital: float,
         costs: object,
+        semantics: str = "discrete_hold",
+        band_pct: float = 0.005,
+        min_trade_cny: float = 100.0,
     ) -> tuple[list[Trade], pd.Series]:
         from quant_platform.models import TradingCosts
 
@@ -132,6 +166,12 @@ class BacktestEngine:
         prices = prices.copy()
         prices["_signal"] = signals.to_numpy(copy=False)
         prices = prices.set_index("date").sort_index()
+
+        if semantics == "continuous_target_weight":
+            return self._simulate_continuous(
+                symbol, prices, capital, commission, stamp, slippage, band_pct, min_trade_cny
+            )
+
         signals = prices["_signal"].fillna(0)
 
         cash = capital
@@ -185,6 +225,96 @@ class BacktestEngine:
 
         # 首日净值 = 初始资金
         eq_values[prices.index[0]] = capital  # type: ignore[assignment]
+
+        return trades, pd.Series(eq_values).sort_index()
+
+    def _simulate_continuous(
+        self,
+        symbol: str,
+        prices: pd.DataFrame,
+        capital: float,
+        commission: float,
+        stamp: float,
+        slippage: float,
+        band_pct: float,
+        min_trade_cny: float,
+    ) -> tuple[list[Trade], pd.Series]:
+        """Long-only continuous target weights.
+
+        ``_signal[i]`` is the target weight ``w in [0,1]`` decided on bar i's
+        close and executed at bar i+1's open. Warmup NaN carries the previous
+        target (initial 0), never a forced liquidation. A rebalance is skipped
+        when ``|delta`` value ``< max(band_pct * equity, min_trade_cny)``.
+        """
+        # ffill first so leading NaN fall back to the initial flat target,
+        # then clip to the long-only [0,1] band.
+        targets = prices["_signal"].ffill().fillna(0.0).clip(0.0, 1.0)
+
+        cash = capital
+        shares = 0.0
+        trades: list[Trade] = []
+        eq_values: dict[pd.Timestamp, float] = {}
+        eq_values[prices.index[0]] = capital  # type: ignore[assignment]
+
+        opens = prices["open"].to_numpy(dtype=float)
+        closes = prices["close"].to_numpy(dtype=float)
+        tgt = targets.to_numpy(dtype=float)
+
+        for i in range(len(prices) - 1):
+            execution_date = prices.index[i + 1]  # type: ignore[assignment]
+            w = float(tgt[i])
+            next_open = float(opens[i + 1])
+
+            equity_at_decision = cash + shares * float(closes[i])
+            target_mv = w * equity_at_decision
+            current_mv = shares * next_open
+            delta = target_mv - current_mv
+
+            band = max(band_pct * equity_at_decision, min_trade_cny)
+            if delta > 0 and delta >= band and cash > 0:
+                exec_price = next_open * (1 + slippage)
+                add_shares = delta / exec_price
+                cost = add_shares * exec_price
+                fee = cost * commission
+                if cost + fee > cash:
+                    scale = cash / (cost + fee)
+                    add_shares *= scale
+                    cost *= scale
+                    fee *= scale
+                shares += add_shares
+                cash -= cost + fee
+                trades.append(
+                    Trade(
+                        trade_date=pd.Timestamp(execution_date).date(),
+                        symbol=symbol,
+                        side="buy",
+                        price=exec_price,
+                        quantity=add_shares,
+                        amount_cny=cost,
+                        fee_cny=fee,
+                    )
+                )
+            elif delta < 0 and delta <= -band and shares > 0:
+                exec_price = next_open * (1 - slippage)
+                sell_shares = min(-delta / exec_price, shares)
+                proceeds = sell_shares * exec_price
+                fee = proceeds * (commission + stamp)
+                shares -= sell_shares
+                cash += proceeds - fee
+                trades.append(
+                    Trade(
+                        trade_date=pd.Timestamp(execution_date).date(),
+                        symbol=symbol,
+                        side="sell",
+                        price=exec_price,
+                        quantity=sell_shares,
+                        amount_cny=proceeds,
+                        fee_cny=fee,
+                    )
+                )
+
+            mark = cash + shares * float(closes[i + 1])
+            eq_values[prices.index[i + 1]] = mark  # type: ignore[assignment]
 
         return trades, pd.Series(eq_values).sort_index()
 

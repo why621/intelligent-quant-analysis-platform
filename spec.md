@@ -576,3 +576,14 @@ CR043启用回写：用户授权持续日更已实现部署，独立continuous�
 
 
 2026-09-16完整同步入口：按用户要求将CR041前端恢复、CR042发布权限、CR043持续日更的源码/测试及中期文档汇总至新分支 codex/mvp-complete-updates-20260916。本分支包含此前尚未Git提交的6份工具和测试，前文“源码未提交/仅同步文档”是历史状态。无新增采集、云发布或运行规则变更；既有80项专项回归及前端68项测试证据沿用，不重复累计。用户合并此汇总分支即可，无需再分别合并旧CR041分支。
+
+## CR-044 单智能体强化学习策略接入（算法模块，登记，进行中）
+
+- 日期：2026-09-19；动机：项目发起人建议集成单智能体方法（DQN/PPO/SAC/DDPG），参考 FinRL（2021）环境与特征设计思路。批准范围：仅本批算法模块实现，采用 stable-baselines3 薄封装，目标"完整运行时可回测"。非目标：不实现后端注册与前端页面（仅留接口与交接清单）、不含毕业论文自定义算法、不含多智能体（保持 planned）、不做盘中实时、不接实盘下单、不改线上数据/部署。
+- 关联：REQ-06（回测）增量、REQ-02/09 数据完整性、D-07；任务 T-023 至 T-027。
+- 修改文件与契约影响：均在 `services/algorithms/**`——`models.py` 的 `StrategyInfo` 新增 `signal_semantics`（默认 `discrete_hold`，向后兼容）；`backtesting/engine.py` 支持连续目标权重（`continuous_target_weight`）与 per-request 策略实例；新增 `quant_platform/rl/`（features/env/store/policies）；`cli.py` 增 `quant-rl-train`；`ranking.py`/`allocation.py` 显式隔离需训练模型策略；`pyproject.toml` 新增 `[rl]` extra（不进 `[dev]`）与 `rl` pytest marker。可选契约字段 `packages/contracts/schemas/strategy.yaml#/signalSemantics` 属接口变更，须前端+后端+算法共同评审，本批仅提定义。
+- 数据红线：训练仅读同一不可变发布快照（`universeVersion/dataVersion/publicationDate` 绑定进 manifest 内容哈希）；推理无未来函数（T 收盘决策、T+1 开盘成交，与既有引擎一致）、拒绝样本内回测；不伪造/补价；披露过拟合与幸存者偏差；模型权重与回测产物只落 gitignored `/models`、`artifacts/`，绝不入库；测试默认离线确定（`-m "not network"`，RL 用例 `importorskip`）。
+- 实际验证命令、环境、结果、证据位置：待实现后回写；见 `docs/cr044-rl-strategies-2026-09-19.md`。
+- 限制及未完成事项：本批以 `experimental` 落地，未经评估门槛不置 `available`；后端注册、错误码与前端 fixtures/参数表单由对应同学另批完成。
+- 迁移、发布和回滚方式：新增字段与策略均向后兼容，不改现有两策略计算与既有测试；回滚撤销本批 `services/algorithms` 代码与文档、删除 gitignored 产物即可，无线上数据写入。
+- 提交或PR：仅在真实创建后填写。

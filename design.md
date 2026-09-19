@@ -47,6 +47,7 @@ CR-012实施前设计：新增不可变名单快照模块，校验官方指数00
 | D-04 | 名单和行情解耦；指数、股票、ETF不因相同六位代码而混用 | 当前名单快照已实现；独立指数/覆盖发布待实现 |
 | D-05 | 失败保留旧数据并标状态，不静默拼接异源复权序列 | 既有原则，跨源迁移待实现 |
 | D-06 | 初期保留SQLite，先验证300只规模，不直接升级机器/数据库 | 拟议，性能待测 |
+| D-07 | 单智能体RL（DQN/PPO/SAC/DDPG，stable-baselines3薄封装）以 `signal_semantics=continuous_target_weight` 接入现有引擎；训练与推理分离（离线 `quant-rl-train` 从不可变发布快照产出 `/models/<run-id>`+内容哈希manifest，推理 per-request 载入不 fit、拒样本内）；ML依赖仅 `[rl]` extra 不进 CI；`experimental` 起步，过评估门槛方由后端置 `available` | CR-044 进行中（仅算法模块） |
 
 ## 目标数据边界（未实现部分）
 

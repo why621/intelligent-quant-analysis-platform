@@ -18,6 +18,18 @@ CR-016为截图/代码复核与文档交接；没有实施业务修复或重新�
 | T-019 日更与可靠性 | 待完成 | 自动调度/互斥/告警/限额/依赖、重启与备份恢复；连续两个实际交易日证据 |
 | T-020 / T-009 最终云验收 | 待完成 | 数据许可/内部访问边界、可信HTTPS/Pages CORS、授权发布、真实浏览器五模块与REQ-01至10证据 |
 
+### CR-044 单智能体RL任务（算法模块，进行中）
+
+| 任务 | 状态 | 需求/决策 | 依赖 | 完成条件 |
+| --- | --- | --- | --- | --- |
+| T-023 引擎连续动作兼容 | 完成 | REQ-06 / D-07 | 无 | `StrategyInfo.signal_semantics`；`_simulate` 支持 `continuous_target_weight`（long-only [0,1]、再平衡带、预热NaN沿用上一目标），离散分支与既有测试逐字节不变；`_resolve` per-request 实例；移位/0≠空仓单测通过。证据：`tests/test_backtest.py` 连续动作6例+per-request 隔离，`pytest` 绿、`ruff check` 通过 |
+| T-024 rl/ 模块与 SB3 封装 | 完成 | REQ-06 / D-07 | T-023 | `features/env/store/policies`；四策略实现 `Strategy` 协议，torch/SB3 惰性导入，缺依赖类型化错误；manifest 内容哈希绑定数据版本。证据：`tests/test_rl_core.py` 因果/哈希篡改/元数据用例绿（无需 [rl]）；`tests/test_rl_env.py` 无 gym 时 skip |
+| T-025 训练/推理接缝 | 进行中 | REQ-02/09 / D-07 | T-024 | `quant-rl-train` 从已发布快照训练、固定seed、单线程、拒写 /models 外；推理不 fit、拒样本内。`train_run` 增可选 `provider` 注入以便真实训练函数可测。**证据**：`tests/test_rl_train_smoke.py`（`rl`）端到端 train→save→load→infer、两次加载样本外权重逐位一致、样本内拒绝；真实数据端到端训练见 T-027/§4.1。**剩余**：notebook 未补 |
+| T-026 依赖与测试门控 | 完成 | REQ-09 / D-07 | 无 | `[rl]` extra 不进 dev；`rl` marker；RL 用例 importorskip；默认 `not network` 保持绿；/models gitignore 断言。证据：`.venv`（含 akshare/pandas3.0）已装 `[rl]`（torch 2.14.0+cpu / sb3 2.9.0 / gymnasium 1.3.0，清华镜像、落 D 盘）+ `PYTHONUTF8=1` 跑 `pytest services/algorithms` → 227 passed / 12 deselected；`ruff check` 通过；pyproject `[rl]` 已记验证版本 |
+| T-027 算法侧评估与交接 | 进行中 | REQ-06/07 / D-07 | T-023~026 | **已完成**：ranking/allocation 显式隔离 RL；引擎向后兼容无 `info()` 策略（`test_trading_events` 复绿）；契约与后端/前端交接清单成文。**真实数据评估（§4.1/§4.2）**：拉真实 510300 qfq 日线、经真实 `train_run` 训练 PPO、样本外对比 `ma_cross`/`momentum_reversal`/买入持有——PPO +0.97% 显著跑输（买入持有 +36.96%），seed 两次同 seed 训练样本外信号逐位一致（zip 哈希因 SB3 存优化器态而异，金标准以信号为准）。**结论：性能未达标 → 四个 RL 保持 `experimental`，不转 available、不计 MVP、不接实盘**；是否/何时翻正由后端依更充分证据（PIT 多资产、收敛训练、多种子稳健性）逐个决定 |
+
+注：本批不实现后端注册与前端页面，仅留接口与交接；`experimental` 起步，未过 T-027 不标 available、不计 MVP 完成、不接实盘。
+
 ### CR-016交付记录（2026-09-09）
 
 - 已完成本轮文档任务：对照四张截图、代码/契约与历史报告，更新原交接顶部及第9节启动语、四份SDD和MVP计划；保留旧批次为历史，不再指导重做M0。
