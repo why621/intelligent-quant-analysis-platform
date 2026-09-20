@@ -35,10 +35,35 @@ node artifacts/cr048-ppo-multi/browser.cjs
 .venv/bin/python artifacts/cr048-ppo-multi/package.py
 ```
 
-## 未上线及下一步
+## 云端部署完成（用户明确确认后）
 
-自动审批拒绝了SCP上传到既有ubuntu@43.161.223.91云环境，理由是本轮“实现多资产功能”未被认定为对该目的地源代码/模型/配置上传与部署的明确授权。被拒命令没有执行。之后只在本地制作了不含模型或数据的精简发布包，没有换通道上传、没有部署，也没有改线上数据。
+此前自动审批拒绝上传后未执行云端修改。用户随后明确回答“是”，授权部署到现有43.161.223.91；本次已完成上传、候选验证、维护切换及公网回归，T031d完成。
 
-T031a/b/c完成；T031d云候选、切换、公网回归仍未执行。待用户确认将本实现部署到现有43.161.223.91：严格SSH上传精简包、逐文件核验，以当前CR047镜像离线增量构建CR048；候选挂载现有模型/行情只读，验证512100/股票/混合组合及净值加总；持runner.lock维护排空、备份并实际恢复验证任务库后切换backend/daily摘要及前端，验证HTTPS两种PPO请求、原任务逐字段不变和日更禁网预检。失败恢复旧compose/image-id/index和旧CR047镜像，不以旧数据库覆盖新任务。
+- 部署源码c5675a780e68af2ddff499b008b0cf54c3d5defd，镜像quant-mvp-backend:cr048，摘要sha256:2d612a1036bd3f9202fab6fa996d50cf35d3c0974e1f9ba92e2e6d15e2bb31d5。离线增量构建，沿用现有只读PPO模型和CPU环境。
+- 云候选禁网验证512100、600519、混合组合、10资产，2026-07-01至09-18各58点；组合逐日加总和重复结果一致，非法请求拒绝。
+- 持runner.lock维护排空，SQLite备份后实际恢复并验证完整性。备份位置/opt/intelligent-quant-cr048-20260920/backup，原CR047镜像保留。切换前后61条历史任务逐字段不变，逻辑摘要3be9ccb54a5baac082df9f9a3635513783357eba2d011fdce67209288fb2d37a；验收新增4条后总计65条。
+- 公网HTTPS Edge真实提交：512100任务496be836-46f5-49d1-9fd5-ed53a3027e10（58点/7成交）；512100+600519任务d8c3e75e-75bf-44a8-8308-287f0de4e859（58点/33成交）。日期按钮保留所选资产，1440/390宽度无DOM溢出或pageerror。
+- 传统MA任务ae2fee7b-f78a-478a-a7b5-37a6dae603f7（58点/2成交）及动量任务59ab6816-6637-44d9-8449-44d40458384d（58点/1成交）成功。Strategy、BacktestJob和状态/覆盖/市场概览契约、CORS及预检通过。训练重叠、短历史、错误模型和非qfq均正确拒绝。
+- 后端和网关healthy，维护标记移除；09-18行情发布及两份日更账本不变。日更禁网预检waiting_new_day，timer active，下次计划2026-09-21 07:30 CST；未把预检计作下一次真实日更完成。
+- 云端入口：https://43.161.223.91/#backtest 。前端index摘要1dd89a57ea2187a8ffa62ed52e16a4a396b98fb451d53219b6bf2d2a554de4a5。
 
-GitHub Pages亦待本新分支PR合并触发现有workflow；未创建PR，不声称远端CI或Pages已完成。创建入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/ppo-multi-asset-20260920 。
+实际命令与证据（根工作区忽略目录artifacts/cr048-ppo-multi）：
+
+```text
+python -X utf8 artifacts/cr048-ppo-multi/upload.py
+python -X utf8 artifacts/cr040-deploy-20260915/run_remote.py artifacts/cr048-ppo-multi/prepare.sh
+python -X utf8 artifacts/cr040-deploy-20260915/run_remote.py artifacts/cr048-ppo-multi/validate.sh
+python -X utf8 artifacts/cr040-deploy-20260915/run_remote.py artifacts/cr048-ppo-multi/cutover.sh
+node artifacts/cr048-ppo-multi/browser.cjs https://43.161.223.91 artifacts/cr048-ppo-multi/browser-cloud
+python -X utf8 artifacts/cr048-ppo-multi/https.py
+python -X utf8 artifacts/cr048-ppo-multi/ppo_https.py
+python -X utf8 artifacts/cr040-deploy-20260915/run_remote.py artifacts/cr048-ppo-multi/final_check.sh
+```
+
+对应*.sh.log、browser-cloud/evidence.json、https.json、ppo-https.json保存实际结果。云端stage /opt/intelligent-quant-cr048-20260920保存validation.json、deployment.json、final-check.json。
+
+## 剩余事项及边界
+
+同一510300训练模型跨资产的运行正确性已验证，跨资产收益有效性仍未验证，继续显示experimental和crossAssetValidated=false。本轮没有重训或开放其他三种RL。
+
+云端网页已更新；GitHub Pages仍需本分支合并触发现有workflow，未创建PR，不声称远端CI或Pages已完成。创建入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/ppo-multi-asset-20260920 。
