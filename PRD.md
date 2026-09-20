@@ -533,3 +533,15 @@ CR049云端完成回写（用户明确授权后）：源码f823bc7及三新模�
 [PR #33](https://github.com/why621/intelligent-quant-analysis-platform/pull/33)已合并，main提交`b4f2137a6225a685de24239883ea4e298d886cd9`；[Pages发布](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35510678954)针对该提交completed/success。实际入口加载`index-Ch5lnoao.js`，使用所选算法动态标题并连接既有HTTPS API。 前文“待授权/未上线/Pages待合并”均为过程记录。四RL已开放1–10资产实验回测，训练来源510300、样本外起始2026-07-01、22根最小历史、qfq及模型校验不变。T032a/b/c/d与Pages发布核验完成；跨资产收益、多智能体、RL排行/配置及长期日更仍不计完成。
 
 按用户要求更新README、[算法摘要](docs/rl-algorithms-summary-2026-09-20.md)、[项目集成总结](docs/midterm-integration-summary-2026-09-11.md)及[上线实录](docs/cr049-rl-four-web-2026-09-20.md)。本轮仅文档，不新增接口或部署；git fetch/祖先核对、PR与Pages工作流及线上JS读取完成，相对链接和差异检查通过后提交codex/rl-summary-sync-20260920。历史414/77测试及云端证据沿用，不重复累计。
+
+## CR050 四RL实验排行（2026-09-20，登记）
+
+用户指出排行榜区间收益未包含新算法，要求更新。本轮将已部署PPO/DQN/SAC/DDPG加入510300代表资产排行，默认近30自然日，仍使用默认本金/交易费用和同一发布快照；实验策略保留experimental，不扩大次日配置或实盘。基线main c1d8d49。传统策略原计算口径保留；仅显式部署且依赖就绪的WebRL可入排行，普通experimental/planned仍排除。
+
+RL推理起点取既有90自然日预热起点与模型样本外起点之较晚者，不读训练期用于回测；评价窗口必须完整位于样本外且首个评价净值点前已满足20根预热，1d采用最后两个实际行情点。先跑完整样本外预热，再仅截评价窗口计算收益/回撤/夏普，不把预热零交易或训练收益混入榜单。1y或其他不满足条件的算法显示未参与原因，不补零、不截成更短窗口冒充目标周期。
+
+接口兼容新增RankingItem.status/modelContext以及RankingResponse.unavailableStrategies（strategyId/strategyName/code/message），前端显示AI实验标识、样本外与费用口径、未参与原因。缓存随发布版本及部署模型清单标识区分；保留计算预算和单次并发保护。模型未变，不重训不上传权重，不新采行情。
+
+T033a登记/实现/契约/前端；T033b离线门禁与区间指标回归、真实四模型排行对照独立净值计算、本地浏览器；T033c既有云端候选、备份切换及公网排行/传统与RL回测回归；T033dSDD/总结与Git同步。云端和Pages分别核验，未验证不标完成；本轮要求承接网页更新，若自动审批要求额外部署授权则完成准备后明确请求。
+
+CR050本地回写：T033a/b完成。422算法/后端、78前端用例及构建/Ruff通过；真实四模型1d/7d/30d各六条，独立净值重算三指标、排序/重复一致；1y不满足时422并列原因。Edge六行四AI实验标识、1440/390无溢出/pageerror。云端及Pages待发布核验，见[CR050实录](docs/cr050-rl-ranking-2026-09-20.md)。

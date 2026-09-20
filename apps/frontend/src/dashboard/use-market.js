@@ -28,6 +28,7 @@ export function useMarket(client = api) {
   const strategies = ref(fallbackStrategies)
   const ranking = ref([])
   const rankingContext = ref(null)
+  const rankingUnavailable = ref([])
   const historyStatusText = computed(() => dataStatus.value.availability
     ? `${dataStatus.value.availability.readyCount}/327 覆盖完整，其余见资产状态`
     : statusLabel(dataStatus.value.components?.history?.status))
@@ -65,6 +66,7 @@ export function useMarket(client = api) {
     market.value = { ...fallbackMarket }
     ranking.value = []
     rankingContext.value = null
+    rankingUnavailable.value = []
     marketError.value = ''
     let completed = 0
     const statusRequest = client.getDataStatus()
@@ -89,6 +91,7 @@ export function useMarket(client = api) {
         if (!Array.isArray(value?.items)) throw Error()
         ranking.value = value.items
         rankingContext.value = value.dataContext || null
+        rankingUnavailable.value = value.unavailableStrategies || []
       }]
     ]
     const results = await Promise.allSettled(jobs.map(async ([fetchValue, applyValue], index) => {
@@ -130,6 +133,7 @@ export function useMarket(client = api) {
     strategies,
     ranking,
     rankingContext,
+    rankingUnavailable,
     historyStatusText,
     overviewStatusText,
     marketNotice,

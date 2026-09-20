@@ -58,7 +58,7 @@ def test_revision_change_during_computation_is_not_cached():
 def test_single_flight_wait_has_deadline_and_does_not_spawn_duplicate():
     provider, algorithm = Provider(), Algorithm()
     service = RankingService(algorithm, provider, StrategyCatalogService())
-    key = (date(2026, 9, 7), "30d", "1")
+    key = (date(2026, 9, 7), "30d", "1", ())
     service._inflight.add(key)
     with patch("app.services.ranking._RANKING_BUDGET_SECONDS", 0.01):
         with pytest.raises(UpstreamUnavailableError, match="繁忙"):
@@ -85,3 +85,17 @@ def test_cache_size_is_bounded():
             provider.revision = str(revision)
             service.get_ranking("30d")
     assert len(service._cache) == 2
+
+
+def test_model_identity_changes_invalidate_cached_ranking():
+    from types import SimpleNamespace
+    context = {"bundleHash": "a" * 64}
+    strategy = SimpleNamespace(ranking_enabled=True, model_context=lambda: dict(context))
+    catalog = StrategyCatalogService()
+    catalog.registry = lambda: {"ppo": strategy}
+    service = RankingService(Algorithm(), Provider(), catalog)
+    service._log_missing = lambda items: None
+    service.get_ranking("30d")
+    context["bundleHash"] = "b" * 64
+    service.get_ranking("30d")
+    assert service._algorithm.calls == 2

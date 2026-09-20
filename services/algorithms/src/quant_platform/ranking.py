@@ -1,96 +1,96 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from datetime import date, timedelta
 from typing import Literal
 
 import pandas as pd
 
 from quant_platform.backtesting.engine import BacktestEngine, _compute_metrics
-from quant_platform.models import (
-    BacktestMetrics,
-    BacktestRequest,
-    RankingItem,
-    StrategyCategory,
-)
+from quant_platform.models import BacktestMetrics, BacktestRequest, RankingItem
+
+
+class RankingResult(list[RankingItem]):
+    """List-compatible result with request-local exclusion diagnostics."""
+
+    def __init__(self, items=(), *, unavailable=()):
+        super().__init__(items)
+        self.unavailable = tuple(unavailable)
 
 
 class StrategyRankingService:
-    """日更策略排行。
-
-    对每个可用策略在代表性资产上运行回测，按收益排序。
-    仅包含 status=available 的策略，experimental/planned 不进入排行。
-    """
+    """Rank traditional strategies and explicitly deployed experimental models."""
 
     _BENCHMARK_SYMBOL = "510300"
 
     def __init__(self, engine: BacktestEngine) -> None:
         self._engine = engine
 
-    def rank(
-        self,
-        *,
-        as_of_date: date,
-        period: Literal["1d", "7d", "30d", "1y"],
-    ) -> list[RankingItem]:
-        evaluation_start = _start_date(as_of_date, period)
-        request_start = evaluation_start - timedelta(days=90)
-        strategy_ids = list(self._engine._strategies.keys())
-
-        results: list[tuple[float, float, float, str, str, StrategyCategory]] = []
-
-        for sid in strategy_ids:
-            strategy = self._engine._strategies[sid]
+    def rank(self, *, as_of_date: date, period: Literal["1d", "7d", "30d", "1y"]) -> RankingResult:
+        request_start = _start_date(as_of_date, period) - timedelta(days=90)
+        results = []
+        unavailable = []
+        for sid, strategy in self._engine._strategies.items():
             info = strategy.info()
-            # experimental/planned never rank; a trained-model strategy (RL) is
-            # skipped explicitly rather than relying on the broad except below.
-            if info.status != "available" or info.requires_trained_model:
-                continue
-
-            try:
-                result = self._engine.run(BacktestRequest(
-                    symbols=(self._BENCHMARK_SYMBOL,),
-                    strategy_id=sid,
-                    start_date=request_start,
-                    end_date=as_of_date,
-                ))
-                raw_metrics = result.metrics
-                if all(math.isfinite(value) for value in (
-                    raw_metrics.total_return_pct,
-                    raw_metrics.max_drawdown_pct,
-                    raw_metrics.sharpe,
-                )):
-                    metrics = _period_metrics(
-                        result.equity_curve, as_of_date, period
-                    )
-                else:
-                    metrics = raw_metrics
-            except Exception:
-                continue
-
-            results.append((
-                metrics.total_return_pct,
-                metrics.max_drawdown_pct,
-                metrics.sharpe,
-                sid,
-                info.name,
-                info.category,
-            ))
-
-        results.sort(key=lambda x: x[0], reverse=True)
-
-        return [
-            RankingItem(
-                rank=i + 1,
-                strategy_id=sid,
-                strategy_name=name,
-                category=cat,
-                return_pct=ret,
-                max_drawdown_pct=mdd,
-                sharpe=sh,
+            deployed = (
+                info.status == "experimental"
+                and getattr(strategy, "ranking_enabled", False) is True
+                and callable(getattr(strategy, "ranking_request", None))
             )
-            for i, (ret, mdd, sh, sid, name, cat) in enumerate(results)
-        ]
+            if not deployed and (info.status != "available" or info.requires_trained_model):
+                continue
+            try:
+                request = (
+                    strategy.ranking_request(as_of_date, period, self._engine._provider)
+                    if deployed
+                    else BacktestRequest(
+                        symbols=(self._BENCHMARK_SYMBOL,),
+                        strategy_id=sid,
+                        start_date=request_start,
+                        end_date=as_of_date,
+                    )
+                )
+                result = self._engine.run(request)
+                raw = result.metrics
+                metrics = (
+                    _period_metrics(result.equity_curve, as_of_date, period)
+                    if all(
+                        math.isfinite(x)
+                        for x in (raw.total_return_pct, raw.max_drawdown_pct, raw.sharpe)
+                    )
+                    else raw
+                )
+                context = strategy.model_context() if deployed else None
+                results.append(
+                    RankingItem(
+                        rank=0,
+                        strategy_id=sid,
+                        strategy_name=info.name,
+                        category=info.category,
+                        return_pct=metrics.total_return_pct,
+                        max_drawdown_pct=metrics.max_drawdown_pct,
+                        sharpe=metrics.sharpe,
+                        status=info.status,
+                        model_context=context,
+                    )
+                )
+            except Exception as exc:
+                code = getattr(exc, "code", "RANKING_FAILED")
+                message = {
+                    "RL_IN_SAMPLE_REQUEST": "该区间与训练期重叠，未参与排行",
+                    "RL_INSUFFICIENT_HISTORY": "样本外历史不足以完成预热并覆盖评价区间",
+                    "RL_INCOMPATIBLE_MODEL": "模型版本或完整性不匹配，未参与排行",
+                    "RL_MODEL_NOT_FOUND": "已部署模型不可用，未参与排行",
+                    "RL_DEPENDENCIES_MISSING": "模型运行依赖不可用，未参与排行",
+                }.get(code, "策略计算失败，未参与排行")
+                unavailable.append(
+                    {"strategyId": sid, "strategyName": info.name, "code": code, "message": message}
+                )
+        results.sort(key=lambda item: item.return_pct, reverse=True)
+        return RankingResult(
+            (replace(item, rank=i + 1) for i, item in enumerate(results)), unavailable=unavailable
+        )
 
 
 def _start_date(as_of: date, period: str) -> date:

@@ -222,13 +222,15 @@
           <div><p>STRATEGY RANKING</p><h2>策略排行榜</h2></div>
           <span>近 30 个自然日 · 收盘后更新</span>
         </header>
+        <p class="hint">同一510300资产、默认本金及交易费用；预热期不计入区间收益。AI仅使用已部署模型的样本外区间，实验排行不代表未来收益。</p>
+        <p v-for="item in rankingUnavailable" :key="item.strategyId" class="hint">{{ item.strategyName }}：{{ item.message }}</p>
         <DataCapability :request="{ module: 'ranking', period: '30d' }" :version="dataStatus.dataContext?.dataVersion" />
         <article class="card table-card">
           <table>
             <thead><tr><th>排名</th><th>策略</th><th>类型</th><th>区间收益</th><th>最大回撤</th><th>夏普</th></tr></thead>
             <tbody>
               <tr v-for="item in ranking" :key="item.strategyId">
-                <td>{{ item.rank }}</td><td>{{ item.strategyName }}</td><td>{{ item.category === 'ai' ? 'AI' : '传统' }}</td>
+                <td>{{ item.rank }}</td><td>{{ item.strategyName }}</td><td>{{ item.category === 'ai' ? 'AI · 实验' : '传统' }}</td>
                 <td :class="tone(item.returnPct)">{{ formatPct(item.returnPct) }}</td>
                 <td>{{ plainPct(item.maxDrawdownPct) }}</td><td>{{ formatNumber(item.sharpe) }}</td>
               </tr>
@@ -301,7 +303,7 @@ import { useCorrelation } from './dashboard/use-correlation'
 import { useMarket } from './dashboard/use-market'
 import { initialiseDashboard } from './dashboard/startup'
 
-const { connection, dataStatus, assetCatalog, market, strategies, ranking, rankingContext,
+const { connection, dataStatus, assetCatalog, market, strategies, ranking, rankingContext, rankingUnavailable,
   historyStatusText, overviewStatusText, marketNotice, assetCatalogError, initialise } = useMarket()
 const correlation = useCorrelation(dataStatus)
 const backtest = useBacktest(strategies, dataStatus, assetCatalog)

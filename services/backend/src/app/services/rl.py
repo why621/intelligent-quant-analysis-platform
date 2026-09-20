@@ -8,7 +8,14 @@ from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
-from quant_platform.rl.errors import RLError, RLIncompatibleModel, RLInSampleRequest
+from quant_platform.models import BacktestRequest
+from quant_platform.ranking import _start_date
+from quant_platform.rl.errors import (
+    RLError,
+    RLIncompatibleModel,
+    RLInSampleRequest,
+    RLInsufficientHistory,
+)
 from quant_platform.rl.features import validate_history
 from quant_platform.rl.policies import RL_POLICIES, RLStrategy
 from quant_platform.rl.store import ModelStore
@@ -83,6 +90,40 @@ class WebRL(RLStrategy):
         self.backtest_enabled = all(
             importlib.util.find_spec(name) is not None
             for name in ("torch", "stable_baselines3", "gymnasium")
+        )
+
+    @property
+    def ranking_enabled(self):
+        return self.backtest_enabled
+
+    def ranking_request(self, as_of_date, period, provider):
+        evaluation_start = _start_date(as_of_date, period)
+        out_of_sample = date.fromisoformat(self.model_context()["outOfSampleStartDate"])
+        if evaluation_start < out_of_sample:
+            raise RLInSampleRequest("ranking window overlaps training")
+        start = max(evaluation_start - timedelta(days=90), out_of_sample)
+        payload = {
+            "symbols": ["510300"],
+            "startDate": start.isoformat(),
+            "endDate": as_of_date.isoformat(),
+            "adjust": "qfq",
+        }
+        self.validate_web_request(payload, provider)
+        prices = provider.history("510300", start, as_of_date, "qfq").reset_index(drop=True)
+        import pandas as pd
+
+        dates = pd.to_datetime(prices["date"])
+        window = (
+            prices.tail(2) if period == "1d" else prices[dates >= pd.Timestamp(evaluation_start)]
+        )
+        if len(window) < 2 or window.index[0] < 20:
+            raise RLInsufficientHistory("insufficient out-of-sample pre-window warmup")
+        return BacktestRequest(
+            symbols=("510300",),
+            strategy_id=self._spec.algo_id,
+            start_date=start,
+            end_date=as_of_date,
+            parameters={"modelRef": self.release["modelRef"]},
         )
 
     def checked_bundle(self):

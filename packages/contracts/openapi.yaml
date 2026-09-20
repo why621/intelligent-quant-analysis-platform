@@ -185,6 +185,7 @@ paths:
     get:
       tags: [Strategy]
       summary: 获取策略排行榜
+      description: 510300代表资产、默认本金与交易费用。传统策略及显式部署的四种RL按相同评价窗口排序，预热期收益不计入区间指标；RL仍experimental，仅完整样本外且预热充足的区间可参与，其他返回unavailableStrategies原因，1y不截短冒充。
       operationId: getStrategyRanking
       parameters:
         - $ref: "#/components/parameters/ResearchVersion"
