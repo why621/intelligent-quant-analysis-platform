@@ -683,3 +683,13 @@ CR049发布准备回写：实现f823bc7已推送codex/rl-four-web-20260920。100
 CR049部署授权补充：用户本轮明确回答“是”，授权将三份新模型及网页版本上传并部署到现有43.161.223.91；沿用已备妥发布包f823bc7，先候选验证及备份恢复，再切换并公网验收。先前上传拒绝已获明确授权，T032c继续。
 
 CR049云端完成回写（用户明确授权后）：源码f823bc7及三新模型已部署现有43.161.223.91，PPO/DQN/SAC/DDPG全部开放实验回测。云候选四算法各5组、组合加总/重复一致/非法门禁通过；公网Edge八RL任务及两传统任务、契约/CORS与16非法请求通过。首轮过快触发429，保留证据并按限流间隔重跑通过，未更改限流。68旧任务逐字段保留，备份实际恢复成功，验收后83条；行情及日更账本不变，服务健康，timer active，禁网预检waiting_new_day。T032a/b/c/d完成，Pages前端版本待新分支合并，跨资产收益及下一真实日更仍不计完成。详见[CR049上线实录](docs/cr049-rl-four-web-2026-09-20.md)。
+
+## CR049 总结与文档同步登记（2026-09-20）
+
+用户要求重新总结回写文档并同步所有相关更新到GitHub。范围为四份SDD、CR049实录、README、项目集成总结及算法摘要；基于已合并main b4f2137，核对PR33与Pages发布证据，修正RL尚未接入等过期当前表述，保留历史过程记录。仅文档变更；验收为内容与代码/契约/部署证据一致、相对链接及差异检查通过、相关内容提交推送。
+
+## CR049 当前最终状态与总结同步（2026-09-20）
+
+[PR #33](https://github.com/why621/intelligent-quant-analysis-platform/pull/33)已合并，main提交`b4f2137a6225a685de24239883ea4e298d886cd9`；[Pages发布](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35510678954)针对该提交completed/success。实际入口加载`index-Ch5lnoao.js`，使用所选算法动态标题并连接既有HTTPS API。 前文“待授权/未上线/Pages待合并”均为过程记录。四RL已开放1–10资产实验回测，训练来源510300、样本外起始2026-07-01、22根最小历史、qfq及模型校验不变。T032a/b/c/d与Pages发布核验完成；跨资产收益、多智能体、RL排行/配置及长期日更仍不计完成。
+
+按用户要求更新README、[算法摘要](docs/rl-algorithms-summary-2026-09-20.md)、[项目集成总结](docs/midterm-integration-summary-2026-09-11.md)及[上线实录](docs/cr049-rl-four-web-2026-09-20.md)。本轮仅文档，不新增接口或部署；git fetch/祖先核对、PR与Pages工作流及线上JS读取完成，相对链接和差异检查通过后提交codex/rl-summary-sync-20260920。历史414/77测试及云端证据沿用，不重复累计。
