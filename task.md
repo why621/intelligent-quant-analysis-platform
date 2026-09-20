@@ -23,7 +23,7 @@ CR-016为截图/代码复核与文档交接；没有实施业务修复或重新�
 | 任务 | 状态 | 需求/决策 | 依赖 | 完成条件 |
 | --- | --- | --- | --- | --- |
 | T-023 引擎连续动作兼容 | 完成 | REQ-06 / D-07 | 无 | `StrategyInfo.signal_semantics`；`_simulate` 支持 `continuous_target_weight`（long-only [0,1]、再平衡带、预热NaN沿用上一目标），离散分支与既有测试逐字节不变；`_resolve` per-request 实例；移位/0≠空仓单测通过。证据：`tests/test_backtest.py` 连续动作6例+per-request 隔离，`pytest` 绿、`ruff check` 通过 |
-| T-024 rl/ 模块与 SB3 封装 | 完成 | REQ-06 / D-07 | T-023 | `features/env/store/policies`；四策略实现 `Strategy` 协议，torch/SB3 惰性导入，缺依赖类型化错误；manifest 内容哈希绑定数据版本。证据：`tests/test_rl_core.py` 因果/哈希篡改/元数据用例绿（无需 [rl]）；`tests/test_rl_env.py` 无 gym 时 skip |
+| T-024 rl/ 模块与 SB3 封装 | 完成 | REQ-06 / D-07 | T-023 | `features/env/store/policies`；四策略实现 `Strategy` 协议，torch/SB3 惰性导入，缺依赖类型化错误；manifest 绑定问题已由 CR045 修复为 v2 bundleHash，见文末本轮证据；以下为 CR044 历史证据：`tests/test_rl_core.py` 因果/哈希篡改/元数据用例绿（无需 [rl]）；`tests/test_rl_env.py` 无 gym 时 skip |
 | T-025 训练/推理接缝 | 进行中 | REQ-02/09 / D-07 | T-024 | `quant-rl-train` 从已发布快照训练、固定seed、单线程、拒写 /models 外；推理不 fit、拒样本内。`train_run` 增可选 `provider` 注入以便真实训练函数可测。**证据**：`tests/test_rl_train_smoke.py`（`rl`）端到端 train→save→load→infer、两次加载样本外权重逐位一致、样本内拒绝；真实数据端到端训练见 T-027/§4.1。**剩余**：notebook 未补 |
 | T-026 依赖与测试门控 | 完成 | REQ-09 / D-07 | 无 | `[rl]` extra 不进 dev；`rl` marker；RL 用例 importorskip；默认 `not network` 保持绿；/models gitignore 断言。证据：`.venv`（含 akshare/pandas3.0）已装 `[rl]`（torch 2.14.0+cpu / sb3 2.9.0 / gymnasium 1.3.0，清华镜像、落 D 盘）+ `PYTHONUTF8=1` 跑 `pytest services/algorithms` → 227 passed / 12 deselected；`ruff check` 通过；pyproject `[rl]` 已记验证版本 |
 | T-027 算法侧评估与交接 | 进行中 | REQ-06/07 / D-07 | T-023~026 | **已完成**：ranking/allocation 显式隔离 RL；引擎向后兼容无 `info()` 策略（`test_trading_events` 复绿）；契约与后端/前端交接清单成文。**真实数据评估（§4.1/§4.2）**：拉真实 510300 qfq 日线、经真实 `train_run` 训练 PPO、样本外对比 `ma_cross`/`momentum_reversal`/买入持有——PPO +0.97% 显著跑输（买入持有 +36.96%），seed 两次同 seed 训练样本外信号逐位一致（zip 哈希因 SB3 存优化器态而异，金标准以信号为准）。**结论：性能未达标 → 四个 RL 保持 `experimental`，不转 available、不计 MVP、不接实盘**；是否/何时翻正由后端依更充分证据（PIT 多资产、收敛训练、多种子稳健性）逐个决定 |
@@ -607,3 +607,11 @@ CR043启用回写：用户授权持续日更已实现部署，独立continuous�
 
 
 2026-09-16完整同步入口：按用户要求将CR041前端恢复、CR042发布权限、CR043持续日更的源码/测试及中期文档汇总至新分支 codex/mvp-complete-updates-20260916。本分支包含此前尚未Git提交的6份工具和测试，前文“源码未提交/仅同步文档”是历史状态。无新增采集、云发布或运行规则变更；既有80项专项回归及前端68项测试证据沿用，不重复累计。用户合并此汇总分支即可，无需再分别合并旧CR041分支。
+
+## CR-045 PR29 审阅修复（2026-09-20，进行中）
+用户授权修复并提交；基线366742a，隔离分支codex/fix-rl-review-20260920。范围R1实际账户反馈、R2含费买入不透支、R3模型元数据完整性、R4预热长度校验及回归。保留experimental；不扩展前后端，不采集行情，不推送部署。
+方案：引擎以实际持仓逐bar调用prepare_inference决策回调，训练环境与引擎共用成交函数，离散原有行为兼容。manifest升级schemaVersion=2，bundleHash绑定规范化元数据和权重，严格字段/日期/runId校验，executionVersion不兼容旧模型须重训。样本不足新增RLInsufficientHistory，20根预热至少22根有序价格才运行。不变更HTTP字段。
+任务T-028a账户一致和现金边界，T-028b元数据完整性与失效拒绝，T-028c短区间边界，T-028d无重依赖回归及四算法CPU实际训练/保存/加载/回测冒烟。全部有证据后完成并提交。合成训练不作收益结论；旧T-024元数据哈希绑定完成声明已被审阅推翻，待本轮验证。回滚整批代码和模型格式，不混用新旧模型。
+
+
+CR045 实现回写（2026-09-20）：R1–R4 已修复；实际持仓回调/共享成交、含费资金约束、manifest v2 与旧模型重训、短区间类型化拒绝已落实。387 项默认算法/后端回归（2 可选模块跳过、8 network 排除）、另 17 项环境和 5 项四算法实际 CPU 训练/保存/加载/回测通过，共 409 个不同离线用例；算法全量 Ruff 通过。T-028a/b/c 完成，T-028d 验证完成；本批以隔离修复分支 Git 提交交付，具体提交标识以 git log 和交付答复为准。数据均为明确合成测试夹具，无真实收益/云端验收结论。详见 [CR045 报告](docs/cr045-rl-review-fixes-2026-09-20.md)。

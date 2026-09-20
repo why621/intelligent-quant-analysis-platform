@@ -47,3 +47,9 @@ class RLInSampleRequest(RLError):
     """Backtest range overlaps the training window, which would leak labels."""
 
     code: str = "RL_IN_SAMPLE_REQUEST"
+
+
+class RLInsufficientHistory(RLError):
+    """Not enough observed bars for feature warmup and one next-open execution."""
+
+    code: str = "RL_INSUFFICIENT_HISTORY"

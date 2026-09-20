@@ -14,6 +14,7 @@ import os
 from datetime import date
 from pathlib import Path
 
+from quant_platform.backtesting.execution import EXECUTION_VERSION
 from quant_platform.rl import features
 from quant_platform.rl.policies import RL_POLICIES
 from quant_platform.rl.store import ModelStore
@@ -45,6 +46,7 @@ def assemble_manifest(
 ) -> dict[str, object]:
     """Build a schema-complete manifest. Pure and unit-testable without torch."""
     return {
+        "executionVersion": EXECUTION_VERSION,
         "runId": run_id,
         "algo": spec.algo_id,
         "sb3Class": spec.sb3_class,

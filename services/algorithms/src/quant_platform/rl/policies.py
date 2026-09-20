@@ -17,7 +17,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from quant_platform.models import SignalSemantics, StrategyInfo
+from quant_platform.backtesting.execution import EXECUTION_VERSION
+from quant_platform.models import SignalSemantics, StrategyInfo, TradingCosts
 from quant_platform.rl import features
 from quant_platform.rl.errors import RLIncompatibleModel, RLInSampleRequest, RLNotTrained
 
@@ -185,6 +186,8 @@ class RLStrategy:
         would otherwise load and emit silently-wrong weights.
         """
         manifest = bundle.manifest
+        if manifest.get("executionVersion") != EXECUTION_VERSION:
+            raise RLIncompatibleModel("模型成交语义版本不兼容，请重新训练")
         recorded_algo = manifest.get("algo")
         if recorded_algo != self._spec.algo_id:
             raise RLIncompatibleModel(
@@ -230,7 +233,10 @@ class RLStrategy:
 
     def _reject_in_sample(self, prices: pd.DataFrame) -> None:
         train_end = str(self._bundle.manifest.get("trainEndDate", ""))
-        if not train_end or prices.empty or "date" not in prices.columns:
+        from quant_platform.rl.store import validate_training_dates
+
+        validate_training_dates(self._bundle.manifest)
+        if prices.empty:
             return
         first = pd.Timestamp(prices["date"].iloc[0]).date().isoformat()
         if first <= train_end:
@@ -238,29 +244,52 @@ class RLStrategy:
                 f"回测起始 {first} 落在训练窗口内（trainEndDate={train_end}），拒绝样本内评估。"
             )
 
-    def _predict_weights(self, prices: pd.DataFrame) -> pd.Series:
-        from quant_platform.rl.env import TradingEnv
-
-        env = TradingEnv(prices, discrete=self._spec.discrete)
+    def prepare_inference(self, prices: pd.DataFrame, parameters: Mapping[str, object]):
+        """Bind features/model once; the engine supplies actual weight each bar."""
+        if self._bundle is None or self._model is None:
+            raise RLNotTrained("需先训练并加载 modelRef")
+        self._reject_in_sample(prices)
+        features.validate_history(prices)
         frame = prices.reset_index(drop=True)
-        weights = np.full(len(frame), np.nan, dtype=float)
+        observations = features.expanding_zscore(features.build_features(frame))
 
-        obs, _ = env.reset()
-        done = False
-        while not done:
+        def signal_at(bar: int, current_weight: float) -> float:
+            if bar < features.MIN_WARMUP:
+                return 0.0 if self._spec.discrete else float("nan")
+            vec = np.nan_to_num(observations[bar], nan=0.0, posinf=0.0, neginf=0.0)
+            obs = np.append(vec, current_weight).astype(np.float32)
             action, _ = self._model.predict(obs, deterministic=True)
-            bar = env._step_index
-            if 0 <= bar < len(weights):
-                weights[bar] = env._target_weight(action)
-            obs, _, done, _, _ = env.step(action)
+            value = float(np.asarray(action).reshape(-1)[0])
+            if not np.isfinite(value):
+                raise ValueError("RL model emitted a non-finite action")
+            if self._spec.discrete:
+                if value not in (0.0, 1.0):
+                    raise ValueError("DQN action must be flat or all-in")
+                return 1.0 if value else -1.0
+            return float(np.clip(value, 0.0, 1.0))
 
-        signal = pd.Series(weights, index=frame.index, dtype=float)
-        if self._spec.signal_semantics == "discrete_hold":
-            # DQN is long/flat: all-in -> +1, flat -> -1 so the engine liquidates.
-            raw = signal.to_numpy()
-            out = np.where(np.isnan(raw), 0.0, np.where(raw > 0.5, 1.0, -1.0))
-            return pd.Series(out, index=frame.index, dtype=float)
-        return signal
+        return signal_at
+
+    def _predict_weights(self, prices: pd.DataFrame) -> pd.Series:
+        """Convenience inference with default capital/costs; requests use callbacks."""
+        from quant_platform.backtesting.engine import BacktestEngine
+
+        decision = self.prepare_inference(prices, {})
+        weights = pd.Series(
+            0.0 if self._spec.discrete else np.nan, index=prices.index, dtype=float
+        )
+
+        def record(bar, current_weight):
+            signal = decision(bar, current_weight)
+            weights.iloc[bar] = signal
+            return signal
+
+        BacktestEngine(None, {})._simulate(
+            "inference", prices, weights.copy(), 100_000.0, TradingCosts(),
+            self._spec.signal_semantics, self.rebalance_band_pct, self.min_trade_cny,
+            signal_at=record,
+        )
+        return weights
 
 
 def registry(*, store=None) -> dict[str, RLStrategy]:

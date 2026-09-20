@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 import quant_platform.rl as rl
+from quant_platform.backtesting.execution import EXECUTION_VERSION
 from quant_platform.rl import features as F
 from quant_platform.rl.errors import (
     RLIncompatibleModel,
@@ -66,6 +67,7 @@ class TestStore:
         store = ModelStore(tmp_path)
         blob = b"PK\x03\x04fake-zip-bytes"
         manifest = {
+            "executionVersion": EXECUTION_VERSION,
             "algo": "ppo",
             "seed": 7,
             "featureSignature": F.feature_signature(),
@@ -92,9 +94,10 @@ class TestStore:
             "run-a2",
             b"original",
             {
-                "algo": "dqn", "seed": 1, "featureSignature": "x", "publicationDate": "d",
-                "dataVersion": "v", "universeVersion": "u", "trainStartDate": "s",
-                "trainEndDate": "e", "codeSha": "c",
+                "algo": "dqn", "seed": 1, "featureSignature": "x",
+                "publicationDate": "2025-06-30", "dataVersion": "v", "universeVersion": "u",
+                "trainStartDate": "2024-01-01", "trainEndDate": "2025-03-31", "codeSha": "c",
+                "executionVersion": EXECUTION_VERSION,
             },
         )
         (tmp_path / "run-a2" / "model.zip").write_bytes(b"tampered!")
@@ -136,7 +139,9 @@ class TestPolicies:
         # Inject a bundle + dummy model so we reach the in-sample guard before
         # any gym/torch path is touched.
         s = RLStrategy(RL_POLICIES["ppo"])
-        s._bundle = type("B", (), {"manifest": {"trainEndDate": "2025-12-31"}})()
+        s._bundle = type("B", (), {"manifest": {
+            "trainStartDate": "2024-01-01", "trainEndDate": "2025-12-31",
+        }})()
         s._model = object()
         with pytest.raises(RLInSampleRequest):
             s.generate_signals(_prices(40), {"modelRef": "run-y"})
@@ -144,6 +149,7 @@ class TestPolicies:
     @staticmethod
     def _manifest(**over):
         base = {
+            "executionVersion": EXECUTION_VERSION,
             "algo": "ppo",
             "seed": 1,
             "featureSignature": F.feature_signature(),

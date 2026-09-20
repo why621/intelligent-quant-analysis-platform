@@ -14,7 +14,9 @@ import numpy as np
 import pandas as pd
 from gymnasium import spaces
 
-from quant_platform.rl.features import build_features, expanding_zscore
+from quant_platform.backtesting.execution import execute_bar
+from quant_platform.models import TradingCosts
+from quant_platform.rl.features import build_features, expanding_zscore, validate_history
 
 _LONG_ONLY_WEIGHTS = (0.0, 1.0)
 
@@ -37,15 +39,32 @@ class TradingEnv(gym.Env):
         *,
         discrete: bool = False,
         window: int = 20,
-        transaction_cost: float = 0.001,
+        transaction_cost: float | None = None,
+        initial_capital: float = 100_000.0,
+        trading_costs: TradingCosts | None = None,
+        band_pct: float = 0.005,
+        min_trade_cny: float = 100.0,
     ) -> None:
         super().__init__()
+        validate_history(prices, window)
+        if not np.isfinite(initial_capital) or initial_capital <= 0:
+            raise ValueError("initial_capital must be positive")
+        self._capital = initial_capital
+        self._band = band_pct
+        self._min_trade = min_trade_cny
         self._raw = prices.reset_index(drop=True)
         self._features = expanding_zscore(build_features(self._raw, window=window))
         self._open = self._raw["open"].to_numpy(dtype=float)
         self._close = self._raw["close"].to_numpy(dtype=float)
         self._discrete = discrete
-        self._tc = float(transaction_cost)
+        costs = trading_costs or TradingCosts()
+        self._commission = costs.commission_pct / 100
+        self._stamp = costs.stamp_duty_pct / 100
+        self._slippage = costs.slippage_pct / 100
+        if transaction_cost is not None:
+            if not np.isfinite(transaction_cost) or not 0 <= transaction_cost < 1:
+                raise ValueError("transaction_cost must be in [0, 1)")
+            self._commission, self._stamp, self._slippage = float(transaction_cost), 0.0, 0.0
         # Start after the feature warm-up so the first observation is finite.
         self._first = max(window, 1)
         self._last = len(self._raw) - 1
@@ -59,7 +78,7 @@ class TradingEnv(gym.Env):
             self.action_space = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
         self._step_index = self._first
-        self._cash = 1.0
+        self._cash = self._capital
         self._shares = 0.0
 
     def _weight(self) -> float:
@@ -74,7 +93,7 @@ class TradingEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self._step_index = self._first
-        self._cash = 1.0
+        self._cash = self._capital
         self._shares = 0.0
         return self._observation(), {}
 
@@ -88,22 +107,13 @@ class TradingEnv(gym.Env):
         equity_before = self._cash + self._shares * self._close[i]
         w = self._target_weight(action)
 
-        # Decision at bar i close; execution at bar i+1 open (no look-ahead).
-        fill = self._open[i + 1]
-        target_mv = w * equity_before
-        current_mv = self._shares * fill
-        delta = target_mv - current_mv
-
-        if delta > 0:
-            spend = min(delta, self._cash)
-            add = spend / fill
-            self._shares += add
-            self._cash -= spend + spend * self._tc
-        elif delta < 0:
-            sell = min(-delta / fill, self._shares)
-            proceeds = sell * fill
-            self._shares -= sell
-            self._cash += proceeds - proceeds * self._tc
+        signal = (1.0 if w else -1.0) if self._discrete else w
+        self._cash, self._shares, _ = execute_bar(
+            self._cash, self._shares, signal, self._close[i], self._open[i + 1],
+            semantics="discrete_hold" if self._discrete else "continuous_target_weight",
+            commission=self._commission, stamp=self._stamp, slippage=self._slippage,
+            band_pct=self._band, min_trade_cny=self._min_trade,
+        )
 
         self._step_index = i + 1
         done = self._step_index >= self._last

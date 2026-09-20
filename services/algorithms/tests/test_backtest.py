@@ -383,4 +383,3 @@ class _DiscreteBuyHold(RangeIndexStrategy):
 
     def generate_signals(self, prices, parameters):
         return pd.Series([1.0, 0.0, 0.0, 0.0][: len(prices)])
-

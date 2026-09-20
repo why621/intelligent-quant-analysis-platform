@@ -78,3 +78,22 @@ def feature_signature(window: int = DEFAULT_WINDOW) -> str:
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def validate_history(prices: pd.DataFrame, window: int = DEFAULT_WINDOW) -> None:
+    """Check the observed sequence before reset/inference can index any bar."""
+    from quant_platform.rl.errors import RLInsufficientHistory
+
+    required = max(window, MIN_WARMUP) + 2
+    if len(prices) < required:
+        raise RLInsufficientHistory(
+            f"强化学习至少需要 {required} 根有效行情（含预热和次日成交），实际 {len(prices)} 根"
+        )
+    if "date" not in prices:
+        raise ValueError("RL prices require ordered dates")
+    dates = pd.to_datetime(prices["date"], errors="raise")
+    if dates.isna().any() or not dates.is_unique or not dates.is_monotonic_increasing:
+        raise ValueError("RL prices must have unique ascending dates")
+    values = prices[["open", "high", "low", "close"]].to_numpy(dtype=float)
+    if not np.isfinite(values).all() or (values <= 0).any():
+        raise ValueError("RL prices must be finite and positive")

@@ -63,19 +63,20 @@ def _provider(frame: pd.DataFrame, publication_date: date):
     )
 
 
-def test_train_save_load_infer_pipeline_is_deterministic(tmp_path):
+@pytest.mark.parametrize("algo", ["dqn", "ppo", "sac", "ddpg"])
+def test_train_save_load_infer_pipeline_is_deterministic(tmp_path, algo):
     train_start = date(2023, 1, 2)
     rows = 220
     frame = _synthetic_ohlc(first_day=train_start, rows=rows, seed=7)
     train_end = (train_start + timedelta(days=rows - 1))
 
     models_root = tmp_path / "models"
-    run_id = "ppo-smoke-0001"
+    run_id = f"{algo}-smoke-0001"
     model_dir = train_run(
         publication_root=tmp_path / "unused",
         models_root=models_root,
         run_id=run_id,
-        algo="ppo",
+        algo=algo,
         symbol="SYNTH",
         start=train_start,
         end=train_end,
@@ -87,7 +88,8 @@ def test_train_save_load_infer_pipeline_is_deterministic(tmp_path):
     assert (model_dir / "manifest.json").exists()
 
     manifest = ModelStore(models_root).load(run_id).manifest
-    assert manifest["algo"] == "ppo"
+    assert manifest["algo"] == algo
+    assert manifest["schemaVersion"] == 2 and manifest["bundleHash"]
     assert manifest["featureSignature"] == features.feature_signature()
     assert manifest["trainEndDate"] == train_end.isoformat()
     assert manifest["consistency"] == "synthetic_pipeline_smoke"
@@ -96,7 +98,7 @@ def test_train_save_load_infer_pipeline_is_deterministic(tmp_path):
     oos = _synthetic_ohlc(
         first_day=train_end + timedelta(days=1), rows=60, seed=11
     )
-    shared = RLStrategy(RL_POLICIES["ppo"], store=ModelStore(models_root))
+    shared = RLStrategy(RL_POLICIES[algo], store=ModelStore(models_root))
 
     def _signals():
         instance = shared.create_for_request({"modelRef": run_id})
@@ -117,7 +119,27 @@ def test_train_save_load_infer_pipeline_is_deterministic(tmp_path):
 
     finite = first.dropna().to_numpy()
     assert finite.size > 0
-    assert np.all((finite >= 0.0) & (finite <= 1.0))
+    if algo == "dqn":
+        assert set(finite).issubset({-1., 0., 1.})
+    else:
+        assert np.all((finite >= 0.0) & (finite <= 1.0))
+
+    # Exercise the public engine request path with the real loaded SB3 policy,
+    # not only the standalone default-account signal convenience method.
+    from quant_platform.backtesting.engine import BacktestEngine
+    from quant_platform.models import BacktestRequest, TradingCosts
+
+    result = BacktestEngine(_provider(oos, oos.date.iloc[-1].date()), {algo: shared}).run(
+        BacktestRequest(
+            symbols=("SYNTH",), strategy_id=algo, parameters={"modelRef": run_id},
+            start_date=oos.date.iloc[0].date(), end_date=oos.date.iloc[-1].date(),
+            initial_capital_cny=25000., trading_costs=TradingCosts(.1, .2, .05),
+        )
+    )
+    assert len(result.equity_curve) == len(oos)
+    assert np.isfinite(result.equity_curve.equity).all()
+    assert (result.equity_curve.equity > 0).all()
+    assert result.assumptions["signalSemantics"] == shared.info().signal_semantics
 
 
 def test_inference_rejects_in_sample_window(tmp_path):
