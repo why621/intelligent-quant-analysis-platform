@@ -154,7 +154,7 @@
                 :step="field.type === 'integer' ? 1 : 'any'" />
             </label>
             <aside v-if="backtest.modelContext.value" class="hint ppo-notice" role="note">
-              <strong>PPO 实验性回测</strong>
+              <strong>{{ backtest.selectedStrategy.value?.name }} · 实验性回测</strong>
               <p>训练资产：{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}（前复权）。训练区间：{{ backtest.modelContext.value.trainStartDate }} 至 {{ backtest.modelContext.value.trainEndDate }}。</p>
               <p v-if="backtest.modelContext.value.assetScope === 'published_universe'">可选择资产池内1–10只股票或ETF。使用同一模型逐资产推理，初始资金等分后合并净值；未进行多资产联合训练，跨资产效果尚未验证。</p>
               <p v-else>当前服务仅支持 {{ backtest.modelContext.value.symbols.join('、') }}。</p>

@@ -22,9 +22,9 @@ class StrategyCatalogService:
             else [MACrossStrategy(), MomentumReversalStrategy()]
         )
         if strategies is None and rl_release:
-            from app.services.rl import WebPPO
+            from app.services.rl import load_web_models
 
-            self._strategies.append(WebPPO(rl_release))
+            self._strategies.extend(load_web_models(rl_release))
         self._by_id = {s.info().strategy_id: s for s in self._strategies}
 
     def list_strategies(self) -> Mapping[str, object]:

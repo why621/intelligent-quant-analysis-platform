@@ -65,3 +65,29 @@ test('date shortcut waits for publication and never writes an empty end date', t
   assert.deepEqual(state.symbols.value,['512100'])
   assert.equal(state.canSubmit.value,true)
 })
+
+for (const algo of ['dqn','sac','ddpg']) {
+  test(`${algo} selects its own model, dates, errors and request snapshot`, async t => {
+    const scope=effectScope();t.after(()=>scope.stop())
+    const items=['ppo','dqn','sac','ddpg'].map(id=>({...ppo(true),id,name:id.toUpperCase(),
+      parameterSchema:{type:'object',required:['modelRef'],properties:{modelRef:{type:'string',enum:[`${id}-reviewed`],default:`${id}-reviewed`}}},
+      modelContext:{...ppo(true).modelContext,modelRef:`${id}-reviewed`}}))
+    let payload
+    const jobId='11111111-1111-4111-8111-111111111111'
+    const client={createBacktest:async p=>{payload=p;return {jobId,status:'queued'}},getBacktest:async()=>({jobId,status:'succeeded',request:payload})}
+    const state=scope.run(()=>useBacktest(ref(items),ref({status:'ready',latestTradeDate:'2026-09-18'}),ref([]),client,null))
+    state.strategyId.value='ppo'
+    state.strategyId.value=algo
+    assert.deepEqual(state.parameters.value,{modelRef:`${algo}-reviewed`})
+    assert.ok(state.validationError.value.startsWith(algo.toUpperCase()))
+    state.symbols.value=['512100','600519'];state.applyModelRange()
+    assert.equal(state.canSubmit.value,true)
+    await state.submit()
+    assert.equal(payload.strategyId,algo)
+    assert.equal(payload.parameters.modelRef,`${algo}-reviewed`)
+    assert.deepEqual(payload.symbols,['512100','600519'])
+    state.strategyId.value='ppo'
+    assert.equal(state.strategyName.value,algo.toUpperCase())
+    assert.equal(state.selectedStrategy.value.name,'PPO')
+  })
+}
