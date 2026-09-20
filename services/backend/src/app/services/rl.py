@@ -19,7 +19,7 @@ from app.services.errors import ServiceError, ValidationError
 class RLServiceError(ServiceError):
     status = 422
 
-    def __init__(self, error):
+    def __init__(self, error, *, details=None):
         messages = {
             "RL_DEPENDENCIES_MISSING": "PPO运行环境尚未就绪，请稍后重试",
             "RL_MODEL_NOT_FOUND": "已部署的PPO模型不可用，请联系维护人员",
@@ -29,7 +29,10 @@ class RLServiceError(ServiceError):
             "RL_NOT_TRAINED": "PPO模型尚未就绪",
         }
         self.code = error.code
-        super().__init__(messages.get(error.code, "PPO实验回测失败"))
+        message = messages.get(error.code, "PPO实验回测失败")
+        if details and details.get("symbol"):
+            message = f"资产 {details['symbol']}：{message}"
+        super().__init__(message, details=details)
 
 
 class WebPPO(RLStrategy):
@@ -39,7 +42,9 @@ class WebPPO(RLStrategy):
         if set(release) != {"modelRef", "bundleHash", "symbols", "adjust"}:
             raise ValueError("invalid PPO release configuration")
         if release["symbols"] != ["510300"] or release["adjust"] != "qfq":
-            raise ValueError("only reviewed 510300/qfq PPO release is supported")
+            raise ValueError(
+                "release must retain the reviewed training provenance and qfq adjustment"
+            )
         self.release = release
         super().__init__(PPO, store=ModelStore(path.parent))
         bundle = self.checked_bundle()
@@ -83,6 +88,10 @@ class WebPPO(RLStrategy):
                 date.fromisoformat(m["trainEndDate"]) + timedelta(days=1)
             ).isoformat(),
             "symbols": self.release["symbols"],
+            "trainingSymbols": self.release["symbols"],
+            "assetScope": "published_universe",
+            "portfolioMode": "equal_cash_independent",
+            "crossAssetValidated": False,
             "adjust": self.release["adjust"],
             "warmupBars": 20,
             "minimumBars": 22,
@@ -102,18 +111,19 @@ class WebPPO(RLStrategy):
 
     def validate_web_request(self, payload, provider):
         self.checked_bundle()
-        if (
-            list(payload["symbols"]) != self.release["symbols"]
-            or payload.get("adjust", "qfq") != "qfq"
-        ):
-            raise ValidationError("该PPO模型仅支持510300单资产、前复权回测")
+        if payload.get("adjust", "qfq") != "qfq":
+            raise ValidationError("PPO模型仅支持前复权回测")
         start, end = (date.fromisoformat(str(payload[k])) for k in ("startDate", "endDate"))
         if start <= date.fromisoformat(self.manifest["trainEndDate"]):
             raise RLInSampleRequest("training overlap")
         context = getattr(provider, "publication_context", {})
         if context.get("universeVersion") != self.manifest["universeVersion"]:
             raise RLIncompatibleModel("universe mismatch")
-        validate_history(provider.history("510300", start, end, "qfq"))
+        for symbol in payload["symbols"]:
+            try:
+                validate_history(provider.history(symbol, start, end, "qfq"))
+            except RLError as exc:
+                raise RLServiceError(exc, details={"symbol": symbol}) from exc
 
 
 def validate_web_model(catalog, payload, provider):

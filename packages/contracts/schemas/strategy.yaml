@@ -66,9 +66,24 @@ ModelContext:
     trainEndDate: {type: string, format: date}
     outOfSampleStartDate: {type: string, format: date}
     symbols:
+      description: 历史兼容字段；assetScope缺省时是允许资产列表，published_universe时保留已验证训练资产，不再限制请求资产。
       type: array
       minItems: 1
       items: {$ref: "./common.yaml#/Symbol"}
+    trainingSymbols:
+      type: array
+      minItems: 1
+      items: {$ref: "./common.yaml#/Symbol"}
+      description: 模型训练资产；不是允许回测的资产列表。
+    assetScope:
+      enum: [published_universe]
+      description: 可回测当前已发布资产池内1至10只股票或ETF；缺省沿用历史symbols限制。
+    portfolioMode:
+      enum: [equal_cash_independent]
+      description: 等分初始资金，各资产独立推理和成交后合并净值，不是多资产联合训练。
+    crossAssetValidated:
+      type: boolean
+      description: 跨资产效果是否已验证；当前false，可运行不代表收益有效性验证。
     adjust: {const: qfq}
     warmupBars: {type: integer, minimum: 0}
     minimumBars: {type: integer, minimum: 1}
