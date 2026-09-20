@@ -950,7 +950,10 @@ def test_ranking_insufficient_data_on_empty_result() -> None:
     assert body["error"]["code"] == "INSUFFICIENT_DATA"
     details = body["error"]["details"]
     assert details["period"] == "30d" and details["reason"] == "rank 返回空"
-    assert {x["strategyId"] for x in details["unavailableStrategies"]} == {"ma_cross", "momentum_reversal"}
+    assert {x["strategyId"] for x in details["unavailableStrategies"]} == {
+        "ma_cross",
+        "momentum_reversal",
+    }
     assert all(x["code"] == "RANKING_FAILED" for x in details["unavailableStrategies"])
 
 
