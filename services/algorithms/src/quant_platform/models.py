@@ -15,6 +15,7 @@ AdjustMode = Literal["qfq", "hfq", "none"]
 DataState = Literal["ready", "updating", "stale", "failed"]
 StrategyCategory = Literal["traditional", "ai"]
 StrategyState = Literal["available", "experimental", "planned"]
+SignalSemantics = Literal["discrete_hold", "continuous_target_weight"]
 TradeSide = Literal["buy", "sell"]
 AllocationAction = Literal["increase", "hold", "decrease", "exit"]
 
@@ -64,6 +65,8 @@ class StrategyInfo:
     status: StrategyState
     description: str
     parameter_schema: Mapping[str, object] = field(default_factory=dict)
+    signal_semantics: SignalSemantics = "discrete_hold"
+    requires_trained_model: bool = False
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
+from quant_platform.backtesting.execution import execute_bar
 from quant_platform.interfaces import MarketDataProvider, Strategy
 from quant_platform.models import (
     BacktestMetrics,
@@ -32,7 +33,13 @@ class BacktestEngine:
     def run(self, request: BacktestRequest) -> BacktestResult:
         self._validate(request)
 
-        strategy = self._strategies[request.strategy_id]
+        strategy = self._resolve_strategy(request)
+        # Tolerate strategies that predate the info() metadata contract:
+        # default to the historical discrete-hold behaviour when unavailable.
+        info = strategy.info() if hasattr(strategy, "info") else None
+        semantics = getattr(info, "signal_semantics", "discrete_hold")
+        band_pct = float(getattr(strategy, "rebalance_band_pct", 0.005))
+        min_trade_cny = float(getattr(strategy, "min_trade_cny", 100.0))
         cash_per_symbol = request.initial_capital_cny / len(request.symbols)
 
         uses_nontrading_valuation = False
@@ -43,11 +50,25 @@ class BacktestEngine:
             prices = self._provider.history(
                 sym, request.start_date, request.end_date, request.adjust
             )
-            if prices.empty:
+            if prices.empty and not callable(getattr(strategy, "prepare_inference", None)):
                 continue
-            signals = strategy.generate_signals(prices, request.parameters)
+            prepare = getattr(strategy, "prepare_inference", None)
+            signal_at = prepare(prices, request.parameters) if callable(prepare) else None
+            signals = (
+                pd.Series(float("nan"), index=prices.index)
+                if signal_at is not None
+                else strategy.generate_signals(prices, request.parameters)
+            )
             trades, equity = self._simulate(
-                sym, prices, signals, cash_per_symbol, request.trading_costs
+                sym,
+                prices,
+                signals,
+                cash_per_symbol,
+                request.trading_costs,
+                semantics,
+                band_pct,
+                min_trade_cny,
+                signal_at=signal_at,
             )
             all_trades.extend(trades)
             nontrading = getattr(self._provider, "nontrading_sessions", None)
@@ -87,6 +108,10 @@ class BacktestEngine:
                 "nonTradingValuation": "last_observed_close_or_initial_cash"
                 if uses_nontrading_valuation
                 else "none",
+                "signalSemantics": semantics,
+                "rebalanceBandPct": (
+                    str(band_pct) if semantics == "continuous_target_weight" else "n/a"
+                ),
                 "calendar": "CN",
                 "currency": "CNY",
                 "benchmarkReturnBasis": "price_index"
@@ -109,6 +134,20 @@ class BacktestEngine:
         if request.initial_capital_cny <= 0:
             raise ValueError("initial_capital_cny 必须大于 0")
 
+    def _resolve_strategy(self, request: BacktestRequest) -> Strategy:
+        """Return the strategy instance to run this request with.
+
+        Strategies that expose ``create_for_request(parameters)`` (duck-typed,
+        same convention as ``nontrading_sessions`` / ``cache_revision``) get a
+        fresh per-request instance so trained model state never races across
+        concurrent backtests. Everything else keeps the shared singleton.
+        """
+        strategy = self._strategies[request.strategy_id]
+        factory = getattr(strategy, "create_for_request", None)
+        if callable(factory):
+            return factory(request.parameters)
+        return strategy
+
     def _simulate(
         self,
         symbol: str,
@@ -116,6 +155,11 @@ class BacktestEngine:
         signals: pd.Series,
         capital: float,
         costs: object,
+        semantics: str = "discrete_hold",
+        band_pct: float = 0.005,
+        min_trade_cny: float = 100.0,
+        *,
+        signal_at=None,
     ) -> tuple[list[Trade], pd.Series]:
         from quant_platform.models import TradingCosts
 
@@ -125,67 +169,41 @@ class BacktestEngine:
             slippage = costs.slippage_pct / 100
         else:
             commission = stamp = slippage = 0.0
-
         if len(signals) != len(prices):
             raise ValueError("strategy signals must have one value per price row")
-
         prices = prices.copy()
         prices["_signal"] = signals.to_numpy(copy=False)
         prices = prices.set_index("date").sort_index()
-        signals = prices["_signal"].fillna(0)
-
-        cash = capital
-        shares = 0.0
+        cash, shares = capital, 0.0
         trades: list[Trade] = []
-        eq_values: dict[pd.Timestamp, float] = {}
-
+        eq_values = {prices.index[0]: capital}
+        previous_target = 0.0
+        continuous = semantics == "continuous_target_weight"
         for i in range(len(prices) - 1):
-            execution_date = prices.index[i + 1]  # type: ignore[assignment]
-            signal = float(signals.iloc[i])
-            next_open = float(prices["open"].iloc[i + 1])
-
-            exec_price = next_open * (1 + slippage * (1 if signal >= 0 else -1))
-
-            if signal == 1.0 and cash > 0:
-                fee = cash * commission
-                invest = cash - fee
-                shares = invest / exec_price
-                cash = 0.0
-                trades.append(
-                    Trade(
-                        trade_date=pd.Timestamp(execution_date).date(),
-                        symbol=symbol,
-                        side="buy",
-                        price=exec_price,
-                        quantity=shares,
-                        amount_cny=invest,
-                        fee_cny=fee,
-                    )
-                )
-
-            elif signal == -1.0 and shares > 0:
-                gross = shares * exec_price
-                fee = gross * (commission + stamp)
-                cash = gross - fee
-                trades.append(
-                    Trade(
-                        trade_date=pd.Timestamp(execution_date).date(),
-                        symbol=symbol,
-                        side="sell",
-                        price=exec_price,
-                        quantity=shares,
-                        amount_cny=gross,
-                        fee_cny=fee,
-                    )
-                )
-                shares = 0.0
-
-            close_price = float(prices["close"].iloc[i + 1])
-            eq_values[prices.index[i + 1]] = cash + shares * close_price  # type: ignore[assignment]
-
-        # 首日净值 = 初始资金
-        eq_values[prices.index[0]] = capital  # type: ignore[assignment]
-
+            close = float(prices["close"].iloc[i])
+            equity = cash + shares * close
+            weight = shares * close / equity if equity > 0 else 0.0
+            # RL observes the account that actually executed previous orders,
+            # including request-specific costs, capital and rebalance thresholds.
+            signal = float(signal_at(i, weight) if signal_at is not None
+                           else prices["_signal"].iloc[i])
+            if math.isnan(signal):
+                signal = previous_target if continuous else 0.0
+            if continuous:
+                signal = min(1.0, max(0.0, signal))
+                previous_target = signal
+            cash, shares, fill = execute_bar(
+                cash, shares, signal, close, float(prices["open"].iloc[i + 1]),
+                semantics=semantics, commission=commission, stamp=stamp,
+                slippage=slippage, band_pct=band_pct, min_trade_cny=min_trade_cny,
+            )
+            if fill is not None:
+                trades.append(Trade(
+                    trade_date=pd.Timestamp(prices.index[i + 1]).date(),
+                    symbol=symbol, side=fill.side, price=fill.price,
+                    quantity=fill.quantity, amount_cny=fill.amount, fee_cny=fill.fee,
+                ))
+            eq_values[prices.index[i + 1]] = cash + shares * float(prices["close"].iloc[i + 1])
         return trades, pd.Series(eq_values).sort_index()
 
     def _merge_equity(self, curves: dict[str, pd.Series]) -> pd.Series:
