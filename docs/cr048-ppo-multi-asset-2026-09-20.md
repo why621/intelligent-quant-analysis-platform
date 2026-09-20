@@ -66,4 +66,8 @@ python -X utf8 artifacts/cr040-deploy-20260915/run_remote.py artifacts/cr048-ppo
 
 同一510300训练模型跨资产的运行正确性已验证，跨资产收益有效性仍未验证，继续显示experimental和crossAssetValidated=false。本轮没有重训或开放其他三种RL。
 
-云端网页已更新；GitHub Pages仍需本分支合并触发现有workflow，未创建PR，不声称远端CI或Pages已完成。创建入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/ppo-multi-asset-20260920 。
+云端网页及GitHub Pages均已更新。[PR #31](https://github.com/why621/intelligent-quant-analysis-platform/pull/31)于2026-09-20 10:20:59 UTC合并，main提交f8c796ad4c441bd7618a863b4186c12723549650；[Pages workflow 35504819136](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35504819136)对应提交completed/success。实际页面加载assets/index-CROFwLk9.js，包含published_universe及“使用样本外日期区间”，API指向https://43.161.223.91/api。这里只确认Pages部署工作流，不将其等同全部CI成功。
+
+用户曾反馈截图中日期/结果不符合预期，随即明确表示“可以了”；未复现独立新缺陷，也未实施新的代码修复。记录为用户可用性确认，不推断具体操作或收益表现。T031a/b/c/d及Pages发布核验完成。
+
+本轮仅同步四份SDD、本报告及遗留PR29历史审阅，代码c5675a7和部署记录c311006均已在main中。验证命令：git fetch origin、git log origin/main..codex/ppo-multi-asset-20260920（无遗漏提交）、curl读取GitHub PR/Pages workflow及实际网页JS、文档链接检查、git diff --check。实际查询证据保存在本地artifacts/cr048-ppo-multi/merged-pr.json、pages-run.json、pages-live.html和pages-live.js；这些运行材料不入库。既有测试结果沿用，没有重复计数。本轮文档通过codex/sdd-sync-20260920同步，文档合并与既有上线状态区分。
