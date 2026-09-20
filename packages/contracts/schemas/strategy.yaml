@@ -12,8 +12,12 @@ Strategy:
       enum: [traditional, ai]
     status:
       type: string
-      description: 只有 available 策略允许提交回测
+      description: available策略允许回测；experimental仅在backtestEnabled为true时允许受限实验回测，不代表绩效验收通过。planned不可执行。
       enum: [available, experimental, planned]
+    backtestEnabled:
+      type: boolean
+      description: 仅回测能力；实验策略必须显式true才开放，缺省不开放；不适用于排行或配置。
+    modelContext: {$ref: "#/ModelContext"}
     description: {type: string}
     parameterSchema:
       type: object
@@ -50,3 +54,24 @@ RankingResponse:
     items:
       type: array
       items: {$ref: "#/RankingItem"}
+
+ModelContext:
+  type: object
+  additionalProperties: false
+  required: [modelRef, bundleHash, trainStartDate, trainEndDate, outOfSampleStartDate, symbols, adjust, warmupBars, minimumBars, trainingDataVersion, universeVersion, executionVersion]
+  properties:
+    modelRef: {type: string}
+    bundleHash: {type: string, pattern: '^[a-f0-9]{64}$'}
+    trainStartDate: {type: string, format: date}
+    trainEndDate: {type: string, format: date}
+    outOfSampleStartDate: {type: string, format: date}
+    symbols:
+      type: array
+      minItems: 1
+      items: {$ref: "./common.yaml#/Symbol"}
+    adjust: {const: qfq}
+    warmupBars: {type: integer, minimum: 0}
+    minimumBars: {type: integer, minimum: 1}
+    trainingDataVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
+    universeVersion: {type: string}
+    executionVersion: {type: string}

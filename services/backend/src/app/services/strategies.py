@@ -15,17 +15,29 @@ class StrategyCatalogService:
     因此后端维护策略注册表；新增策略时在 _strategies 里加一条即可。
     """
 
-    def __init__(self, strategies: Sequence[Strategy] | None = None) -> None:
+    def __init__(self, strategies: Sequence[Strategy] | None = None, *, rl_release=None) -> None:
         self._strategies = (
             list(strategies)
             if strategies is not None
             else [MACrossStrategy(), MomentumReversalStrategy()]
         )
+        if strategies is None and rl_release:
+            from app.services.rl import WebPPO
+
+            self._strategies.append(WebPPO(rl_release))
         self._by_id = {s.info().strategy_id: s for s in self._strategies}
 
     def list_strategies(self) -> Mapping[str, object]:
         """返回策略目录，字段与 contracts/schemas/strategy.yaml#/Strategy 一致。"""
-        return {"items": [_serialize_strategy(s.info()) for s in self._strategies]}
+        items = []
+        for strategy in self._strategies:
+            item = _serialize_strategy(strategy.info())
+            if hasattr(strategy, "backtest_enabled"):
+                item.update(
+                    backtestEnabled=strategy.backtest_enabled, modelContext=strategy.model_context()
+                )
+            items.append(item)
+        return {"items": items}
 
     def get_strategy(self, strategy_id: str) -> Strategy | None:
         """按 id 返回策略实例（供参数校验和回测引擎使用）；不存在时返回 None。"""

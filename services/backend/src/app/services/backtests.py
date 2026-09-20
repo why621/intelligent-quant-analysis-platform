@@ -18,6 +18,7 @@ from quant_platform.data.akshare_provider import (
     UpstreamUnavailableError as ProviderUpstreamError,
 )
 from quant_platform.models import BacktestRequest, BacktestResult, TradingCosts
+from quant_platform.rl.errors import RLError
 
 from app.services.errors import (
     AssetNotFoundError,
@@ -32,6 +33,7 @@ from app.services.research_dates import (
     ResearchDateGuard,
     research_read,
 )
+from app.services.rl import RLServiceError, validate_web_model
 from app.services.strategies import StrategyCatalogService
 
 logger = logging.getLogger(__name__)
@@ -199,7 +201,7 @@ class BacktestService:
             date.fromisoformat(str(payload["endDate"])),
         )
         with research_read(self._provider) as context:
-            pass
+            validate_web_model(self._catalog, payload, self._provider)
         job_id = self._store.create(payload, context)
         return self.get_job(job_id)
 
@@ -220,8 +222,13 @@ class BacktestService:
             if expected is None:
                 raise DataVersionChangedError(message="旧任务未保存数据版本，请重新提交")
             with research_read(self._provider, expected=expected) as context:
+                model_context = validate_web_model(
+                    self._catalog, json.loads(row["request_json"]), self._provider
+                )
                 result = self._engine.run(request)
             serialized = {**_serialize_result(result), "dataContext": context}
+            if model_context is not None:
+                serialized["modelContext"] = model_context
             self._store.mark_succeeded(job_id, json.dumps(serialized))
             logger.info("backtest job %s succeeded", job_id)
         except ServiceError as exc:
@@ -232,6 +239,11 @@ class BacktestService:
                     "message": exc.message,
                     "details": exc.details,
                 },
+            )
+        except RLError as exc:
+            error = RLServiceError(exc)
+            self._store.mark_failed(
+                job_id, {"code": error.code, "message": error.message, "details": error.details}
             )
         except ProviderUpstreamError as exc:
             self._store.mark_failed(
@@ -266,7 +278,13 @@ class BacktestService:
 
         strategy_id = str(payload["strategyId"])
         strategy = self._catalog.get_strategy(strategy_id)
-        if strategy is None or strategy.info().status != "available":
+        if strategy is None or not (
+            strategy.info().status == "available"
+            or (
+                strategy.info().status == "experimental"
+                and getattr(strategy, "backtest_enabled", False)
+            )
+        ):
             raise StrategyNotAvailableError(details={"strategyId": strategy_id})
 
         # 结构校验：以策略 info() 暴露的 parameterSchema 为唯一来源

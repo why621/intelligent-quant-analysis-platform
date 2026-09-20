@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { effectScope, ref } from 'vue'
+import { useBacktest } from '../src/dashboard/use-backtest.js'
+import { useAllocation } from '../src/dashboard/use-allocation.js'
+
+const ppo = enabled => ({id:'ppo', name:'PPO', status:'experimental', backtestEnabled:enabled,
+  parameterSchema:{type:'object',required:['modelRef'],properties:{modelRef:{type:'string',title:'模型',enum:['ppo-reviewed'],default:'ppo-reviewed'}}},
+  modelContext:{symbols:['510300'],trainEndDate:'2026-06-30',outOfSampleStartDate:'2026-07-01'}})
+function setup(t, enabled = true) {
+  const scope = effectScope(); t.after(() => scope.stop())
+  const strategies = ref([ppo(enabled)])
+  const state = scope.run(() => useBacktest(strategies,ref({status:'ready',latestTradeDate:'2026-09-18'}),ref([]),{},null))
+  state.strategyId.value = 'ppo'
+  return {state,strategies,scope}
+}
+test('explicit experimental PPO supports model select and sample-out range', t => {
+  const {state} = setup(t)
+  assert.deepEqual(state.parameters.value,{modelRef:'ppo-reviewed'})
+  assert.match(state.validationError.value,/训练区间/)
+  state.applyModelRange()
+  assert.equal(state.startDate.value,'2026-07-01')
+  assert.equal(state.endDate.value,'2026-09-18')
+  assert.equal(state.canSubmit.value,true)
+  state.parameters.value.modelRef = '../other'
+  assert.match(state.validationError.value,/已部署/)
+})
+test('wrong asset and disabled PPO remain blocked', t => {
+  const {state,strategies} = setup(t)
+  state.applyModelRange(); state.symbols.value=['600519']
+  assert.match(state.validationError.value,/510300/)
+  strategies.value=[ppo(false)]
+  assert.equal(state.availableStrategies.value.length,0)
+  assert.equal(state.canSubmit.value,false)
+})
+test('experimental capability does not enable allocation', t => {
+  const {scope,strategies} = setup(t)
+  const allocation=scope.run(()=>useAllocation(strategies,{}))
+  assert.equal(allocation.availableStrategies.value.length,0)
+})

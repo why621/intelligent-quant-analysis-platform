@@ -8,7 +8,9 @@ export function useStrategyParameters(strategy) {
   })))
   const metadataReady = computed(() => schema.value?.type === 'object'
     && fields.value.length > 0
-    && fields.value.every(field => ['number', 'integer'].includes(field.type)))
+    && fields.value.every(field => ['number', 'integer'].includes(field.type)
+      || (field.type === 'string' && Array.isArray(field.enum) && field.enum.length > 0
+        && field.enum.every(value => typeof value === 'string'))))
   watch(schema, value => {
     parameters.value = Object.fromEntries(Object.entries(value?.properties || {})
       .map(([key, rule]) => [key, rule.default ?? '']))
@@ -20,6 +22,10 @@ export function useStrategyParameters(strategy) {
       const missing = value === '' || value == null
       if (missing && !(schema.value.required || []).includes(field.key)) continue
       if (missing) return `请填写 ${field.label}。`
+      if (field.type === 'string') {
+        if (!field.enum.includes(value)) return `请选择已部署的 ${field.label}。`
+        continue
+      }
       if (typeof value !== 'number' || !Number.isFinite(value)) return `${field.label} 必须是有限数值。`
       if (field.type === 'integer' && !Number.isInteger(value)) return `${field.label} 必须为整数。`
       if (field.minimum != null && value < field.minimum) return `${field.label} 不能小于 ${field.minimum}。`
