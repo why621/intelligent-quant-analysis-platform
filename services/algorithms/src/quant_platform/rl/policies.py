@@ -22,7 +22,16 @@ from quant_platform.models import SignalSemantics, StrategyInfo, TradingCosts
 from quant_platform.rl import features
 from quant_platform.rl.errors import RLIncompatibleModel, RLInSampleRequest, RLNotTrained
 
-DEFAULT_MODELS_ROOT = Path(__file__).resolve().parents[5] / "models"
+
+def _default_models_root(module_path: Path) -> Path:
+    """Source checkouts retain repo/models; installed packages use cwd/models."""
+    parents = module_path.resolve().parents
+    if len(parents) > 5 and parents[4].name == "services":
+        return parents[5] / "models"
+    return Path.cwd() / "models"
+
+
+DEFAULT_MODELS_ROOT = _default_models_root(Path(__file__))
 
 
 @dataclass(frozen=True)
@@ -213,7 +222,7 @@ class RLStrategy:
             from quant_platform.rl.errors import RLDependenciesMissing
 
             raise RLDependenciesMissing(
-                "强化学习依赖缺失，请安装 extras: pip install -e \"services/algorithms[rl]\""
+                '强化学习依赖缺失，请安装 extras: pip install -e "services/algorithms[rl]"'
             ) from exc
         classes = {"DQN": DQN, "PPO": PPO, "SAC": SAC, "DDPG": DDPG}
         model_cls = classes[self._spec.sb3_class]
@@ -275,9 +284,7 @@ class RLStrategy:
         from quant_platform.backtesting.engine import BacktestEngine
 
         decision = self.prepare_inference(prices, {})
-        weights = pd.Series(
-            0.0 if self._spec.discrete else np.nan, index=prices.index, dtype=float
-        )
+        weights = pd.Series(0.0 if self._spec.discrete else np.nan, index=prices.index, dtype=float)
 
         def record(bar, current_weight):
             signal = decision(bar, current_weight)
@@ -285,8 +292,14 @@ class RLStrategy:
             return signal
 
         BacktestEngine(None, {})._simulate(
-            "inference", prices, weights.copy(), 100_000.0, TradingCosts(),
-            self._spec.signal_semantics, self.rebalance_band_pct, self.min_trade_cny,
+            "inference",
+            prices,
+            weights.copy(),
+            100_000.0,
+            TradingCosts(),
+            self._spec.signal_semantics,
+            self.rebalance_band_pct,
+            self.min_trade_cny,
             signal_at=record,
         )
         return weights
