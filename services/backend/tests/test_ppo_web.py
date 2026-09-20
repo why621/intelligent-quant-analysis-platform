@@ -98,10 +98,8 @@ def test_valid_request_records_model_context_without_loading_weights(configured)
     assert catalog.get_strategy("ppo")._model is None
 
 
-@pytest.mark.parametrize(
-    "changes", [{"symbols": ["600519"]}, {"symbols": ["510300", "510500"]}, {"adjust": "none"}]
-)
-def test_unreviewed_assets_and_adjustment_rejected(configured, changes):
+@pytest.mark.parametrize("changes", [{"adjust": "none"}, {"adjust": "hfq"}])
+def test_untrained_adjustment_rejected(configured, changes):
     catalog, provider, payload, *_ = configured
     with pytest.raises(ValidationError):
         validate_web_model(catalog, payload | changes, provider)
@@ -134,3 +132,27 @@ def test_arbitrary_reference_rejected_and_errors_do_not_leak_paths(configured):
     with pytest.raises(ValueError):
         catalog.get_strategy("ppo").validate_parameters({"modelRef": "../private"})
     assert "/private" not in RLServiceError(RLDependenciesMissing("/private")).message
+
+
+@pytest.mark.parametrize("symbols", [["512100"], ["600519"], ["512100", "600519", "510300"]])
+def test_cross_asset_requests_validate_each_selected_asset(configured, symbols):
+    catalog, provider, payload, *_ = configured
+    context = validate_web_model(catalog, payload | {"symbols": symbols}, provider)
+    assert context["trainingSymbols"] == ["510300"]
+    assert context["assetScope"] == "published_universe"
+    assert context["portfolioMode"] == "equal_cash_independent"
+    assert context["crossAssetValidated"] is False
+    assert [call.args[0] for call in provider.history.call_args_list] == symbols
+
+
+def test_one_short_asset_rejects_entire_request_with_symbol(configured):
+    catalog, provider, payload, *_ = configured
+    frame = provider.history.return_value
+    provider.history.side_effect = lambda symbol, *args: (
+        frame if symbol == "512100" else frame.iloc[:21]
+    )
+    with pytest.raises(RLServiceError) as error:
+        validate_web_model(catalog, payload | {"symbols": ["512100", "600519"]}, provider)
+    assert error.value.code == "RL_INSUFFICIENT_HISTORY"
+    assert error.value.details == {"symbol": "600519"}
+    assert "600519" in error.value.message

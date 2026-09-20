@@ -155,9 +155,11 @@
             </label>
             <aside v-if="backtest.modelContext.value" class="hint ppo-notice" role="note">
               <strong>PPO 实验性回测</strong>
-              <p>适用资产：{{ backtest.modelContext.value.symbols.join('、') }}（前复权）。训练区间：{{ backtest.modelContext.value.trainStartDate }} 至 {{ backtest.modelContext.value.trainEndDate }}。</p>
+              <p>训练资产：{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}（前复权）。训练区间：{{ backtest.modelContext.value.trainStartDate }} 至 {{ backtest.modelContext.value.trainEndDate }}。</p>
+              <p v-if="backtest.modelContext.value.assetScope === 'published_universe'">可选择资产池内1–10只股票或ETF。使用同一模型逐资产推理，初始资金等分后合并净值；未进行多资产联合训练，跨资产效果尚未验证。</p>
+              <p v-else>当前服务仅支持 {{ backtest.modelContext.value.symbols.join('、') }}。</p>
               <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，至少22根行情，前20根预热不交易。模型效果仅在短区间验证，存在过拟合与幸存者偏差，不代表未来收益。</p>
-              <button type="button" :disabled="backtestBusy || backtest.activeJob.value" @click="backtest.applyModelRange">使用模型适用资产和样本外区间</button>
+              <button type="button" :disabled="backtestBusy || backtest.activeJob.value || !backtest.maxDate.value" @click="backtest.applyModelRange">使用样本外日期区间</button>
             </aside>
             <label>比较基准
               <select v-model="backtestBenchmark">
@@ -194,6 +196,7 @@
             </span></div>
             <p v-if="backtestJob" class="hint">{{ backtest.benchmarkLabel.value }}</p>
             <p v-if="backtestJob?.result?.modelContext" class="hint">实验性模型：{{ backtestJob.result.modelContext.modelRef }} · 训练截止 {{ backtestJob.result.modelContext.trainEndDate }} · 前20根预热不交易；不代表未来收益。</p>
+            <p v-if="backtestJob?.result?.modelContext?.assetScope === 'published_universe'" class="hint">训练资产 {{ backtestJob.result.modelContext.trainingSymbols.join('、') }} · 各资产等分初始资金、独立推理后合并净值；跨资产效果尚未验证。</p>
             <p v-if="backtestJob?.request" class="hint">
               {{ backtestJob.request.startDate }} 至 {{ backtestJob.request.endDate }} ·
               {{ backtestJob.request.symbols.join('、') }} · 参数 {{ JSON.stringify(backtestJob.request.parameters) }}

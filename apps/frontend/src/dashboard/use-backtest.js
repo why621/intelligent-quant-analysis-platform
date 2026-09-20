@@ -28,8 +28,8 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   const parameterForm = useStrategyParameters(selectedStrategy)
   const modelContext = computed(() => selectedStrategy.value?.modelContext || null)
   const applyModelRange = () => {
-    if (!modelContext.value || busy.value || activeJob.value) return
-    symbols.value = [...modelContext.value.symbols]
+    if (!modelContext.value || !dates.maxDate.value || busy.value || activeJob.value) return
+    if (modelContext.value.assetScope !== 'published_universe') symbols.value = [...modelContext.value.symbols]
     dates.startDate.value = modelContext.value.outOfSampleStartDate
     dates.endDate.value = dates.maxDate.value
   }
@@ -61,7 +61,7 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     if (dates.dateError.value) return dates.dateError.value
     if (modelContext.value) {
       const model = modelContext.value
-      if (symbols.value.length !== model.symbols.length || symbols.value.some((value, i) => value !== model.symbols[i])) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
+      if (model.assetScope !== 'published_universe' && (symbols.value.length !== model.symbols.length || symbols.value.some((value, i) => value !== model.symbols[i]))) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
       if (dates.startDate.value < model.outOfSampleStartDate) return `PPO起始日须从 ${model.outOfSampleStartDate} 起，不能与训练区间重叠。`
     }
     return ''
