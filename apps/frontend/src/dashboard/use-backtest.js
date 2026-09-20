@@ -62,7 +62,7 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     if (modelContext.value) {
       const model = modelContext.value
       if (model.assetScope !== 'published_universe' && (symbols.value.length !== model.symbols.length || symbols.value.some((value, i) => value !== model.symbols[i]))) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
-      if (dates.startDate.value < model.outOfSampleStartDate) return `PPO起始日须从 ${model.outOfSampleStartDate} 起，不能与训练区间重叠。`
+      if (dates.startDate.value < model.outOfSampleStartDate) return `${selectedStrategy.value.name}起始日须从 ${model.outOfSampleStartDate} 起，不能与训练区间重叠。`
     }
     return ''
   })
@@ -146,5 +146,5 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   if (getCurrentScope()) onScopeDispose(() => { disposed = true; generation += 1; stopTimer() })
   return { ...dates, ...parameterForm, symbols, strategyId, benchmark, benchmarkOptions,
     benchmarkLabel, job, busy, error, recoveryId, activeJob, availableStrategies, strategyName,
-    modelContext, applyModelRange, validationError, canSubmit, submit, resume }
+    modelContext, selectedStrategy, applyModelRange, validationError, canSubmit, submit, resume }
 }
