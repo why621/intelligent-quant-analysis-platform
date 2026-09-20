@@ -140,3 +140,32 @@ def test_dependencies_disable_all_models(release, monkeypatch):
         for x in catalog.list_strategies()["items"]
         if x["category"] == "ai"
     )
+
+
+@pytest.mark.parametrize("algo", list(RL_POLICIES))
+def test_ranking_uses_sample_out_warmup_and_own_model(release, algo):
+    from quant_platform.rl.errors import RLInSampleRequest, RLInsufficientHistory
+
+    path, _ = release
+    strategy = StrategyCatalogService(rl_release=path).get_strategy(algo)
+    dates = pd.bdate_range("2026-07-01", "2026-09-18")
+    frame = pd.DataFrame({"date": dates, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0})
+    provider = SimpleNamespace(
+        publication_context={"universeVersion": "test"}, history=Mock(return_value=frame)
+    )
+    req = strategy.ranking_request(date(2026, 9, 18), "30d", provider)
+    assert req.start_date == date(2026, 7, 1)
+    assert req.parameters == {"modelRef": algo + "-test"}
+    assert req.initial_capital_cny == 100000
+    for call in provider.history.call_args_list:
+        assert call.args[1] >= date(2026, 7, 1)
+    with pytest.raises(RLInSampleRequest):
+        strategy.ranking_request(date(2026, 9, 18), "1y", provider)
+    # Plenty of bars overall, but insufficient pre-window history must not rank.
+    with pytest.raises(RLInsufficientHistory):
+        strategy.ranking_request(date(2026, 8, 1), "30d", provider)
+    provider.history.return_value = frame.iloc[-21:]
+    with pytest.raises(RLServiceError):
+        strategy.ranking_request(date(2026, 9, 18), "1d", provider)
+    provider.history.return_value = frame.iloc[-22:]
+    assert strategy.ranking_request(date(2026, 9, 18), "1d", provider)

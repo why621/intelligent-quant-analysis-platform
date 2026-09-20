@@ -877,6 +877,7 @@ def test_ranking_matches_contract() -> None:
             "strategyId",
             "strategyName",
             "category",
+            "status",
             "returnPct",
             "maxDrawdownPct",
             "sharpe",
@@ -947,7 +948,13 @@ def test_ranking_insufficient_data_on_empty_result() -> None:
     assert response.status_code == 422
     body = response.json
     assert body["error"]["code"] == "INSUFFICIENT_DATA"
-    assert body["error"]["details"] == {"period": "30d", "reason": "rank 返回空"}
+    details = body["error"]["details"]
+    assert details["period"] == "30d" and details["reason"] == "rank 返回空"
+    assert {x["strategyId"] for x in details["unavailableStrategies"]} == {
+        "ma_cross",
+        "momentum_reversal",
+    }
+    assert all(x["code"] == "RANKING_FAILED" for x in details["unavailableStrategies"])
 
 
 def test_ranking_cache_hit_avoids_recompute() -> None:

@@ -31,6 +31,11 @@ RankingItem:
     strategyId: {type: string}
     strategyName: {type: string}
     category: {type: string, enum: [traditional, ai]}
+    status:
+      type: string
+      enum: [available, experimental]
+      description: 实验排行仍为experimental，不代表绩效验收通过；缺省兼容旧条目。
+    modelContext: {$ref: "#/ModelContext"}
     returnPct:
       type: number
       description: 百分点
@@ -39,10 +44,22 @@ RankingItem:
       description: 非负百分点
       minimum: 0
     sharpe: {type: number}
+RankingUnavailable:
+  type: object
+  required: [strategyId, strategyName, code, message]
+  properties:
+    strategyId: {type: string}
+    strategyName: {type: string}
+    code: {type: string}
+    message: {type: string}
 RankingResponse:
   type: object
   required: [asOfDate, period, items]
   properties:
+    unavailableStrategies:
+      type: array
+      description: 已启用但因训练重叠、预热不足或运行错误未参与的策略；不得以零收益冒充结果。
+      items: {$ref: "#/RankingUnavailable"}
     evaluationSymbols:
       type: array
       items: {$ref: "./common.yaml#/Symbol"}

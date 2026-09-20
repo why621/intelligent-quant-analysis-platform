@@ -10,7 +10,7 @@
 
 平台已接入固定300只沪深300成分股及27只ETF，提供五个研究模块。除均线交叉、动量反转外，PPO、DQN、SAC、DDPG四种强化学习算法均已训练验证并开放网页实验回测，支持1–10资产等分资金独立运行。云后端、Pages前端、日更调度及备份恢复链路已部署。
 
-RL仍为实验性：当前模型基于510300训练，样本外回测从2026-07-01起，至少22根有效行情；跨资产收益效果未验证，未接入RL排行、配置或实盘。[算法最新总结](docs/rl-algorithms-summary-2026-09-20.md) · [项目集成总结](docs/midterm-integration-summary-2026-09-11.md) · [线上网页](https://why621.github.io/intelligent-quant-analysis-platform/)。
+RL仍为实验性：当前模型基于510300训练，样本外回测从2026-07-01起，至少22根有效行情；跨资产收益效果未验证，已接入510300样本外实验排行，未接入RL配置或实盘。[算法最新总结](docs/rl-algorithms-summary-2026-09-20.md) · [项目集成总结](docs/midterm-integration-summary-2026-09-11.md) · [线上网页](https://why621.github.io/intelligent-quant-analysis-platform/)。
 
 ## 仓库结构
 
@@ -95,7 +95,8 @@ npm run build:frontend
 - [x] 前端、后端、算法 CI 与 GitHub Pages 静态前端部署
 - [x] HTTPS云API、每天07:30持续日更、健康检查与SQLite备份恢复
 - [x] PPO、DQN、SAC、DDPG网页实验回测及1–10资产支持
-- [ ] 多智能体策略、RL排行/配置、跨资产长期绩效验证
+- [x] 510300代表资产的四种RL样本外实验排行及未参与原因
+- [ ] 多智能体策略、RL配置、跨资产长期绩效验证
 - [ ] 长期运行可靠性、完善的故障通知与监控
 - [ ] 面向实盘的权限、审计、独立风控和人工确认
 
@@ -115,3 +116,5 @@ GitHub Pages 只能托管静态前端，不能运行 Flask、SQLite 或常驻任
 ## 风险说明
 
 本项目仅用于教学与研究，不构成投资建议，也不连接券商或提交真实订单。AkShare 和其上游数据源可能临时不可用；系统会优先使用最后一次成功缓存，并通过 `/api/data/status` 暴露 `ready/updating/stale/failed` 状态。算法输出、回测结果与历史收益不能保证未来表现。
+
+2026-09-20 CR050：云端排行榜已纳入四种RL，按相同评价窗口比较，保持实验标识；[排行实现与验收](docs/cr050-rl-ranking-2026-09-20.md)。本次Pages前端展示改动待功能分支合并。

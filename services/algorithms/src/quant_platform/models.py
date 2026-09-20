@@ -127,6 +127,8 @@ class RankingItem:
     return_pct: float
     max_drawdown_pct: float
     sharpe: float
+    status: StrategyState = "available"
+    model_context: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)

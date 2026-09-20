@@ -9,6 +9,7 @@ from datetime import date
 from time import monotonic
 
 from quant_platform.models import DataStatus, RankingItem
+from quant_platform.ranking import RankingResult
 from quant_platform.ranking import StrategyRankingService as AlgorithmRankingService
 
 from app.services.errors import InsufficientDataError, UpstreamUnavailableError
@@ -36,9 +37,9 @@ class RankingService:
         self._algorithm = algorithm
         self._provider = provider
         self._catalog = catalog
-        self._cache: dict[tuple[date, str, str], list[RankingItem]] = {}
+        self._cache: dict[tuple[date, str, str, tuple], list[RankingItem]] = {}
         self._condition = threading.Condition()
-        self._inflight: set[tuple[date, str, str]] = set()
+        self._inflight: set[tuple[date, str, str, tuple]] = set()
 
     def get_ranking(self, period: str) -> Mapping[str, object]:
         """返回契约 RankingResponse；period 已由路由层校验为枚举值之一。"""
@@ -51,6 +52,7 @@ class RankingService:
             "evaluationSymbols": ["510300"],
             "period": period,
             "items": [_serialize_item(item) for item in items],
+            "unavailableStrategies": list(getattr(items, "unavailable", ())),
         }
 
     def _latest_trade_date(self) -> date:
@@ -70,7 +72,12 @@ class RankingService:
     def _compute(self, as_of_date: date, period: str) -> list[RankingItem]:
         deadline = monotonic() + _RANKING_BUDGET_SECONDS
         revision = self._revision()
-        key = (as_of_date, period, revision)
+        models = tuple(
+            (sid, s.model_context()["bundleHash"])
+            for sid, s in self._catalog.registry().items()
+            if getattr(s, "ranking_enabled", False) is True
+        )
+        key = (as_of_date, period, revision, models)
         with self._condition:
             while key in self._inflight:
                 remaining = deadline - monotonic()
@@ -94,7 +101,11 @@ class RankingService:
                 # 无策略产出真实结果（算法组吞掉异常等），显式报错而非 200 空排行
                 raise InsufficientDataError(
                     message="没有策略产出真实结果，无法生成排行",
-                    details={"period": period, "reason": "rank 返回空"},
+                    details={
+                        "period": period,
+                        "reason": "rank 返回空",
+                        "unavailableStrategies": list(getattr(items, "unavailable", ())),
+                    },
                 )
             items = self._validate_finite(items, period)
         except Exception:
@@ -140,7 +151,7 @@ class RankingService:
                         "field": non_finite[0],
                     },
                 )
-        return list(items)
+        return RankingResult(items, unavailable=getattr(items, "unavailable", ()))
 
     def _log_missing(self, items: Sequence[RankingItem]) -> None:
         """对照目录中 available 的策略，补上算法组静默吞异常的可观测性。"""
@@ -164,4 +175,6 @@ def _serialize_item(item: RankingItem) -> dict[str, object]:
         "returnPct": item.return_pct,
         "maxDrawdownPct": item.max_drawdown_pct,
         "sharpe": item.sharpe,
+        "status": item.status,
+        **({"modelContext": item.model_context} if item.model_context else {}),
     }

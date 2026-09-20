@@ -112,3 +112,16 @@ test('partial publication exposes per-asset dates and clears them on failed relo
   await state.initialise()
   assert.equal(state.assetCatalog.value[0].availability, undefined)
 })
+
+
+test('ranking keeps experiment metadata and clears obsolete exclusions on reload', async () => {
+  const client=makeClient()
+  client.getStrategyRanking=async()=>({items:[{strategyId:'ppo',status:'experimental',returnPct:1.2,modelContext:{modelRef:'reviewed'}}],unavailableStrategies:[{strategyId:'sac',message:'预热不足'}]})
+  const state=useMarket(client);await state.initialise()
+  assert.equal(state.ranking.value[0].modelContext.modelRef,'reviewed')
+  assert.equal(state.ranking.value[0].status,'experimental')
+  assert.equal(state.rankingUnavailable.value[0].strategyId,'sac')
+  client.getStrategyRanking=async()=>({items:[]})
+  await state.initialise()
+  assert.deepEqual(state.rankingUnavailable.value,[])
+})
