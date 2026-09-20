@@ -92,6 +92,7 @@ BacktestResult:
   type: object
   required: [metrics, equityCurve, trades, assumptions]
   properties:
+    modelContext: {$ref: "./strategy.yaml#/ModelContext"}
     dataContext: {$ref: "./common.yaml#/ResearchContext"}
     metrics: {$ref: "#/BacktestMetrics"}
     equityCurve:

@@ -146,10 +146,19 @@
             <StrategyPicker v-model="backtestStrategyId" :strategies="strategies" :disabled="backtestBusy" />
             <label v-for="field in backtest.parameterFields.value" :key="field.key">
               {{ field.label }}
-              <input v-model.number="backtestParameters[field.key]" type="number"
+              <select v-if="field.type === 'string'" v-model="backtestParameters[field.key]" :name="field.key" :disabled="backtestBusy">
+                <option v-for="choice in field.enum" :key="choice" :value="choice">{{ choice }}</option>
+              </select>
+              <input v-else v-model.number="backtestParameters[field.key]" type="number"
                 :name="field.key" :min="field.minimum" :max="field.maximum"
                 :step="field.type === 'integer' ? 1 : 'any'" />
             </label>
+            <aside v-if="backtest.modelContext.value" class="hint ppo-notice" role="note">
+              <strong>PPO 实验性回测</strong>
+              <p>适用资产：{{ backtest.modelContext.value.symbols.join('、') }}（前复权）。训练区间：{{ backtest.modelContext.value.trainStartDate }} 至 {{ backtest.modelContext.value.trainEndDate }}。</p>
+              <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，至少22根行情，前20根预热不交易。模型效果仅在短区间验证，存在过拟合与幸存者偏差，不代表未来收益。</p>
+              <button type="button" :disabled="backtestBusy || backtest.activeJob.value" @click="backtest.applyModelRange">使用模型适用资产和样本外区间</button>
+            </aside>
             <label>比较基准
               <select v-model="backtestBenchmark">
                 <option value="">无基准（Alpha / Beta 不适用）</option>
@@ -184,6 +193,7 @@
               {{ backtestResult ? '真实回测输出' : '尚未运行' }}
             </span></div>
             <p v-if="backtestJob" class="hint">{{ backtest.benchmarkLabel.value }}</p>
+            <p v-if="backtestJob?.result?.modelContext" class="hint">实验性模型：{{ backtestJob.result.modelContext.modelRef }} · 训练截止 {{ backtestJob.result.modelContext.trainEndDate }} · 前20根预热不交易；不代表未来收益。</p>
             <p v-if="backtestJob?.request" class="hint">
               {{ backtestJob.request.startDate }} 至 {{ backtestJob.request.endDate }} ·
               {{ backtestJob.request.symbols.join('、') }} · 参数 {{ JSON.stringify(backtestJob.request.parameters) }}

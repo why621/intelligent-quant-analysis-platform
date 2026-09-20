@@ -23,9 +23,16 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   try { if (storage === undefined) storage = globalThis.localStorage } catch { storage = null }
   try { recoveryId.value = storage?.getItem(STORAGE_KEY) || '' } catch { /* Storage may be disabled. */ }
 
-  const availableStrategies = computed(() => strategies.value.filter(item => item.status === 'available'))
+  const availableStrategies = computed(() => strategies.value.filter(item => item.status === 'available' || (item.status === 'experimental' && item.backtestEnabled === true)))
   const selectedStrategy = computed(() => availableStrategies.value.find(item => item.id === strategyId.value))
   const parameterForm = useStrategyParameters(selectedStrategy)
+  const modelContext = computed(() => selectedStrategy.value?.modelContext || null)
+  const applyModelRange = () => {
+    if (!modelContext.value || busy.value || activeJob.value) return
+    symbols.value = [...modelContext.value.symbols]
+    dates.startDate.value = modelContext.value.outOfSampleStartDate
+    dates.endDate.value = dates.maxDate.value
+  }
   const benchmarkOptions = computed(() => [
     ...(dataStatus.value.benchmarks || []).filter(item => item.assetId === 'index:CSI:000300')
       .map(item => ({ ...item, symbol: item.assetId, assetType: 'index' })),
@@ -51,7 +58,13 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     if (!selectedStrategy.value) return '请选择可用策略。'
     if (parameterForm.parameterError.value) return parameterForm.parameterError.value
     if (benchmark.value && !benchmarkOptions.value.some(item => item.symbol === benchmark.value)) return '请选择已接入的指数、ETF 或无基准。'
-    return dates.dateError.value
+    if (dates.dateError.value) return dates.dateError.value
+    if (modelContext.value) {
+      const model = modelContext.value
+      if (symbols.value.length !== model.symbols.length || symbols.value.some((value, i) => value !== model.symbols[i])) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
+      if (dates.startDate.value < model.outOfSampleStartDate) return `PPO起始日须从 ${model.outOfSampleStartDate} 起，不能与训练区间重叠。`
+    }
+    return ''
   })
   const canSubmit = computed(() => !busy.value && !activeJob.value && !disposed && !validationError.value)
   const current = token => !disposed && token === generation
@@ -133,5 +146,5 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   if (getCurrentScope()) onScopeDispose(() => { disposed = true; generation += 1; stopTimer() })
   return { ...dates, ...parameterForm, symbols, strategyId, benchmark, benchmarkOptions,
     benchmarkLabel, job, busy, error, recoveryId, activeJob, availableStrategies, strategyName,
-    validationError, canSubmit, submit, resume }
+    modelContext, applyModelRange, validationError, canSubmit, submit, resume }
 }
