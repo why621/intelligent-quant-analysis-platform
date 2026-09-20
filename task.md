@@ -1,5 +1,13 @@
 # 开发任务与验收记录
 
+## 最新任务状态（2026-09-20，CR050）
+
+T032四RL网页回测、T033a/b/c/d排行实现/验证/云端部署/文档回写已完成；本轮核验PR #35合并及Pages发布，关闭此前Pages待合并事项。[PR #35](https://github.com/why621/intelligent-quant-analysis-platform/pull/35)已合并，合并提交`2d75da22ce9207eb067091ceddb83ecca781a147`；该提交的后端、算法、前端及整栈回归CI全部成功，[Pages发布](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35514486261)成功。实际Pages入口加载`index-DUuhsh3z.js`，资源包含“AI · 实验”、预热收益排除说明和`unavailableStrategies`处理。
+
+CI修复219f1f4的完整后端Ruff和149项测试通过；该提交远端四项CI亦通过。历史422算法/后端、78前端及真实模型/云端验收结果分批保留，不相加或计为本轮重新执行。当前未完成：跨资产长期绩效、多种子研究、RL配置、多智能体、实盘及长期日更可靠性。
+
+本轮文档同步的登记及命令结果见文末。以下旧迭代任务表保留原始阶段状态，不作为当前待办清单；后续进展以相应最新变更和实录为准。
+
 更新日期：2026-09-09。关联：[PRD.md](PRD.md)、[design.md](design.md)、[spec.md](spec.md)。任务完成不代表整个平台完成；没有证据不勾选，不将历史测试写成本轮结果。
 
 ## 当前迭代
@@ -715,3 +723,9 @@ CR050最终回写：用户明确授权后，源码e54afd3已部署43.161.223.91�
 用户反馈后端CI在Ruff阶段失败：test_api.py排行失败断言超出100字符。仅拆分该断言排版，保留原断言和业务实现；验收执行CI相同范围的完整后端Ruff和pytest，再提交推送原分支并核对远端检查。此前Ruff只检查部分文件，未覆盖此文件，不应视为完整后端lint通过。
 
 CR050 CI修复验证：将test_api.py超长集合断言拆成多行，保持检查语义。执行`../../.venv/bin/python -m ruff check services/backend`全部通过；`PYTHONPATH=services/algorithms/src:services/backend/src ../../.venv/bin/python -m pytest services/backend`结果149 passed（10.30秒）；`git diff --check`通过。此为本地验证，远端CI需以新提交工作流结果为准。补丁只含测试排版及文档，不变更运行代码、不重新部署服务器。
+
+## CR050 合并后总结同步登记（2026-09-20）
+
+用户要求重新总结、回写文档并将所有相关更新同步GitHub。本轮以已合并PR #35的main 2d75da2为基线，新建codex/rl-ranking-summary-20260920。范围为四份SDD、README、算法摘要、集成总结与CR050实录；核对主分支、CI、Pages发布和契约，修正过期当前状态并保留历史过程。验收为文档与实际证据一致、链接及差异检查通过、提交推送；不变更算法、模型、接口或线上数据。
+
+CR050总结同步验收：`git fetch origin`及`git merge-base --is-ancestor 219f1f4 origin/main`通过；PR #35 API确认merged，main 2d75da2的四项CI及Pages发布均success，Pages首页和JS确认新排行标识/说明。Python检查8份Markdown的249个相对链接、UTF-8及代码围栏全部通过，`git diff --check`通过；实际变更仅8份文档。原功能、CI修复及上线记录均已在main，本轮文档提交推送codex/rl-ranking-summary-20260920供评审合并。未新增测试或重跑历史云回归；未传模型、行情或数据库。未完成范围维持本页顶部所列研究事项。

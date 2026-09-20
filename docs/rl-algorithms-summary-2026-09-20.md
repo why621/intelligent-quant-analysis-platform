@@ -1,6 +1,6 @@
 # 强化学习算法最新实现总结
 
-更新日期：2026-09-20。范围为CR045—049，区分算法实现、真实模型训练、网页接入和线上验收。
+更新日期：2026-09-20。范围为CR045—050，区分算法实现、真实模型训练、网页接入和线上验收。
 
 ## 已实现内容
 
@@ -24,7 +24,7 @@
 - 云切换前68条任务逐字段保留，备份实际恢复核验成功；本轮验收结束83条。该数字是验收时快照，不表示任务总数固定。
 - 首轮脚本高频提交触发网关429，按限流间隔复验成功；保留失败证据，未放宽线上限流。
 
-[PR #33](https://github.com/why621/intelligent-quant-analysis-platform/pull/33)已合并，main提交`b4f2137a6225a685de24239883ea4e298d886cd9`；[Pages发布](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35510678954)针对该提交completed/success。实际入口加载`index-Ch5lnoao.js`，使用所选算法动态标题并连接既有HTTPS API。
+CR049阶段发布记录（最新排行发布见下文CR050）：[PR #33](https://github.com/why621/intelligent-quant-analysis-platform/pull/33)已合并，main提交`b4f2137a6225a685de24239883ea4e298d886cd9`；[Pages发布](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35510678954)针对该提交completed/success。实际入口加载`index-Ch5lnoao.js`，使用所选算法动态标题并连接既有HTTPS API。
 
 [GitHub Pages](https://why621.github.io/intelligent-quant-analysis-platform/#backtest)与[云端网页](https://43.161.223.91/#backtest)均已更新。功能源码f823bc7、云端实录422ce3b均已包含在main；本次总结为另行同步的文档更新，不需要重复部署业务代码。模型、行情、任务数据库及本地运行日志不提交Git。
 
@@ -32,4 +32,12 @@
 
 ## CR050 排行增量
 
-四种已部署RL已纳入510300近30日研究排行，预热收益排除，模型样本外与20根预热门禁保留；训练重叠或预热不足显示未参与原因，不补零。云端已验证六条排行、传统指标不变，Pages新说明待分支合并；详见[CR050实录](cr050-rl-ranking-2026-09-20.md)。
+四种已部署RL已纳入510300近30日研究排行，预热收益排除，模型样本外与20根预热门禁保留；训练重叠或预热不足显示未参与原因，不补零。云端已验证六条排行、传统指标不变；PR #35已合并，Pages新说明已发布；详见[CR050实录](cr050-rl-ranking-2026-09-20.md)。
+
+## 最新交付与CI修复
+
+[PR #35](https://github.com/why621/intelligent-quant-analysis-platform/pull/35)已合并，合并提交`2d75da22ce9207eb067091ceddb83ecca781a147`；该提交的后端、算法、前端及整栈回归CI全部成功，[Pages发布](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35514486261)成功。实际Pages入口加载`index-DUuhsh3z.js`，资源包含“AI · 实验”、预热收益排除说明和`unavailableStrategies`处理。
+
+后端CI曾因test_api.py集合断言107字符超限而失败，219f1f4仅拆分排版、保留断言语义。完整后端`ruff check services/backend`通过，`pytest services/backend`149项通过；该修复的远端四项CI全部通过。CR050历史本地批次422算法/后端、78前端测试及构建通过，真实模型与云端验收详见实录，各批次不累计为唯一测试总数。
+
+云端运行源码e54afd3，复用既有四模型；合并包含CI修复和上线记录。本轮只同步总结，不重训、重新部署或修改线上数据；跨资产收益研究、RL配置、多智能体和实盘仍未完成。

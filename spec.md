@@ -1,5 +1,13 @@
 # 开发规格与变更记录
 
+## 当前基线与本轮总结（2026-09-20，CR050）
+
+四RL实验回测、多资产支持及六策略样本外排行均已实现并合并。[PR #35](https://github.com/why621/intelligent-quant-analysis-platform/pull/35)已合并，合并提交`2d75da22ce9207eb067091ceddb83ecca781a147`；该提交的后端、算法、前端及整栈回归CI全部成功，[Pages发布](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35514486261)成功。实际Pages入口加载`index-DUuhsh3z.js`，资源包含“AI · 实验”、预热收益排除说明和`unavailableStrategies`处理。
+
+本轮仅整理文档并按用户要求推送GitHub，范围为四份SDD、README、算法摘要、集成总结及CR050实录；不改接口或运行代码。源码e54afd3的云端发布沿用既有验收证据；219f1f4仅修复测试行长，完整后端Ruff及149项测试通过。早期“Ruff通过”仅指所选文件，不能替代完整后端检查；修复后的CI已补齐验证。
+
+当前功能及限制见[算法总结](docs/rl-algorithms-summary-2026-09-20.md)，证据见[CR050实录](docs/cr050-rl-ranking-2026-09-20.md)。下方按时间保留历史登记，其中“当前”“待合并”均以各记录日期和阶段理解，不覆盖本节最终状态。
+
 更新日期：2026-09-09。首次补建代码基线：`codex/regression-deployment` / `d9f0798`。
 
 ## CR-016 截图复核与新会话续作交接（2026-09-09）

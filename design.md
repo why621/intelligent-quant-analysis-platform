@@ -1,5 +1,13 @@
 # 技术设计
 
+## 当前算法与排行设计（2026-09-20，CR050）
+
+训练与回测共享account-feedback-v2执行逻辑；四模型通过白名单、权重及元数据完整性、执行/特征版本和样本外检查后开放。多资产模式为初始资金等分的独立账户，非联合训练或资产间动态调仓。
+
+排行仅允许显式部署且依赖就绪的WebRL加入传统策略列表，普通experimental/planned不自动开放。先运行样本外预热，再截取目标评价窗口重算三项指标；缓存包含数据修订及模型bundle标识，保留10秒预算和单次并发保护。接口兼容增加RankingItem.status/modelContext、RankingResponse.unavailableStrategies，完全无有效结果仍返回422；[契约](packages/contracts/openapi.yaml)与[Schema](packages/contracts/schemas/strategy.yaml)已同步。
+
+网页显示实验标识、评价口径及未参与原因。云端复用CR049只读四模型，发布不含权重/行情/任务库；PR #35合并后的Pages资源为index-DUuhsh3z.js。测试行长补丁不改变部署镜像。当前验收与边界见[CR050实录](docs/cr050-rl-ranking-2026-09-20.md)；下方旧架构和“待完成”描述属于当时记录。
+
 更新日期：2026-09-09。关联：[PRD.md](PRD.md)、[spec.md](spec.md)、[task.md](task.md)。当前实现与目标设计分开记录。
 
 ## CR-016 跨日一致性差异与后续设计约束（尚未实施）
