@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 quant-data-update = "quant_platform.cli:main"
 quant-rl-train = "quant_platform.rl.train:main"
+quant-deep-history = "quant_platform.data.deep_history:main"
 
 [project.optional-dependencies]
 notebooks = [
