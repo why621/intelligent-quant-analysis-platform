@@ -38,3 +38,16 @@ ETF采用目录名称中的明确行业词进行快捷分类，不声称ETF持�
 ## 状态与下一步
 
 T034a/b/c已完成来源核对、实现、离线测试及本地浏览器验收，T034d完成SDD回写。代码在本地分支，未发布线上。下一步经本次版本的推送/发布授权同步GitHub和部署，再核验线上三个入口；分类更新需随参考成分调整维护。
+
+## 授权发布完成（2026-09-22）
+
+用户随后明确要求“推送上线”，授权本次版本推送和现有服务器发布。前文“未推送/未发布”是本地阶段记录；当前源码8eb2101已推送codex/asset-category-filter-20260922，云端静态网页已更新。[云端入口](https://43.161.223.91/#backtest)。GitHub Pages仅main合并触发，仍需[创建并合并本分支PR](https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/asset-category-filter-20260922)，不把云端更新等同Pages更新。
+
+- 发布命令：WSL `VITE_API_BASE_URL=/api npm run build --workspace @intelligent-quant/frontend`通过；`git push -u origin codex/asset-category-filter-20260922`成功。仅打包dist的11个静态文件，303837 bytes，包SHA256 `949e886ca770916f16a66466d0b7e6fec3fdddcc3be16d1a2683720d146bfcdb`，不含权重、行情或数据库。
+- 严格SSH核对既有网关只读挂载`/opt/intelligent-quant-cr026-20260910/apps/frontend/dist`；后端及网关healthy、nginx配置检查通过。远端逐文件校验包及内容哈希，检测旧index未变化；先复制新hash资源，再原子替换index，保留旧资源供旧页面使用。
+- 备份`/opt/intelligent-quant-cr051-20260922/backup/index.html`，旧index SHA256 `053b0bfbddb1dfe62649e88474b3eb1ce315654bd9de84c611c4e70e4c3eaaa0`；新index SHA256 `7f503261a6a64b04fa21b61440e6e7da0a53eae436ddfa6f683f6acdddb8fbf2`，加载`index-DBjierDA.js`。回退只需从该备份原子恢复入口，旧hash资源完整保留；无需回退数据库或模型。
+- 后端镜像保持CR050 `sha256:c4e6fd6da65ee6341daaf1e120f52373db39efca9d2f4143c6a043631fc855fd`，未重启或重建后端、未操作行情和任务库。
+- 公网Edge实际访问HTTPS云页面：相关性、回测、配置三个选择器均能搜索“半导体/芯片”、显示中芯国际，分类多选/股票ETF叠加及已选保留通过；各入口半导体筛出21项。1440/390/320均无横向溢出，pageerror为空，`GET /api/health`返回200/ok。
+- 首轮验收脚本将所有POST误当写操作；页面选项变化自动触发只读`POST /api/data/capability`。保留首轮记录，核对接口后明确仅允许覆盖检查POST再完整重跑通过；未请求创建回测任务、配置建议或其他写接口。
+
+证据：忽略目录artifacts/cr051-asset-categories下release.json、preflight.sh.log、deploy.sh.log、cloud-browser-first.json、cloud-browser.json及cloud-*.png；远端发布记录`/opt/intelligent-quant-cr051-20260922/deployment.json`。命令为`python -X utf8 artifacts/cr051-asset-categories/upload.py`、`python -X utf8 artifacts/cr040-deploy-20260915/run_remote.py artifacts/cr051-asset-categories/deploy.sh`、`node artifacts/cr051-asset-categories/cloud-browser.cjs`。本轮完成云端发布及公网UI验收；Pages和远端PR CI待合并流程，不重复累计之前83项测试。
