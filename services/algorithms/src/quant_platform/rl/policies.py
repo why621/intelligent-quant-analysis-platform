@@ -241,16 +241,22 @@ class RLStrategy:
         return self._predict_weights(prices)
 
     def _reject_in_sample(self, prices: pd.DataFrame) -> None:
-        train_end = str(self._bundle.manifest.get("trainEndDate", ""))
-        from quant_platform.rl.store import validate_training_dates
+        manifest = self._bundle.manifest
+        from quant_platform.rl.splits import in_sample_end
+        from quant_platform.rl.store import validate_split_dates, validate_training_dates
 
-        validate_training_dates(self._bundle.manifest)
+        validate_training_dates(manifest)
+        validate_split_dates(manifest)
         if prices.empty:
             return
         first = pd.Timestamp(prices["date"].iloc[0]).date().isoformat()
-        if first <= train_end:
+        boundary = in_sample_end(manifest)
+        if first <= boundary:
+            # A validation window is in-sample too: hyperparameters were chosen on it.
+            window = "验证" if boundary == str(manifest.get("valEndDate") or "") else "训练"
             raise RLInSampleRequest(
-                f"回测起始 {first} 落在训练窗口内（trainEndDate={train_end}），拒绝样本内评估。"
+                f"回测起始 {first} 落在{window}窗口内"
+                f"（样本内终点 {boundary}），拒绝样本内评估。"
             )
 
     def prepare_inference(self, prices: pd.DataFrame, parameters: Mapping[str, object]):

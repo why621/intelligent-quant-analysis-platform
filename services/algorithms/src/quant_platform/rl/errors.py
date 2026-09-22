@@ -53,3 +53,9 @@ class RLInsufficientHistory(RLError):
     """Not enough observed bars for feature warmup and one next-open execution."""
 
     code: str = "RL_INSUFFICIENT_HISTORY"
+
+
+class RLInvalidSplit(RLError):
+    """Train/validation/test windows violate the long-window evidence rules."""
+
+    code: str = "RL_INVALID_SPLIT"

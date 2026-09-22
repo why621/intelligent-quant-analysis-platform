@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from quant_platform.rl.errors import RLIncompatibleModel, RLModelNotFound
+from quant_platform.rl.errors import RLError, RLIncompatibleModel, RLModelNotFound
 
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{2,63}$")
 
@@ -31,6 +31,15 @@ REQUIRED_MANIFEST_KEYS: tuple[str, ...] = (
     "trainEndDate",
     "codeSha",
     "executionVersion",
+)
+
+# Bundles trained before CR-052 legitimately omit these; a bundle that records
+# them must record a coherent, non-overlapping set of windows.
+OPTIONAL_SPLIT_KEYS: tuple[str, ...] = (
+    "valStartDate",
+    "valEndDate",
+    "testStartDate",
+    "testEndDate",
 )
 
 
@@ -70,14 +79,39 @@ def validate_manifest(manifest):
     if manifest["algo"] not in {"dqn", "ppo", "sac", "ddpg"}:
         raise RLIncompatibleModel("invalid model algorithm")
     validate_training_dates(manifest)
+    validate_split_dates(manifest)
     try:
         publication = manifest["publicationDate"]
         if date.fromisoformat(publication).isoformat() != publication:
             raise ValueError("non-canonical publication date")
         if publication < manifest["trainEndDate"]:
             raise ValueError("publication predates training end")
+        in_sample = manifest.get("valEndDate") or manifest["trainEndDate"]
+        if publication < in_sample:
+            raise ValueError("publication predates validation end")
     except (TypeError, ValueError) as exc:
         raise RLIncompatibleModel("invalid publication date") from exc
+
+
+def validate_split_dates(manifest):
+    """Reject recorded train/validation/test windows that overlap or are misformed.
+
+    Bundles without the CR-052 keys are left untouched so already published
+    weights stay loadable; only bundles that claim a validation window are held
+    to it.
+    """
+    recorded = [key for key in OPTIONAL_SPLIT_KEYS if key in manifest]
+    if not recorded:
+        return
+    for key in recorded:
+        if not isinstance(manifest[key], str):
+            raise RLIncompatibleModel(f"invalid manifest field: {key}")
+    from quant_platform.rl.splits import split_from_manifest
+
+    try:
+        split_from_manifest(manifest)
+    except RLError as exc:
+        raise RLIncompatibleModel(f"模型记录的样本内区间无效：{exc}") from exc
 
 
 def bundle_hash(model_bytes: bytes, manifest: dict) -> str:
