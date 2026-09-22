@@ -46,8 +46,16 @@ def test_unapproved_host_protocol_credentials_no_request(url):
     assert trace == []
 
 
-@pytest.mark.parametrize("status,body", [(302, b"redirect"), (403, b"denied"),
-                                        (500, b"failed"), (200, b"x" * (MAX_RESPONSE_BYTES + 1))])
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (302, b"redirect"),
+        (403, b"denied"),
+        (500, b"failed"),
+        (200, b"x" * (MAX_RESPONSE_BYTES + 1)),
+    ],
+    ids=["redirect", "denied", "failed", "oversized-body"],
+)
 def test_status_and_size_fail_without_retry(status, body):
     trace = []
     with (

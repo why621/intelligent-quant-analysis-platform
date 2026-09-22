@@ -741,3 +741,7 @@ CR051本地验收回写：六类筛选/分类搜索已接入共享AssetPicker；
 CR051发布登记（2026-09-22）：用户明确要求“推送上线”，授权此版本推送并更新现有线上环境。源码8eb2101已推送codex/asset-category-filter-20260922，云端按VITE_API_BASE_URL=/api重新构建；仅上传静态资源，先核对网关挂载并备份旧入口，保留旧hash资源再原子替换index，验证三个选择器及API健康。Pages沿用主分支合并触发流程，与云端发布分别报告。
 
 CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”后，8eb2101已推送codex/asset-category-filter-20260922；11个静态文件发布到既有43.161.223.91，旧入口备份保留，先复制hash资源再原子替换index。公网Edge三个选择器均通过半导体/芯片搜索、多类和ETF叠加、已选保留；1440/390/320无横向溢出或pageerror，API健康200。后端镜像未变，未创建回测任务。部署及验收记录见CR051实录；Pages遵循主分支合并工作流，当前不计已更新。
+
+## CI 测试参数 ID 修复登记（2026-09-22）
+
+用户要求在本地修复 pytest 收集失败。CI/本地在 `test_history_probe.py` 的 `status/body` 参数化上因约 40KB 的 `b"x"` 载荷被写入节点 ID，触发 Windows `PYTEST_CURRENT_TEST` 32767 字符上限并报 "environment variable is longer than 32767 characters"。仅为该参数化补充显式 `ids`，保留原断言、载荷大小与用例语义；不改生产代码、不跳过或删除检查。验收：Ruff 通过，该文件 10 用例通过，算法完整离线套件绿色。
