@@ -58,6 +58,7 @@ CR-012实施前设计：新增不可变名单快照模块，校验官方指数00
 | D-05 | 失败保留旧数据并标状态，不静默拼接异源复权序列 | 既有原则，跨源迁移待实现 |
 | D-06 | 初期保留SQLite，先验证300只规模，不直接升级机器/数据库 | 拟议，性能待测 |
 | D-07 | 单智能体RL（DQN/PPO/SAC/DDPG，stable-baselines3薄封装）以 `signal_semantics=continuous_target_weight` 接入现有引擎；训练与推理分离（离线 `quant-rl-train` 从不可变发布快照产出 `/models/<run-id>`+内容哈希manifest，推理 per-request 载入不 fit、拒样本内）；ML依赖仅 `[rl]` extra 不进 CI；`experimental` 起步，过评估门槛方由后端置 `available` | CR-044 进行中（仅算法模块） |
+| D-08 | 长窗口按 REQ-11 以纯函数门禁实现（训练≥3年、验证1—2年、测试预留、2015下限、牛/熊/震荡按价格动量实测覆盖），样本内终点统一取 `splits.in_sample_end()` 使验证区间同样不可打分；深历史经带官方来源的休市证据表与独立研究 root 回填，未核对年份继续拒绝、线上缓存隔离且不入git；`schemaVersion` 维持2以免判坏已部署权重 | CR-052 进行中（回填与真实训练未完成） |
 
 ## 目标数据边界（未实现部分）
 
@@ -623,3 +624,9 @@ CR051 设计：前端独立分类目录保存指数代码、来源URL、快照�
 CR051本地验收回写：六类筛选/分类搜索已接入共享AssetPicker；官方成分快照2026-09-21，股票身份匹配、ETF名称快捷分类，未分类不隐藏。83前端测试、生产构建及Edge交互/1440、390、320布局验证通过。T034a/b/c及文档回写完成；本轮未变更API/算法、不推送或发布线上，来源更新与上线验证仍须后续处理。证据见上述实录，不将本地UI验收记为云回归。
 
 CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”后，8eb2101已推送codex/asset-category-filter-20260922；11个静态文件发布到既有43.161.223.91，旧入口备份保留，先复制hash资源再原子替换index。公网Edge三个选择器均通过半导体/芯片搜索、多类和ETF叠加、已选保留；1440/390/320无横向溢出或pageerror，API健康200。后端镜像未变，未创建回测任务。部署及验收记录见CR051实录；Pages遵循主分支合并工作流，当前不计已更新。
+
+## 2026-09-22 CR052 RL长窗口设计登记
+
+CR052 设计取舍：(1) 窗口规则独立成 rl/splits.py 纯函数模块，不依赖 torch/网络，使“三年+一两年验证+形态覆盖”成为可单元测试的门禁而非文档承诺；形态用价格自身动量分箱，避免人工圈定牛熊。(2) 训练入口 fail-fast：Split 校验放在 import torch 之前，非法区间不消耗训练时间；验证区间必须有真实留出行情，防止“验证窗口”只是一个日期字段。(3) 兼容性优先：assemble_manifest 保留 train_start/train_end 形状（后端测试直接调用），新区间走新增 windows 参数；schemaVersion 维持2，旧bundle无区间字段仍视为历史短窗口，既不判坏线上权重也不谎称满足三年。(4) 出处诚实：--history-root 产出的权重记 consistency=research_backfill_unpublished、universeVersion=research-backfill-root，dataVersion 用 sha256 摘要保持契约形状，网页 WebRL 依既有 universe mismatch 闸门天然拒绝，研究产物不会伪装成发布模型。
+
+CR052 数据链路设计：休市日历扩容采用“外部证据表 + 未核对年份继续拒绝”，把不可核实的部分显式化；深历史回填与线上日更缓存物理隔离（独立 root、gitignore、拒写 QUANT_DATA_DIR），并坚持整段 qfq 拉取以维持单一复权基准；preflight 先报告被挡年份再允许长时间拉数，回填结果落 JSON 证据供复核。后端待办（未改）：outOfSampleStartDate 与 HTTP 入口的样本内判断需改用算法侧 in_sample_end()，否则带验证区间的模型可从验证区间起提交（执行期仍被算法侧拒绝）。

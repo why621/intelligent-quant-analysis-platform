@@ -745,3 +745,16 @@ CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”�
 ## CI 测试参数 ID 修复登记（2026-09-22）
 
 用户要求在本地修复 pytest 收集失败。CI/本地在 `test_history_probe.py` 的 `status/body` 参数化上因约 40KB 的 `b"x"` 载荷被写入节点 ID，触发 Windows `PYTEST_CURRENT_TEST` 32767 字符上限并报 "environment variable is longer than 32767 characters"。仅为该参数化补充显式 `ids`，保留原断言、载荷大小与用例语义；不改生产代码、不跳过或删除检查。验收：Ruff 通过，该文件 10 用例通过，算法完整离线套件绿色。
+
+### CR-052 长窗口RL任务（算法模块，进行中）
+
+基线main 7320702；范围仅 services/algorithms/** 加根SDD与 docs/cr052-rl-long-window-2026-09-22.md，不改后端、前端与 packages/contracts。需求见REQ-11，设计决策见D-08。
+
+| 任务 | 状态 | 需求/决策 | 依赖 | 完成条件 |
+| --- | --- | --- | --- | --- |
+| T-035a 窗口规则与manifest区间 | 完成 | REQ-11 / D-08 | 无 | rl/splits.py：训练≥3年、验证1—2年、测试预留、2015-01-01下限、严格不重叠、63根动量±15%实测牛/熊/震荡（每类≥20根）；train.py记录区间/validationBars/regimeCoverage且校验前置于import torch；store仅对含区间字段的bundle校验自洽（含publicationDate不早于样本内终点），schemaVersion保持2；policies改走splits.in_sample_end()。证据：tests/test_rl_splits.py 18例、tests/test_rl_train_smoke.py 新增验证区间端到端用例；Ruff通过，算法离线325 passed/12 network排除，后端149 passed |
+| T-035b 深历史入口与日历证据 | 完成 | REQ-02/11 / D-08 | T-035a | calendar.py接受QUANT_CALENDAR_EVIDENCE年度证据（缺https官方来源/区间倒置/月份非法即拒，禁覆盖内置2025/2026，未核对年份照旧拒绝）；deep_history.py提供preflight、显式symbol/root、整段qfq回填、证据JSON并拒写线上缓存；quant-deep-history注册进pyproject scripts；data/research_history/入gitignore。证据：tests/test_deep_history.py 11例全绿；CLI preflight实测 unverifiedYears=[2015..2024]、ready=false、exit=2 |
+| T-035c 上游深历史可达性探测 | 未完成 | REQ-02 | T-035b | 唯一允许触网的深历史用例 tests/test_deep_history_probe.py（network标记，默认deselect，只拉510300三个约3个月窗口+一段2012区间，不写缓存）。需用户或云端授权后执行并把命令与结果回写；探针未通过前不得声称2015年前后可得。本轮按用户“不在本机拉全量数据”的指令未执行 |
+| T-035d 真实长窗口训练与稳健性 | 未完成 | REQ-06/07/11 | T-035b/c | 待2015—2024官方休市公告录入证据表并回填后，用真实三年窗口+1—2年留出验证训练≥3个seed、多资产（优先SSE代码，sz000成交量仍受SDK版本红线），披露幸存者偏差与过拟合风险；未产出前RL保持experimental，不转available |
+
+注：后端待办不改契约前提下自行处理——WebRL 的 outOfSampleStartDate 与 validate_web_request 仍按 trainEndDate 判样本内，需改用 quant_platform.rl.splits.in_sample_end()；research-root 权重依现有 universe mismatch 闸门天然不可上线。docs/cr044-rl-strategies-2026-09-19.md §4.2/§5 的过期表述仍待修订，未纳入本轮。

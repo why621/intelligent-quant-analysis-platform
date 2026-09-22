@@ -690,3 +690,13 @@ CR051 资产分类筛选优化：用户要求可勾选或搜索半导体等分�
 CR051本地验收回写：六类筛选/分类搜索已接入共享AssetPicker；官方成分快照2026-09-21，股票身份匹配、ETF名称快捷分类，未分类不隐藏。83前端测试、生产构建及Edge交互/1440、390、320布局验证通过。T034a/b/c及文档回写完成；本轮未变更API/算法、不推送或发布线上，来源更新与上线验证仍须后续处理。证据见上述实录，不将本地UI验收记为云回归。
 
 CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”后，8eb2101已推送codex/asset-category-filter-20260922；11个静态文件发布到既有43.161.223.91，旧入口备份保留，先复制hash资源再原子替换index。公网Edge三个选择器均通过半导体/芯片搜索、多类和ETF叠加、已选保留；1440/390/320无横向溢出或pageerror，API健康200。后端镜像未变，未创建回测任务。部署及验收记录见CR051实录；Pages遵循主分支合并工作流，当前不计已更新。
+
+## 2026-09-22 CR052 RL长窗口登记
+
+CR052 范围与根因：助教的“训练只有25/09—26/06”来自两道独立闸门——(1) 线上缓存以 today−400 天起步且日更只向后延长（akshare_provider.py:88/354-356），45资产最早一根即2025-07-23；(2) 休市日历仅核对2025与2026（calendar.py），任何跨2015—2024的取数在 history() 计算 sessions 时即 CalendarUnavailableError。第二道是本项目自身的完整性红线，不因多拉数据自动打开；本轮把长窗口规则与接缝做实，并把“补哪年日历”变成带官方URL的显式证据步骤，不猜节假日。
+
+CR052 规格：rl/splits.py 定义训练≥3年、验证1—2年、测试可预留、起点不早于2015-01-01、三区间严格不重叠；牛/熊/震荡按63根滚动动量实测（±15%带宽、每类≥20根）判定覆盖，不手写形态标签；违规一律 RLInvalidSplit（code=RL_INVALID_SPLIT，仅出现在训练CLI，不进入HTTP，故未改契约）。train.py 区间校验前置于 import torch；有验证区间必须实际取到≥180根留出行情并记录 validationBars/regimeCoverage。样本内终点统一由 splits.in_sample_end() 给出，验证区间同样拒绝；store 仅在bundle记录区间字段时校验其自洽，schemaVersion 保持2以免判坏已部署的四份权重（旧模型可用但不算满足三年要求）。
+
+CR052 数据边界：calendar.py 接受 QUANT_CALENDAR_EVIDENCE 指向的年度休市证据表，缺 https 官方来源、区间倒置、月份非法即拒，且不得覆盖内置2025/2026；deep_history.py（quant-deep-history）要求显式 symbol 与显式 root、支持 preflight 与证据输出、拒绝写入 QUANT_DATA_DIR/data processed 线上缓存，每 symbol 一次整段 qfq 拉取（除权会重锚整条序列，半段刷新会混基准）。data/research_history/ 已加入 gitignore。
+
+CR052本地验收回写：preflight 实测 2015—2024 全部未核对（exit=2）；Ruff通过，算法离线325 passed（12 network排除）、后端149 passed。改签名过程中曾使后端29项error（test_ppo_web/test_rl_web 仍按旧 assemble_manifest 形状调用），恢复旧参数形状后复绿——算法公开函数签名变更须先 grep 后端与契约调用方。真实深历史回填与 network 探针按用户指令未在本机执行，T-035c/d未完成，无长窗口绩效结论。见[CR052实录](docs/cr052-rl-long-window-2026-09-22.md)。
