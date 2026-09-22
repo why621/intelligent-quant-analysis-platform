@@ -1,5 +1,7 @@
 # 开发任务与验收记录
 
+最新增量：2026-09-22 CR051资产分类筛选已推送GitHub并部署云端，公网三个选择器验证通过；Pages待本分支合并后自动发布。详见[分类筛选实录](docs/cr051-asset-category-filter-2026-09-22.md)；既有算法和云端状态沿用下方CR050记录。
+
 ## 最新任务状态（2026-09-20，CR050）
 
 T032四RL网页回测、T033a/b/c/d排行实现/验证/云端部署/文档回写已完成；本轮核验PR #35合并及Pages发布，关闭此前Pages待合并事项。[PR #35](https://github.com/why621/intelligent-quant-analysis-platform/pull/35)已合并，合并提交`2d75da22ce9207eb067091ceddb83ecca781a147`；该提交的后端、算法、前端及整栈回归CI全部成功，[Pages发布](https://github.com/why621/intelligent-quant-analysis-platform/actions/runs/35514486261)成功。实际Pages入口加载`index-DUuhsh3z.js`，资源包含“AI · 实验”、预热收益排除说明和`unavailableStrategies`处理。
@@ -729,3 +731,13 @@ CR050 CI修复验证：将test_api.py超长集合断言拆成多行，保持检�
 用户要求重新总结、回写文档并将所有相关更新同步GitHub。本轮以已合并PR #35的main 2d75da2为基线，新建codex/rl-ranking-summary-20260920。范围为四份SDD、README、算法摘要、集成总结与CR050实录；核对主分支、CI、Pages发布和契约，修正过期当前状态并保留历史过程。验收为文档与实际证据一致、链接及差异检查通过、提交推送；不变更算法、模型、接口或线上数据。
 
 CR050总结同步验收：`git fetch origin`及`git merge-base --is-ancestor 219f1f4 origin/main`通过；PR #35 API确认merged，main 2d75da2的四项CI及Pages发布均success，Pages首页和JS确认新排行标识/说明。Python检查8份Markdown的249个相对链接、UTF-8及代码围栏全部通过，`git diff --check`通过；实际变更仅8份文档。原功能、CI修复及上线记录均已在main，本轮文档提交推送codex/rl-ranking-summary-20260920供评审合并。未新增测试或重跑历史云回归；未传模型、行情或数据库。未完成范围维持本页顶部所列研究事项。
+
+## 2026-09-22 CR051 分类筛选登记
+
+CR051登记：T034a核对目录/契约与分类来源；T034b实现分类多选和搜索；T034c离线功能测试、前端构建与浏览器交互/窄屏验收；T034d回写证据。当前未发布，本次请求为优化实现，不沿用历史版本部署授权。未执行事项不记完成。
+
+CR051本地验收回写：六类筛选/分类搜索已接入共享AssetPicker；官方成分快照2026-09-21，股票身份匹配、ETF名称快捷分类，未分类不隐藏。83前端测试、生产构建及Edge交互/1440、390、320布局验证通过。T034a/b/c及文档回写完成；本轮未变更API/算法、不推送或发布线上，来源更新与上线验证仍须后续处理。证据见上述实录，不将本地UI验收记为云回归。
+
+CR051发布登记（2026-09-22）：用户明确要求“推送上线”，授权此版本推送并更新现有线上环境。源码8eb2101已推送codex/asset-category-filter-20260922，云端按VITE_API_BASE_URL=/api重新构建；仅上传静态资源，先核对网关挂载并备份旧入口，保留旧hash资源再原子替换index，验证三个选择器及API健康。Pages沿用主分支合并触发流程，与云端发布分别报告。
+
+CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”后，8eb2101已推送codex/asset-category-filter-20260922；11个静态文件发布到既有43.161.223.91，旧入口备份保留，先复制hash资源再原子替换index。公网Edge三个选择器均通过半导体/芯片搜索、多类和ETF叠加、已选保留；1440/390/320无横向溢出或pageerror，API健康200。后端镜像未变，未创建回测任务。部署及验收记录见CR051实录；Pages遵循主分支合并工作流，当前不计已更新。
