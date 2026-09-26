@@ -10,6 +10,9 @@ def test_short_container_install_layout_uses_working_directory(monkeypatch, tmp_
     )
 
 
-def test_source_checkout_retains_repository_models_directory():
-    path = Path("/project/services/algorithms/src/quant_platform/rl/policies.py")
-    assert _default_models_root(path) == Path("/project/models")
+def test_source_checkout_retains_repository_models_directory(tmp_path):
+    # A real tmp tree rather than "/project": Path("/x").resolve() is drive-
+    # prefixed on Windows, which made this layout check platform-specific.
+    checkout = tmp_path / "project" / "services" / "algorithms" / "src"
+    path = checkout / "quant_platform" / "rl" / "policies.py"
+    assert _default_models_root(path) == tmp_path / "project" / "models"

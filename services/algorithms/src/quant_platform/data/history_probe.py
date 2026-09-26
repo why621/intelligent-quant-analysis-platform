@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from quant_platform.data.calendar import closure_basis
 from quant_platform.data.coverage import expected_sessions
 
 ALLOWED_HOSTS = {"web.ifzq.gtimg.cn", "proxy.finance.qq.com"}
@@ -86,6 +87,15 @@ def probe(payload: dict) -> dict:
     ):
         raise ValueError("probe accepts only SSE/SZSE stocks or explicit legacy ETF whitelist")
     start, end = date.fromisoformat(payload["start"]), date.fromisoformat(payload["end"])
+    research_only = [
+        year
+        for year in range(start.year, end.year + 1)
+        if closure_basis(year) != "official-notice"
+    ]
+    if research_only:
+        raise ValueError(
+            f"probe stays inside officially verified calendar years, not {research_only}"
+        )
     expected_sessions(start, end)
     if end > datetime.now(ZoneInfo("Asia/Shanghai")).date() - timedelta(days=1):
         raise ValueError("probe cannot include an uncompleted day")

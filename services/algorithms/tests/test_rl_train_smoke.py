@@ -65,8 +65,8 @@ def _provider(frame: pd.DataFrame, publication_date: date):
 
 @pytest.mark.parametrize("algo", ["dqn", "ppo", "sac", "ddpg"])
 def test_train_save_load_infer_pipeline_is_deterministic(tmp_path, algo):
-    train_start = date(2023, 1, 2)
-    rows = 220
+    train_start = date(2015, 1, 5)
+    rows = 1200
     frame = _synthetic_ohlc(first_day=train_start, rows=rows, seed=7)
     train_end = (train_start + timedelta(days=rows - 1))
 
@@ -143,8 +143,8 @@ def test_train_save_load_infer_pipeline_is_deterministic(tmp_path, algo):
 
 
 def test_inference_rejects_in_sample_window(tmp_path):
-    train_start = date(2023, 1, 2)
-    rows = 180
+    train_start = date(2015, 1, 5)
+    rows = 1200
     frame = _synthetic_ohlc(first_day=train_start, rows=rows, seed=5)
     train_end = train_start + timedelta(days=rows - 1)
     models_root = tmp_path / "models"
@@ -167,3 +167,43 @@ def test_inference_rejects_in_sample_window(tmp_path):
     with pytest.raises(RLInSampleRequest):
         # Starts inside the training window -> must be refused.
         instance.generate_signals(frame, {})
+
+
+def test_validation_window_is_recorded_and_still_in_sample(tmp_path):
+    """A held-out validation interval must never be sellable as out-of-sample."""
+    from quant_platform.rl.errors import RLInSampleRequest
+
+    train_start = date(2015, 1, 5)
+    frame = _synthetic_ohlc(first_day=train_start, rows=3200, seed=9)
+    train_end, val_start, val_end = date(2020, 12, 31), date(2021, 1, 4), date(2022, 12, 30)
+    models_root = tmp_path / "models"
+    run_id = "ppo-smoke-0003"
+    train_run(
+        publication_root=tmp_path / "unused",
+        models_root=models_root,
+        run_id=run_id,
+        algo="ppo",
+        symbol="SYNTH",
+        start=train_start,
+        end=train_end,
+        seed=42,
+        total_timesteps=256,
+        val_start=val_start,
+        val_end=val_end,
+        provider=_provider(frame, date(2026, 9, 18)),
+    )
+
+    manifest = ModelStore(models_root).load(run_id).manifest
+    assert manifest["valStartDate"] == "2021-01-04"
+    assert manifest["valEndDate"] == "2022-12-30"
+    assert manifest["validationBars"] == len(frame)
+
+    instance = RLStrategy(RL_POLICIES["ppo"], store=ModelStore(models_root)).create_for_request(
+        {"modelRef": run_id}
+    )
+    in_validation = frame[frame["date"] >= pd.Timestamp(val_start)].reset_index(drop=True)
+    with pytest.raises(RLInSampleRequest, match="验证"):
+        instance.generate_signals(in_validation, {})
+
+    out_of_sample = frame[frame["date"] >= pd.Timestamp("2023-06-01")].reset_index(drop=True)
+    assert len(instance.generate_signals(out_of_sample, {})) == len(out_of_sample)

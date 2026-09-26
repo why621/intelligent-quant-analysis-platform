@@ -251,9 +251,29 @@ class DatabaseConnection:
 class OHLCVStore:
     """Store market data in SQLite for cross-process concurrency."""
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, *, read_only: bool = False) -> None:
         self._data_dir = Path(data_dir)
-        self._migrate_legacy_csvs()
+        self._read_only = read_only
+        if not read_only:
+            self._migrate_legacy_csvs()
+
+    @contextmanager
+    def _connection(self):
+        if not self._read_only:
+            with DatabaseConnection.connection(self._data_dir) as conn:
+                yield conn
+            return
+        # No mkdir, schema migration or writable connection during training.
+        path = (self._data_dir / "market_data.db").resolve()
+        if not path.is_file():
+            raise ValueError("research history cache missing; run explicit backfill first")
+        conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5.0)
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = ON")
+            yield conn
+        finally:
+            conn.close()
 
     @property
     def data_dir(self) -> Path:
@@ -263,7 +283,7 @@ class OHLCVStore:
         if not symbol.isdigit() or len(symbol) != 6:
             return False
         self._validate_adjust(adjust)
-        with DatabaseConnection.connection(self._data_dir) as conn:
+        with self._connection() as conn:
             cur = conn.execute(
                 "SELECT 1 FROM ohlcv WHERE symbol = ? AND adjust = ? LIMIT 1",
                 (symbol, adjust),
@@ -278,7 +298,7 @@ class OHLCVStore:
             raise ValueError("symbol must be a six-digit string")
 
         self._validate_adjust(adjust)
-        with DatabaseConnection.connection(self._data_dir) as conn:
+        with self._connection() as conn:
             # Read bars and their schema assertion from one SQLite snapshot.
             conn.execute("BEGIN")
             df = pd.read_sql_query(
@@ -307,6 +327,8 @@ class OHLCVStore:
         volume_version: str | None = None,
     ) -> None:
         """Validate, deduplicate, and atomically save asset data to SQLite."""
+        if self._read_only:
+            raise ValueError("research history cache is read-only")
         if not symbol.isdigit() or len(symbol) != 6:
             raise ValueError("symbol must be a six-digit string")
 
@@ -315,7 +337,7 @@ class OHLCVStore:
         if normalised.empty:
             return
 
-        with DatabaseConnection.connection(self._data_dir) as conn:
+        with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             marker_key = f"volume_schema:{symbol}:{adjust}"
             if volume_version:
@@ -347,7 +369,7 @@ class OHLCVStore:
 
     def revision(self) -> str:
         """Cross-process revision, committed in the same transaction as price writes."""
-        with DatabaseConnection.connection(self._data_dir) as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT value FROM cache_metadata WHERE key = 'ohlcv_revision'"
             ).fetchone()
@@ -395,7 +417,7 @@ class OHLCVStore:
             path for path in self._data_dir.glob("*.csv")
             if path.stem.isdigit() and len(path.stem) == 6
         )
-        with DatabaseConnection.connection(self._data_dir) as conn:
+        with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             migrated = conn.execute(
                 "SELECT value FROM cache_metadata WHERE key = 'legacy_csv_migrated'"

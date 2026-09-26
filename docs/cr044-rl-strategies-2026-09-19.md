@@ -78,6 +78,12 @@
 
 复现：`PYTHONUTF8=1 .venv/Scripts/python.exe .venv/quant-cache/research/rl_seed_golden.py`（需联网+`[rl]`）。
 
+> 2026-09-26 校正：该脚本位于 **gitignored 研究目录**，不在仓库内，干净检出无法据此复现；且这里的
+> `2021-01-04..2024-06-28` 训练窗口**线上日更缓存今天已取不到**（其最早一根是 2025-07-23，见
+> [CR-052](cr052-rl-long-window-2026-09-22.md) §1 的两道闸门）。要重跑三年以上的金标准，须先按
+> [CR-053](cr053-deep-history-calendar-evidence-2026-09-26.md) 用 `quant-deep-history` 回填研究目录，
+> 再经 `quant-rl-train --history-root` 训练。本节数字仍是当时的观测记录，不因本段而视为已复现。
+
 **评估阶梯小结**：契约/引擎/因果/确定性单测（1–4）、真实数据端到端训练与样本外对比（5）、seed 功能金标准（6）均已执行并留证。真实数据结论是**未达性能门槛**，故四个 RL 一律停在 `experimental`，**不得**标 `available`、不计入 MVP、不接实盘；是否/何时转 `available` 由后端依据更充分证据逐个决定。
 （注：`test_history_probe::test_status_and_size_fail_without_retry` 被 deselect 是 Windows 环境变量 32767 上限遇到超长 param id 的既有本地问题，Linux CI 不受影响，与本改动无关。）
 
@@ -90,7 +96,12 @@
 - **错误码**：`app/services/errors.py` 现以 `class XxxError(ServiceError): code="..."` 定义。请新增
   `RLModelNotFound → code "RL_MODEL_NOT_FOUND"`、`RLDependenciesMissing → "RL_DEPENDENCIES_MISSING"`、
   `RLInSampleRequest → "RL_IN_SAMPLE_REQUEST"`、`RLNotTrained → "RL_NOT_TRAINED"`、
-  `RLIncompatibleModel → "RL_INCOMPATIBLE_MODEL"`，并在任务失败路径（`backtests.py:131` 写 `error_code`）把 `quant_platform.rl.errors.RLError.code` 映射过去。
+  `RLIncompatibleModel → "RL_INCOMPATIBLE_MODEL"`、`RLInsufficientHistory → "RL_INSUFFICIENT_HISTORY"`
+  （CR-045 后新增：区间内没有可用行情即拒训/拒评），并在任务失败路径（`backtests.py:131` 写 `error_code`）把 `quant_platform.rl.errors.RLError.code` 映射过去。
+  `RLInvalidSplit → "RL_INVALID_SPLIT"`（CR-052）**不需要** HTTP 映射：它只在 `quant-rl-train`
+  训练 CLI 出现（窗口长度/重叠/2015 下限/形态覆盖不合规）；权重一旦落盘，其区间由
+  `store.validate_split_dates` 在载入时以 `RLIncompatibleModel` 把关。同处请改用
+  `rl.splits.in_sample_end(manifest)` 计算样本内终点（CR-052/053：验证区间同样不可打分）。
 - **单例假设**：`app/__init__.py` 断言策略无状态单例 —— RL 经 `create_for_request` 走 per-request 实例，共享实例仅出元数据/校验，不破坏该假设。
 - **测试同步**：`test_api.py` 中精确策略 id 集合、`/strategies` 键集合需随注册同步（新增 4 个 ai/experimental id）。
 - **对接约定**：`POST /api/backtests {strategyId:"ppo", parameters:{modelRef:"<run-id>"}}` → 202 → 轮询 `succeeded`。

@@ -46,8 +46,16 @@ def test_unapproved_host_protocol_credentials_no_request(url):
     assert trace == []
 
 
-@pytest.mark.parametrize("status,body", [(302, b"redirect"), (403, b"denied"),
-                                        (500, b"failed"), (200, b"x" * (MAX_RESPONSE_BYTES + 1))])
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (302, b"redirect"),
+        (403, b"denied"),
+        (500, b"failed"),
+        (200, b"x" * (MAX_RESPONSE_BYTES + 1)),
+    ],
+    ids=["redirect", "denied", "failed", "oversized-body"],
+)
 def test_status_and_size_fail_without_retry(status, body):
     trace = []
     with (
@@ -66,3 +74,35 @@ def test_adapter_does_not_deduplicate_conflicting_dates():
     with (patch("quant_platform.data.akshare_provider.ak.stock_zh_a_hist_tx", return_value=raw),
           pytest.raises(UpstreamUnavailableError, match="duplicate")):
         provider._fetch_tencent_inline("600000", date(2026, 9, 7), date(2026, 9, 7), "qfq")
+
+
+def test_probe_stays_in_officially_verified_calendar_years(tmp_path, monkeypatch):
+    """The worker may not answer "is this history reachable" on research-grade years.
+
+    2011 has no record at all and 2013 stops where the exchange's own notice column
+    does, so a window touching either is refused even when its last year is
+    notice-backed. A year the table marks ``cross-validated`` is refused the same
+    way: widening the table to eleven verified years must not quietly become a
+    licence to probe on any basis.
+    """
+    import json
+
+    from quant_platform.data import calendar, history_probe
+
+    monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
+    assert calendar.closure_basis(2014) == "official-notice"
+    assert calendar.closure_basis(2020) == "official-notice"
+    for payload in (
+        {"symbol": "600000", "start": "2011-03-01", "end": "2011-05-30"},
+        {"symbol": "600000", "start": "2013-12-02", "end": "2014-01-20"},
+    ):
+        with pytest.raises(ValueError, match="verified calendar years"):
+            history_probe.probe(payload)
+
+    document = json.loads(calendar.DEFAULT_EVIDENCE_PATH.read_text(encoding="utf-8"))
+    document["years"]["2015"]["basis"] = "cross-validated"
+    downgraded = tmp_path / "closures.json"
+    downgraded.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(downgraded))
+    with pytest.raises(ValueError, match="verified calendar years"):
+        history_probe.probe({"symbol": "600000", "start": "2015-03-02", "end": "2015-05-29"})

@@ -23,6 +23,7 @@ venv/
 # Quant data and model artifacts
 data/raw/
 data/processed/
+data/research_history/
 artifacts/
 /models/
 *.parquet
