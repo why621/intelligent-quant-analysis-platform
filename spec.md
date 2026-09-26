@@ -705,7 +705,7 @@ CR052本地验收回写：preflight 实测 2015—2024 全部未核对（exit=2�
 
 CR053 范围与授权：承接 CR-052 的 T-035c/d，仍限 services/algorithms/** 与 SDD/文档，不改后端、前端与契约。用户当次授权执行 network 探测与单资产深历史回填，同时明确不在本机批量拉数、训练只做小规模链路验证，故本轮不产生任何绩效或 available 结论。
 
-CR053 证据来源：2015—2024 年交易所休市通知原文未能取回（上交所该栏目 JS 分页仅返回 2026 条目；不猜测 URL）。采用 akshare 1.18.80 tool_trade_date_hist_sina()（新浪财经·上交所历史交易日 8797 行，1990-12-19→2026-12-31，无重复、无周末被判交易日）生成候选休市区间；其源码自证曾手工补 1992-05-04，故只作候选不作权威。cn_stock_holidays 不是 akshare 函数且口径为国务院法定假日，与交易所休市不等价（调休补班的周末交易所仍闭市、临时休市未必收录），不采用。
+CR053 证据来源：2015—2024 年交易所休市通知原文未能取回（上交所该栏目 JS 分页仅返回 2026 条目；不猜测 URL）。**（此句已被 CR-054 推翻：该栏目分页为 s_list_n.shtml，公告原文可抓取，9/10 年已按原文升级为 official-notice。）**采用 akshare 1.18.80 tool_trade_date_hist_sina()（新浪财经·上交所历史交易日 8797 行，1990-12-19→2026-12-31，无重复、无周末被判交易日）生成候选休市区间；其源码自证曾手工补 1992-05-04，故只作候选不作权威。cn_stock_holidays 不是 akshare 函数且口径为国务院法定假日，与交易所休市不等价（调休补班的周末交易所仍闭市、临时休市未必收录），不采用。
 
 CR053 交叉核对（按工作日展开后双向）：(1) 与内置 2025/2026 官方公告口径 18/19 个休市工作日逐日一致；(2) 与腾讯通道（回填实际使用的同一通道）510300 前复权 2015-01-05→2024-12-31 共 2431 根逐年比对，休市日出现K线 0 天、交易日缺K线 0 天，年成交根数 242—244。两项核对固化为 tests/test_deep_history_probe.py 的 network 用例，上游任一漂移即证据失效。
 
@@ -714,3 +714,15 @@ CR053 边界：services/algorithms/data/calendar_closures.json 每条年度记�
 CR053 验收回写：network 探针 5 passed（含修正自身探针缺陷——510300 于 2012-05-28 上市，原 2012 年 1—3 月窗口空返回是正确行为，改到上市后并加"不早于上市日"断言）；preflight 2015—2024 ready=true 且十年均列入 crossValidatedYears；510300 整段回填 2431 根进 data/research_history（gitignored），线上缓存 data/processed mtime 未变。四算法在 2015-01-05..2019-12-31 训练 + 2020-01-02..2021-12-31 验证（validationBars=486）+ 2022-01-04..2024-12-31 预留测试的真实分区完成训练，--require-regimes 实测 bear 125/bull 131/sideways 900（warmup 63），预留区间推理 726 根正常产出、验证区间一律 RLInSampleRequest 拒绝。timesteps 4096/2048、单资产单 seed 仅证明链路，Ruff 通过，算法离线 333 passed/13 network 排除（交付前自查发现证据表改默认可见后历史探测 worker 的区间闸门缺失，已补并计 1 例）。见[CR053实录](docs/cr053-deep-history-calendar-evidence-2026-09-26.md)。
 
 CR053 缺陷与移交：真实 --history-root 首跑即被自家 store 拒为 invalid publication date——_unpublished_context 把 publicationDate 记成训练段末根，早于样本内终点 valEndDate；离线套件全绿是因为 smoke 桩直接提供 publication_context，从不经过该研究分支。已改为取实际观察各段末根最大值并补离线回归用例。另 services/backend/tests/test_live_data_acceptance.py 的 fixture 用 date.today() 只跳过周末不跳过休市日，2026-09-26 回退到 09-25（内置中秋休市）导致 3 项 error；git diff 证明本轮未触碰该文件与 market_fetch.py，属日期敏感既有缺陷，移交后端改用 calendar.latest_session(date.today())。
+
+## 2026-09-26 CR054 休市日历官方公告复核与口径升级登记
+
+CR054 范围与授权：仍限 services/algorithms/** 与 SDD/文档，不改后端、前端与 packages/contracts。用户提供上交所「休市安排」栏目入口 https://www.sse.com.cn/disclosure/dealinstruc/closed/list/ 并要求据其查证 CR-053 记为"未取得"的公告原文。本轮只做证据口径升级，不新增取数、不重跑训练。
+
+CR054 取证方式：列表页真实分页为 s_list.shtml 与 s_list_2..6.shtml（分页地址从列表页源码 url= 属性读出，不猜测）；6 页共 84 条（2013-09-11→2026-09-17），取回覆盖 2015—2024 的 13 份公告正文（含 2015 年抗战胜利纪念日临时休市、2019 年劳动节调整、2020 年春节专项公告）。正文服务端渲染于 div.allZoom，按 </p>、<br> 断行后只解析"…休市"句式，跨年区间支持年份前缀，补休日期用公告自标星期钉年份；比对一律展开为"休市工作日集合"（区间级比对会因公告含周末而假失配）。
+
+CR054 结果：2015、2016、2017、2018、2019、2021、2022、2023、2024 九年与公告正文双向零差异（17/17、17/17、16/16、18/18、17/17、18/18、18/18、18/18、20/20 个休市工作日），basis 升级为 official-notice，source 改为该年年度通知原文 URL，公告文号/发布日/全部 URL 与比对结论记入 derivedFrom/verifiedAgainst。2020 年唯一差异是 2020-01-31：年度公告〔2019〕65号与春节公告〔2020〕3号均写"1月31日起照常开市"，而行情侧证据当日无K线、2月3日才是节后首个交易日，差异对应春节假期延长的临时安排，其交易所临时公告不在该栏目、未取得原文，故 2020 保持 cross-validated 并把这个缺口与依据写进记录，不因"其余日期全对"而整年升级。内置 2025/2026 表另用其年度公告机器复核，18/18、19/19 双向一致，calendar.py 文档串所引两个地址实测 HTTP 200。
+
+CR054 边界：closures 一条未改——实测升级前后 2015-01-01→2024-12-31 期望交易日同为 2431 根且序列完全相同，故不触发重新回填与重训，CR-053 产出的四份研究权重与 manifest 继续有效。calendar.py 校验器把审计字段改为"只要出现就必须完整"（derivedFrom + ISO checkedOn + 非空 verifiedAgainst 三者齐备；cross-validated 仍强制三者），只记一半的核对痕迹与无出处日期清单同等拒绝；不记审计字段的 official-notice 条目依旧合法。行为后果：线上无 cutoff 取数与 history_probe 现在放行九个公告年份、仍拒绝 2020；放行只是"允许请求"，线上缓存起点与 _LOOKBACK_DAYS 等既有约束不变，是否并入已发布快照仍由后端与发布闸门决定。basis 仍是声明式信任锚（谎报不会被代码反驳），本轮改进在于让声明可复核。
+
+CR054 验收回写：Ruff 通过；算法离线 335 passed/14 network 排除（CR-053 时点 333/13，本轮 +2 离线用例：新增 official-notice 部分审计字段拒绝用例与"线上路径接受公告年份"用例，并把依赖十年全为 cross-validated 的三个既有用例改到 2020/2011 触发点；+1 network 用例）；network 单跑 test_deep_history_probe.py 6 passed；后端 146 passed + 3 errors 与 CR-053 §6 所述日期依赖既有缺陷一致，本轮未触碰后端。未完成：2020-01-31 临时公告原文、多资产深历史、T-035d 完整版（多种子/多资产/跨资产绩效与披露）、后端 in_sample_end 接缝。RL 继续 experimental，未推送未部署。一次性抓取脚本与公告 HTML 留在系统临时目录不入库，入库的是复算所需的解析器与日期/URL：services/algorithms/tests/golden/recheck_official_closures.py 重抓证据表引用的 12 份公告并按年双向复算（本轮十年全通过，2020 仅多出记录已写明的 2020-01-31），该工具需外网、默认不属离线套件。见[CR054实录](docs/cr054-official-notice-calendar-2026-09-26.md)。

@@ -59,7 +59,8 @@ CR-012实施前设计：新增不可变名单快照模块，校验官方指数00
 | D-06 | 初期保留SQLite，先验证300只规模，不直接升级机器/数据库 | 拟议，性能待测 |
 | D-07 | 单智能体RL（DQN/PPO/SAC/DDPG，stable-baselines3薄封装）以 `signal_semantics=continuous_target_weight` 接入现有引擎；训练与推理分离（离线 `quant-rl-train` 从不可变发布快照产出 `/models/<run-id>`+内容哈希manifest，推理 per-request 载入不 fit、拒样本内）；ML依赖仅 `[rl]` extra 不进 CI；`experimental` 起步，过评估门槛方由后端置 `available` | CR-044 进行中（仅算法模块） |
 | D-08 | 长窗口按 REQ-11 以纯函数门禁实现（训练≥3年、验证1—2年、测试预留、2015下限、牛/熊/震荡按价格动量实测覆盖），样本内终点统一取 `splits.in_sample_end()` 使验证区间同样不可打分；深历史经带官方来源的休市证据表与独立研究 root 回填，未核对年份继续拒绝、线上缓存隔离且不入git；`schemaVersion` 维持2以免判坏已部署权重 | CR-052 已完成接缝；回填与真实训练见 D-09/CR-053 |
-| D-09 | 2015—2024 休市日历以第三方交易日表生成候选、经"内置官方口径 + 真实成交K线"双向逐日核对后采信，证据条目用 `basis=cross-validated` 并强制 derivedFrom/checkedOn/verifiedAgainst；这类年份仅限研究（provider 默认拒绝线上无 cutoff 路径使用），官方通知原文取得前不得称已核对；`publicationDate` 取实际观察末根 | CR-053 已实现并在真实分区跑通四算法小规模训练 |
+| D-09 | 2015—2024 休市日历以第三方交易日表生成候选、经"内置官方口径 + 真实成交K线"双向逐日核对后采信，证据条目用 `basis=cross-validated` 并强制 derivedFrom/checkedOn/verifiedAgainst；这类年份仅限研究（provider 默认拒绝线上无 cutoff 路径使用），官方通知原文取得前不得称已核对；`publicationDate` 取实际观察末根 | CR-053 已实现并在真实分区跑通四算法小规模训练；公告原文后续由 CR-054 取得 |
+| D-10 | 休市日历证据的口径以交易所公告原文为准：能用公告正文逐日双向复算的年份记 `basis=official-notice` 并保留公告文号、发布日与原文 URL；公告未覆盖到的日期（如临时延长休市）一律保持 `cross-validated` 并写明缺口，不得因"大部分日期对得上"而整年升级。审计字段只要出现就必须完整，closures 不因升级而改动，故升级不触发重填重训；取证解析器与引用一起入库为可重跑复算工具（tests/golden/recheck_official_closures.py，需外网、不入离线套件） | CR-054 已完成（2015—2019、2021—2024 共 9 年升级，2020 保持研究口径） |
 
 ## 目标数据边界（未实现部分）
 
