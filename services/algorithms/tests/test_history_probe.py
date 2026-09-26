@@ -74,3 +74,16 @@ def test_adapter_does_not_deduplicate_conflicting_dates():
     with (patch("quant_platform.data.akshare_provider.ak.stock_zh_a_hist_tx", return_value=raw),
           pytest.raises(UpstreamUnavailableError, match="duplicate")):
         provider._fetch_tencent_inline("600000", date(2026, 9, 7), date(2026, 9, 7), "qfq")
+
+
+def test_probe_stays_in_officially_verified_calendar_years(monkeypatch):
+    """The shipped research evidence table must not widen what the worker accepts."""
+    from quant_platform.data import calendar, history_probe
+
+    monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
+    for payload in (
+        {"symbol": "600000", "start": "2016-03-01", "end": "2016-05-30"},
+        {"symbol": "600000", "start": "2024-12-02", "end": "2025-01-20"},
+    ):
+        with pytest.raises(ValueError, match="verified calendar years"):
+            history_probe.probe(payload)
