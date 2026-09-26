@@ -60,6 +60,34 @@ CR-052 留下的两道闸门中，第二道（2015—2024 休市日历未核对�
 已发布快照的研究路径（`read_only_research` + cutoff）行为不变：缓存不含 2015 时依旧报
 "published history incomplete"。`schemaVersion` 仍为 1，新字段向后兼容。
 
+### 3.1 自查后的两处补强
+
+**证据表现在无需环境变量即生效**（`DEFAULT_EVIDENCE_PATH` 指向仓库内的
+`services/algorithms/data/calendar_closures.json`），意味着一次普通的部署就让 2015—2024 在整个
+代码库里"可解析"。逐点核对了所有直接调用 `sessions/is_session/latest_session` 的位置：
+排行/配置/引擎/发布/覆盖度/指数快照的窗口都由线上缓存或请求区间导出（当前缓存起点 2025-07-23），
+不会因为日历变宽而多取一天数据；唯一能由外部输入任意区间的入口是隔离的探测 worker
+`history_probe.probe()`——它在本次补强前会**由"2016 年历未核对"这一响亮拒绝变成静默可行**，
+即用一个研究口径的日历去给"某段历史是否可达"下结论。已改为只接受
+`closure_basis(year) == "official-notice"` 的年份，跨年窗口（如 2024-12→2025-01）同样拒绝，
+既有 2025/2026 用法逐字节不变。用例：`tests/test_history_probe.py::test_probe_stays_in_officially_verified_calendar_years`。
+
+**信任锚的边界要说明白**：`official-notice` 这一 basis 是**声明式**的——部署方若把某年写成
+`official-notice`，闸门不会反驳，这与内置 2025/2026 表当初依赖人工核对是同一条信任边界，
+不是新洞；`cross-validated` 才是本轮新增的、必须交出 `derivedFrom/checkedOn/verifiedAgainst`
+的口径。另需注意探测 worker 由 `tools/prepare_history_batch.py` 以子进程启动，它会同样读到默认证据
+文件——因此该 worker 的年份闸门不能依赖调用方是否设置了 `QUANT_CALENDAR_EVIDENCE`。
+
+无环境变量下的实测（新进程）：
+
+```text
+$ env -u QUANT_CALENDAR_EVIDENCE python -c "...calendar.closure_basis(2020); provider.history('510300',2016-01-04,2016-03-31)"
+evidence path: services/algorithms/data/calendar_closures.json   # 默认证据即生效
+basis 2020: cross-validated
+verified years: [2015..2026]
+refused: 休市日历 [2016] 未经官方公告核对，仅限研究回填取数        # 线上路径仍拒绝
+```
+
 ## 4. 真实数据验收（本轮实际执行）
 
 ```text
@@ -105,7 +133,8 @@ PPO manifest 实测记录：`trainStartDate=2015-01-05 / trainEndDate=2019-12-31
 单 seed，`--require-regimes` 只证明训练窗覆盖三种形态，不证明策略赚钱。RL 四策略继续
 `experimental`，是否转 `available` 由后端依证据决定。
 
-离线与静态检查：`ruff check services/algorithms` 通过；算法离线 **332 passed, 13 deselected**（61s）。
+离线与静态检查：`ruff check services/algorithms` 通过；算法离线 **333 passed, 13 deselected**（52s，
+含第 3.1 节自查补强的新用例）。
 后端回归 `pytest services/backend` 为 **146 passed, 3 errors**，3 例即第 6 节那个日期敏感的既有
 fixture 缺陷，非本轮引入（CR-052 登记时的 149 passed 对应 2026-09-22/23 的运行，当时起点不是休市日；
 本轮未据此改动任何断言，只按第 6 节移交）。
