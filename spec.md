@@ -700,3 +700,17 @@ CR052 规格：rl/splits.py 定义训练≥3年、验证1—2年、测试可预�
 CR052 数据边界：calendar.py 接受 QUANT_CALENDAR_EVIDENCE 指向的年度休市证据表，缺 https 官方来源、区间倒置、月份非法即拒，且不得覆盖内置2025/2026；deep_history.py（quant-deep-history）要求显式 symbol 与显式 root、支持 preflight 与证据输出、拒绝写入 QUANT_DATA_DIR/data processed 线上缓存，每 symbol 一次整段 qfq 拉取（除权会重锚整条序列，半段刷新会混基准）。data/research_history/ 已加入 gitignore。
 
 CR052本地验收回写：preflight 实测 2015—2024 全部未核对（exit=2）；Ruff通过，算法离线325 passed（12 network排除）、后端149 passed。改签名过程中曾使后端29项error（test_ppo_web/test_rl_web 仍按旧 assemble_manifest 形状调用），恢复旧参数形状后复绿——算法公开函数签名变更须先 grep 后端与契约调用方。真实深历史回填与 network 探针按用户指令未在本机执行，T-035c/d未完成，无长窗口绩效结论。见[CR052实录](docs/cr052-rl-long-window-2026-09-22.md)。
+
+## 2026-09-26 CR053 深历史休市证据与真实长窗口登记
+
+CR053 范围与授权：承接 CR-052 的 T-035c/d，仍限 services/algorithms/** 与 SDD/文档，不改后端、前端与契约。用户当次授权执行 network 探测与单资产深历史回填，同时明确不在本机批量拉数、训练只做小规模链路验证，故本轮不产生任何绩效或 available 结论。
+
+CR053 证据来源：2015—2024 年交易所休市通知原文未能取回（上交所该栏目 JS 分页仅返回 2026 条目；不猜测 URL）。采用 akshare 1.18.80 tool_trade_date_hist_sina()（新浪财经·上交所历史交易日 8797 行，1990-12-19→2026-12-31，无重复、无周末被判交易日）生成候选休市区间；其源码自证曾手工补 1992-05-04，故只作候选不作权威。cn_stock_holidays 不是 akshare 函数且口径为国务院法定假日，与交易所休市不等价（调休补班的周末交易所仍闭市、临时休市未必收录），不采用。
+
+CR053 交叉核对（按工作日展开后双向）：(1) 与内置 2025/2026 官方公告口径 18/19 个休市工作日逐日一致；(2) 与腾讯通道（回填实际使用的同一通道）510300 前复权 2015-01-05→2024-12-31 共 2431 根逐年比对，休市日出现K线 0 天、交易日缺K线 0 天，年成交根数 242—244。两项核对固化为 tests/test_deep_history_probe.py 的 network 用例，上游任一漂移即证据失效。
+
+CR053 边界：services/algorithms/data/calendar_closures.json 每条年度记录须声明 basis；official-notice（默认）为人工读过通知原文，cross-validated 必须同时给出 https source、derivedFrom、checkedOn 与 verifiedAgainst，缺一即拒，内置 2025/2026 不可被覆盖，schemaVersion 仍为 1（向后兼容）。cross-validated 年份仅限研究：AkShareMarketDataProvider 默认在无 publication cutoff 的线上路径拒绝这类年份且不留缓存，仅 quant-deep-history 回填与 quant-rl-train --history-root 在自建的研究目录 provider 实例上显式置 allow_research_calendar=True；已发布快照研究路径行为不变。
+
+CR053 验收回写：network 探针 5 passed（含修正自身探针缺陷——510300 于 2012-05-28 上市，原 2012 年 1—3 月窗口空返回是正确行为，改到上市后并加"不早于上市日"断言）；preflight 2015—2024 ready=true 且 ten 年标为 crossValidatedYears；510300 整段回填 2431 根进 data/research_history（gitignored），线上缓存 data/processed mtime 未变。四算法在 2015-01-05..2019-12-31 训练 + 2020-01-02..2021-12-31 验证（validationBars=486）+ 2022-01-04..2024-12-31 预留测试的真实分区完成训练，--require-regimes 实测 bear 125/bull 131/sideways 900（warmup 63），预留区间推理 726 根正常产出、验证区间一律 RLInSampleRequest 拒绝。timesteps 4096/2048、单资产单 seed 仅证明链路，Ruff 通过，算法离线 332 passed/13 network 排除。见[CR053实录](docs/cr053-deep-history-calendar-evidence-2026-09-26.md)。
+
+CR053 缺陷与移交：真实 --history-root 首跑即被自家 store 拒为 invalid publication date——_unpublished_context 把 publicationDate 记成训练段末根，早于样本内终点 valEndDate；离线套件全绿是因为 smoke 桩直接提供 publication_context，从不经过该研究分支。已改为取实际观察各段末根最大值并补离线回归用例。另 services/backend/tests/test_live_data_acceptance.py 的 fixture 用 date.today() 只跳过周末不跳过休市日，2026-09-26 回退到 09-25（内置中秋休市）导致 3 项 error；git diff 证明本轮未触碰该文件与 market_fetch.py，属日期敏感既有缺陷，移交后端改用 calendar.latest_session(date.today())。

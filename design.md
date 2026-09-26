@@ -58,7 +58,8 @@ CR-012实施前设计：新增不可变名单快照模块，校验官方指数00
 | D-05 | 失败保留旧数据并标状态，不静默拼接异源复权序列 | 既有原则，跨源迁移待实现 |
 | D-06 | 初期保留SQLite，先验证300只规模，不直接升级机器/数据库 | 拟议，性能待测 |
 | D-07 | 单智能体RL（DQN/PPO/SAC/DDPG，stable-baselines3薄封装）以 `signal_semantics=continuous_target_weight` 接入现有引擎；训练与推理分离（离线 `quant-rl-train` 从不可变发布快照产出 `/models/<run-id>`+内容哈希manifest，推理 per-request 载入不 fit、拒样本内）；ML依赖仅 `[rl]` extra 不进 CI；`experimental` 起步，过评估门槛方由后端置 `available` | CR-044 进行中（仅算法模块） |
-| D-08 | 长窗口按 REQ-11 以纯函数门禁实现（训练≥3年、验证1—2年、测试预留、2015下限、牛/熊/震荡按价格动量实测覆盖），样本内终点统一取 `splits.in_sample_end()` 使验证区间同样不可打分；深历史经带官方来源的休市证据表与独立研究 root 回填，未核对年份继续拒绝、线上缓存隔离且不入git；`schemaVersion` 维持2以免判坏已部署权重 | CR-052 进行中（回填与真实训练未完成） |
+| D-08 | 长窗口按 REQ-11 以纯函数门禁实现（训练≥3年、验证1—2年、测试预留、2015下限、牛/熊/震荡按价格动量实测覆盖），样本内终点统一取 `splits.in_sample_end()` 使验证区间同样不可打分；深历史经带官方来源的休市证据表与独立研究 root 回填，未核对年份继续拒绝、线上缓存隔离且不入git；`schemaVersion` 维持2以免判坏已部署权重 | CR-052 已完成接缝；回填与真实训练见 D-09/CR-053 |
+| D-09 | 2015—2024 休市日历以第三方交易日表生成候选、经"内置官方口径 + 真实成交K线"双向逐日核对后采信，证据条目用 `basis=cross-validated` 并强制 derivedFrom/checkedOn/verifiedAgainst；这类年份仅限研究（provider 默认拒绝线上无 cutoff 路径使用），官方通知原文取得前不得称已核对；`publicationDate` 取实际观察末根 | CR-053 已实现并在真实分区跑通四算法小规模训练 |
 
 ## 目标数据边界（未实现部分）
 
@@ -630,3 +631,7 @@ CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”�
 CR052 设计取舍：(1) 窗口规则独立成 rl/splits.py 纯函数模块，不依赖 torch/网络，使“三年+一两年验证+形态覆盖”成为可单元测试的门禁而非文档承诺；形态用价格自身动量分箱，避免人工圈定牛熊。(2) 训练入口 fail-fast：Split 校验放在 import torch 之前，非法区间不消耗训练时间；验证区间必须有真实留出行情，防止“验证窗口”只是一个日期字段。(3) 兼容性优先：assemble_manifest 保留 train_start/train_end 形状（后端测试直接调用），新区间走新增 windows 参数；schemaVersion 维持2，旧bundle无区间字段仍视为历史短窗口，既不判坏线上权重也不谎称满足三年。(4) 出处诚实：--history-root 产出的权重记 consistency=research_backfill_unpublished、universeVersion=research-backfill-root，dataVersion 用 sha256 摘要保持契约形状，网页 WebRL 依既有 universe mismatch 闸门天然拒绝，研究产物不会伪装成发布模型。
 
 CR052 数据链路设计：休市日历扩容采用“外部证据表 + 未核对年份继续拒绝”，把不可核实的部分显式化；深历史回填与线上日更缓存物理隔离（独立 root、gitignore、拒写 QUANT_DATA_DIR），并坚持整段 qfq 拉取以维持单一复权基准；preflight 先报告被挡年份再允许长时间拉数，回填结果落 JSON 证据供复核。后端待办（未改）：outOfSampleStartDate 与 HTTP 入口的样本内判断需改用算法侧 in_sample_end()，否则带验证区间的模型可从验证区间起提交（执行期仍被算法侧拒绝）。
+
+## 2026-09-26 CR053 设计登记
+
+CR053 设计取舍：(1) 权威与候选分离——官方公告仍是唯一权威，第三方交易日表只用于生成候选并被两份独立观测（内置官方年度口径、真实成交K线）双向证伪，使"扩容日历"从抄写任务变成可复算的核对任务；比较必须按工作日展开，因为公告的休市期间含周末而交易日表只标工作日。(2) 可信度写进数据而不是文档：证据条目新增 basis，cross-validated 强制 derivedFrom/checkedOn/verifiedAgainst，缺一即拒，避免十年后没人知道某一年是谁核对的；schemaVersion 保持 1，旧文件继续可用。(3) 研究范围靠默认关闭来保证：provider 的 allow_research_calendar 默认 False，线上无 cutoff 路径遇到 cross-validated 年份直接拒绝且不写缓存，只有深历史回填与 --history-root 训练在自建的研究目录实例上显式打开，不改日更与已发布快照行为。(4) publicationDate 语义收紧为"实际观察到的最后一根"，与样本内终点定义一致，防止 manifest 声称比真实证据更年轻的 cutoff。(5) 证据失效机制优先于口头保证：交叉核对写进 network 用例，上游漂移会让证据自动不可用。

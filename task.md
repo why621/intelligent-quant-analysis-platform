@@ -1,6 +1,6 @@
 # 开发任务与验收记录
 
-最新增量：2026-09-22 CR051资产分类筛选已推送GitHub并部署云端，公网三个选择器验证通过；Pages待本分支合并后自动发布。详见[分类筛选实录](docs/cr051-asset-category-filter-2026-09-22.md)；既有算法和云端状态沿用下方CR050记录。
+最新增量：2026-09-26 CR-053在本地分支algorithm/rl-long-window上补齐CR-052的深历史日历证据（2015—2024为交叉核对口径，非官方公告）、上游可达性探测与真实长窗口小样本训练；四算法真实分区训练通过，仅证明链路，RL继续experimental，未推送未部署。详见[CR-053实录](docs/cr053-deep-history-calendar-evidence-2026-09-26.md)与下方CR-052/CR-053任务表。此前2026-09-22 CR051资产分类筛选已推送GitHub并部署云端，公网三个选择器验证通过；Pages待本分支合并后自动发布。详见[分类筛选实录](docs/cr051-asset-category-filter-2026-09-22.md)；既有算法和云端状态沿用下方CR050记录。
 
 ## 最新任务状态（2026-09-20，CR050）
 
@@ -754,7 +754,19 @@ CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”�
 | --- | --- | --- | --- | --- |
 | T-035a 窗口规则与manifest区间 | 完成 | REQ-11 / D-08 | 无 | rl/splits.py：训练≥3年、验证1—2年、测试预留、2015-01-01下限、严格不重叠、63根动量±15%实测牛/熊/震荡（每类≥20根）；train.py记录区间/validationBars/regimeCoverage且校验前置于import torch；store仅对含区间字段的bundle校验自洽（含publicationDate不早于样本内终点），schemaVersion保持2；policies改走splits.in_sample_end()。证据：tests/test_rl_splits.py 18例、tests/test_rl_train_smoke.py 新增验证区间端到端用例；Ruff通过，算法离线325 passed/12 network排除，后端149 passed |
 | T-035b 深历史入口与日历证据 | 完成 | REQ-02/11 / D-08 | T-035a | calendar.py接受QUANT_CALENDAR_EVIDENCE年度证据（缺https官方来源/区间倒置/月份非法即拒，禁覆盖内置2025/2026，未核对年份照旧拒绝）；deep_history.py提供preflight、显式symbol/root、整段qfq回填、证据JSON并拒写线上缓存；quant-deep-history注册进pyproject scripts；data/research_history/入gitignore。证据：tests/test_deep_history.py 11例全绿；CLI preflight实测 unverifiedYears=[2015..2024]、ready=false、exit=2 |
-| T-035c 上游深历史可达性探测 | 未完成 | REQ-02 | T-035b | 唯一允许触网的深历史用例 tests/test_deep_history_probe.py（network标记，默认deselect，只拉510300三个约3个月窗口+一段2012区间，不写缓存）。需用户或云端授权后执行并把命令与结果回写；探针未通过前不得声称2015年前后可得。本轮按用户“不在本机拉全量数据”的指令未执行 |
-| T-035d 真实长窗口训练与稳健性 | 未完成 | REQ-06/07/11 | T-035b/c | 待2015—2024官方休市公告录入证据表并回填后，用真实三年窗口+1—2年留出验证训练≥3个seed、多资产（优先SSE代码，sz000成交量仍受SDK版本红线），披露幸存者偏差与过拟合风险；未产出前RL保持experimental，不转available |
+| T-035c 上游深历史可达性探测 | 完成 | REQ-02 | T-035b | 用户 2026-09-26 授权后实际执行：`pytest services/algorithms/tests/test_deep_history_probe.py -m network -o addopts=""` → 5 passed in 76.55s（2015/2018/2020 三个约3个月窗口与 2012 上市后窗口均返回合规K线，日期升序无重复、区间内、high≥low、OHLC 为正）。修正自身探针缺陷：510300 于 2012-05-28 上市，原 2012-01-30~03-30 窗口空返回是正确行为，改至上市后并断言不早于上市日。新增复审用例把 CR-053 的两项交叉核对固化为可复跑证据。不写缓存，线上数据未变 |
+| T-035d 真实长窗口训练与稳健性 | 部分完成 | REQ-06/07/11 | T-035b/c | **已完成（用户限定小规模）**：2015—2024 休市证据就位后 preflight ready=true，510300 整段回填 2431 根进独立研究目录，ppo/dqn/sac/ddpg 在 2015-01-05..2019-12-31 训练 + 2020-01-02..2021-12-31 验证（validationBars=486）+ 2022-01-04..2024-12-31 预留测试的真实分区训练完成，--require-regimes 实测 bear 125/bull 131/sideways 900，预留区间推理 726 根正常、验证区间一律 RLInSampleRequest 拒绝；timesteps 4096/2048 仅证明链路。**未完成**：≥3 seed、多资产（sz000 成交量仍受 SDK 版本红线）、跨资产长期绩效与幸存者偏差/过拟合披露。RL 四策略继续 experimental，不因本条转 available |
 
-注：后端待办不改契约前提下自行处理——WebRL 的 outOfSampleStartDate 与 validate_web_request 仍按 trainEndDate 判样本内，需改用 quant_platform.rl.splits.in_sample_end()；research-root 权重依现有 universe mismatch 闸门天然不可上线。docs/cr044-rl-strategies-2026-09-19.md §4.2/§5 的过期表述仍待修订，未纳入本轮。
+注：后端待办不改契约前提下自行处理——WebRL 的 outOfSampleStartDate 与 validate_web_request 仍按 trainEndDate 判样本内，需改用 quant_platform.rl.splits.in_sample_end()；research-root 权重依现有 universe mismatch 闸门天然不可上线；`services/backend/tests/test_live_data_acceptance.py` 的 fixture 只跳周末、不跳法定休市，2026-09-26 实测 3 例报 "future or obsolete market timestamp"，建议改用 `calendar.latest_session(date.today())`。docs/cr044-rl-strategies-2026-09-19.md §4.2/§5 的过期表述已在 CR-053 登记轮修正（金标准脚本 gitignored 且旧窗口已不可从线上缓存重现，错误码清单补 `RLInsufficientHistory` 并说明 `RL_INVALID_SPLIT` 无需 HTTP 映射）。
+
+### CR-053 深历史日历证据与真实长窗口训练（算法模块，2026-09-26）
+
+基线 main 7320702 之上的 algorithm/rl-long-window 分支；范围仍仅 services/algorithms/** 加根SDD与 docs/cr053-deep-history-calendar-evidence-2026-09-26.md，不改后端、前端与 packages/contracts。用户 2026-09-26 授权执行 CR-052 未完成项，并明确"长窗口训练别搞太大，只确认训练过程不出错"；同时要求不在本机 bulk 拉取全量行情（改由 `-m network` 探针承担）。
+
+| 任务 | 状态 | 需求/决策 | 依赖 | 完成条件 |
+| --- | --- | --- | --- | --- |
+| T-036a 候选日历与交叉核对证据 | 完成 | REQ-02/11 / D-09 | T-035b | data/calendar_closures.json（仅日期与URL，无行情）覆盖 2015—2024，basis=cross-validated，附 derivedFrom/checkedOn/verifiedAgainst 审计字段；由 akshare 1.18.80 tool_trade_date_hist_sina()（8797 行，1990-12-19..2026-12-31，无重复）派生。两项独立核对：与内置 2025/2026 官方公告按"周内休市日"逐日双向比对（18/18、19/19，区间级比对会因公告含周末而假失配）、与该源实际取回的 510300 2431 根真实日线逐年双向零分歧。未取得 2015—2024 交易所休市通知原文（SSE 分页为 JS 渲染、WebSearch 只返回 2026），故不声称官方核对，只登记交叉验证口径。证据：tests/test_deep_history.py 新增 4 例、tests/test_deep_history_probe.py 复审用例（network，实测通过） |
+| T-036b provider 研究专用闸门 | 完成 | REQ-02 / D-09 | T-036a | calendar.py 拆出 parse_evidence_basis/closure_basis，EvidenceError 语义不变；AkShareMarketDataProvider 默认 allow_research_calendar=False，无 cutoff 的已发布路径遇到 cross-validated 年份即抛 UpstreamUnavailableError，绝不因此扩线上缓存；deep_history.cross_validated_years 与 preflight.crossValidatedYears 暴露口径；backfill 与 train 的 --history-root 只在自己构造的研究根 provider 上显式开闸。证据：test_published_path_never_leans_on_a_cross_validated_calendar（验证拒绝后 `_load_history_cache` 仍为空、开闸后可读）、test_backfill_opens_the_research_calendar；线上缓存文件 mtime 实测未变 |
+| T-036c 真实长窗口小样本训练 | 完成 | REQ-06/07/11 / D-08 | T-036a/b | 真实数据跑通并暴露一个只在真机出现的缺陷：_unpublished_context 原用训练区间末根（2019-12-31）当 publicationDate，低于 valEndDate（2021-12-31），store 载入即 RLIncompatibleModel: invalid publication date；离线全绿是因为 smoke stub 直接提供 publication_context、不进研究分支。改为取所有已观测帧（含留出切片）末根最大值，并新增 test_publication_date_must_cover_the_validation_slice_not_just_training。四算法在 5 年训练/2 年验证/3 年预留真实分区上训练与推理通过，仅证明链路，不含性能结论（细节与命令见 T-035d 及 CR-053 实录 §4/§5） |
+
+注：本轮验证命令与结果（含 `332 passed, 13 deselected` 与 `ruff check services/algorithms` 通过）见该文件 §4；后端当次回归为 146 passed + 3 errors，其中 3 例是 §6 所述的日期依赖既有缺陷，已证明与本次改动无关（`git diff main --stat` 对 market_fetch.py 与 services/backend 为空）。T-035d 的多种子/多资产/披露仍未完成，RL 继续 experimental。
