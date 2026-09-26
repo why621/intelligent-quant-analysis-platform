@@ -209,3 +209,19 @@ def test_research_history_root_is_marked_as_unpublished_provenance(tmp_path):
 
     with pytest.raises(RLInvalidSplit):
         _unpublished_context(provider, pd.DataFrame({"date": []}))
+
+
+def test_publication_date_must_cover_the_validation_slice_not_just_training():
+    """A train-only cutoff would let the bundle claim a younger snapshot than used."""
+    from types import SimpleNamespace
+
+    from quant_platform.rl.train import _unpublished_context
+
+    train = pd.DataFrame({"date": pd.to_datetime(["2015-01-05", "2019-12-31"])})
+    validation = pd.DataFrame({"date": pd.to_datetime(["2020-01-02", "2021-12-31"])})
+    provider = SimpleNamespace(cache_revision=lambda: "rev-2")
+
+    assert _unpublished_context(provider, train)["publicationDate"] == "2019-12-31"
+    context = _unpublished_context(provider, train, validation)
+    assert context["publicationDate"] == "2021-12-31"
+

@@ -86,22 +86,28 @@ def _training_provider(publication_root: Path, history_root: Path | None):
     if history_root is not None:
         from quant_platform.data.akshare_provider import AkShareMarketDataProvider
 
-        return AkShareMarketDataProvider(data_dir=history_root)
+        provider = AkShareMarketDataProvider(data_dir=history_root)
+        provider.allow_research_calendar = True
+        return provider
     from quant_platform.data.publication import load_publication
 
     return load_publication(publication_root)
 
 
-def _unpublished_context(provider, prices) -> dict[str, str]:
+def _unpublished_context(provider, *frames) -> dict[str, str]:
     import hashlib
 
     import pandas as pd
 
-    if prices is None or len(prices) == 0:
+    dates = [pd.Timestamp(frame["date"].max()) for frame in frames if len(frame)]
+    if not dates:
         raise RLInvalidSplit("研究缓存中没有可用行情，无法记录数据版本")
     revision = f"research-history:{provider.cache_revision()}"
     return {
-        "publicationDate": pd.Timestamp(prices["date"].max()).date().isoformat(),
+        # The snapshot date has to cover every bar the run consumed, including the
+        # held-out validation slice, or the manifest claims a younger cutoff than
+        # the evidence it was fitted on.
+        "publicationDate": max(dates).date().isoformat(),
         # Digest-shaped so the field keeps its contract form; research origin is
         # recorded in consistency, which no published snapshot can claim.
         "dataVersion": hashlib.sha256(revision.encode("utf-8")).hexdigest(),
@@ -165,10 +171,12 @@ def train_run(
         raise RLInsufficientHistory(f"{symbol} 在 {start}..{end} 没有可用行情，拒绝训练")
 
     extra: dict[str, object] = {}
+    observed = [prices]
     if require_regimes:
         extra["regimeCoverage"] = require_regime_coverage(prices)
     if val_start is not None:
         held_out = provider.history(symbol, val_start, val_end, "qfq")
+        observed.append(held_out)
         validation_bars = 0 if held_out is None else len(held_out)
         if validation_bars < MIN_VALIDATION_BARS:
             raise RLInvalidSplit(
@@ -186,7 +194,7 @@ def train_run(
 
     context = getattr(provider, "publication_context", None)
     if context is None:
-        context = _unpublished_context(provider, prices)
+        context = _unpublished_context(provider, *observed)
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
