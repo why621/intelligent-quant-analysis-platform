@@ -1,6 +1,6 @@
 # 开发任务与验收记录
 
-最新增量：2026-09-26 CR-054在同一本地分支algorithm/rl-long-window上按用户提供的上交所「休市安排」栏目取回2015—2024共13份休市公告原文，逐日双向复算后将九年（2015—2019、2021—2024）日历证据由cross-validated升级为official-notice并保留公告文号/发布日/URL，2020年因2020-01-31缺公告原文保持研究口径；closures零改动故不重填不重训；公告比对解析器随证据表入库（tests/golden/recheck_official_closures.py，需外网，本轮复算10年通过）。此前CR-053的深历史证据、上游探测与四算法真实分区小规模训练结论不变（仅链路、RL继续experimental），CR-053实录§1"公告原文未取得"已被本轮推翻并就地标注。未推送未部署。详见[CR-054实录](docs/cr054-official-notice-calendar-2026-09-26.md)、[CR-053实录](docs/cr053-deep-history-calendar-evidence-2026-09-26.md)与下方CR-052/053/054任务表。此前2026-09-22 CR051资产分类筛选已推送GitHub并部署云端，公网三个选择器验证通过；Pages待本分支合并后自动发布。详见[分类筛选实录](docs/cr051-asset-category-filter-2026-09-22.md)；既有算法和云端状态沿用下方CR050记录。
+最新增量：2026-09-26 CR-055在同一本地分支algorithm/rl-long-window上取回用户提供的上证公告〔2020〕6号（2020-01-27，延长2020年春节休市至2月2日、2月3日开市），为复算工具加入“休市至X”终点补齐规则（起点取同年已引用公告末根、跨度上限7天、超限即红），2020年升级为official-notice——2015—2024十年全部为公告原文口径，cross-validated清零，preflight输出crossValidatedYears=[]且2014仍无证据；closures零改动（期望交易日2431根不变）故不重填不重训。此前CR-054取回该栏目13份公告正文、九年双向零差异升级，并就地标注CR-053“公告原文未取得”结论已被推翻。仍缺：上证公告〔2020〕3号的URL（不影响2020口径）、2015年之前年份证据、多资产深历史与T-035d完整版、后端in_sample_end与live-acceptance fixture接缝；RL继续experimental，未推送未部署。详见[CR-055实录](docs/cr055-2020-spring-festival-notice-2026-09-26.md)、[CR-054实录](docs/cr054-official-notice-calendar-2026-09-26.md)、[CR-053实录](docs/cr053-deep-history-calendar-evidence-2026-09-26.md)与下方CR-052/053/054/055任务表。此前2026-09-22 CR051资产分类筛选已推送GitHub并部署云端，公网三个选择器验证通过；Pages待本分支合并后自动发布。详见[分类筛选实录](docs/cr051-asset-category-filter-2026-09-22.md)；既有算法和云端状态沿用下方CR050记录。
 
 ## 最新任务状态（2026-09-20，CR050）
 
@@ -782,3 +782,14 @@ CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”�
 | T-037c 闸门行为回归与取证可复算化 | 完成 | REQ-02 / D-10 | T-037b | 线上无 cutoff 取数与 history_probe 现放行九个公告年份、仍拒 2020（回填与 --history-root 不变）。用例：test_shipped_evidence_table_parses_and_is_only_cross_validated 改名为 records_a_per_year_basis 并断言逐年映射；新增 test_a_partly_cited_official_year_is_refused 与 test_published_path_accepts_an_officially_verified_history_year（钉住"按 basis 而非按年份"，防止日后写成历史白名单）；test_published_path_never_leans_on_a_cross_validated_calendar 触发年份 2015→2020；probe 用例窗口改 2020 与 2011（无记录年）。取证不留在一次性脚本里：解析器入库为 services/algorithms/tests/golden/recheck_official_closures.py，重抓证据表所引 12 份公告正文并逐年双向复算（本轮输出九年零差异 + 2020 仅 2020-01-31 一处、exit 0），network 用例 test_cited_official_notice_urls_still_serve_the_cited_document 钉住引用 URL 仍服务同一公告与文号。Ruff 通过，算法离线 335 passed/14 排除（+2 离线、+1 network），network 单跑 6 passed，后端 146 passed + 3 errors 与既有日期缺陷一致 |
 
 注：命令、逐表数据与边界推导见[CR-054 实录](docs/cr054-official-notice-calendar-2026-09-26.md)。仍未完成：2020-01-31 的交易所临时公告原文、多资产深历史、T-035d 完整版（多种子/多资产/跨资产绩效与幸存者偏差披露）、后端 in_sample_end 与 live-acceptance fixture 待办。RL 继续 experimental；本轮未推送、未部署。一次性抓取脚本与公告 HTML 留在系统临时目录不入库，入库的是复算所需的解析器、日期与 URL；复算工具需外网且默认不随离线套件运行（实录 §8.3）。
+
+### CR-055 2020 年春节休市调整公告与十年口径收口（算法模块，2026-09-26）
+
+同一分支接续 CR-053/CR-054；范围仍仅 services/algorithms/** 加根SDD与 docs/cr055-2020-spring-festival-notice-2026-09-26.md，不改后端、前端与 packages/contracts。用户提供「本所公告·一般公告」栏目的 2020 年春节休市调整公告原文，要求据其复核 CR-054 留下的最后一处非公告口径日期；本轮不新增取数、不重跑训练。
+
+| 任务 | 状态 | 需求/决策 | 依赖 | 完成条件 |
+| --- | --- | --- | --- | --- |
+| T-038a 延长句式复算规则 | 完成 | REQ-02/11 / D-11 | T-037a | recheck_official_closures.py 支持"延长……休市至X（星期Y）"：X 记为闭市日并记为终点，起点取同年已引用公告的最后一个闭市日向后补齐，跨度上限 7 天、超限不补；错解双向必红。2020 年合并〔2019〕65号后复算为公告 19 = 本表 19，公告有表无 0、表有公告无 0 |
+| T-038b 2020 升级与闸门回归 | 完成 | REQ-02/11 / D-10/D-11 | T-038a | 证据表 2020 basis→official-notice，source 为年度通知 URL，6号以标题+文号+发布日+URL 记入 derivedFrom/verifiedAgainst 并写明顺延条款佐证；closures 零改动（期望交易日 2431 根不变），不重填不重训。十年 cross-validated 清零：preflight --only 输出 crossValidatedYears=[]、ready=true，closure_basis(2014) 仍为 None。拒绝路径改由临时副本降级钉住（test_published_path_never_leans_on_a_cross_validated_calendar、test_probe_stays_in_officially_verified_calendar_years），accept 用例参数化为 2015/2020；network 引用复核从每年 source 扩到记录引用的每份公告（16 条全部命中）。Ruff 通过，算法离线 336 passed/14 排除，network 6 passed，后端 146 passed + 3 errors 与既有日期缺陷一致 |
+
+注：命令、句式推导与边界见[CR-055 实录](docs/cr055-2020-spring-festival-notice-2026-09-26.md)。仍未完成：上证公告〔2020〕3号无 URL（不影响 2020 口径）、2015 年前年份证据、多资产深历史、T-035d 完整版（多种子/多资产/跨资产绩效与幸存者偏差披露）、后端 in_sample_end 与 live-acceptance fixture 待办。RL 继续 experimental；本轮未推送、未部署。
