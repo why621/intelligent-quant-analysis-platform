@@ -17,7 +17,12 @@ the exchange notice at ``source``. ``cross-validated`` is for years whose notice
 could not retrieve: it still cites ``source``, and additionally records where the
 ranges came from and which independent comparisons matched them day-for-day, with
 the date of the check. Such a year is research evidence, not a published one; a
-bare, unexplained list of dates is refused.
+bare, unexplained list of dates is refused. An ``official-notice`` year may record
+the same audit fields, and when it does they have to be complete as well.
+
+The shipped table (``services/algorithms/data/calendar_closures.json``) covers
+2015-2024: nine years read from the exchange's own notices, 2020 left
+``cross-validated`` because one closure there has no retrieved notice text.
 """
 import json
 import os
@@ -35,6 +40,7 @@ _CLOSURES = {
 ENV_PATH = "QUANT_CALENDAR_EVIDENCE"
 DEFAULT_EVIDENCE_PATH = Path(__file__).resolve().parents[3] / "data" / "calendar_closures.json"
 _BASIS = ("official-notice", "cross-validated")
+_AUDIT_FIELDS = ("derivedFrom", "checkedOn", "verifiedAgainst")
 _cache: tuple | None = None
 
 
@@ -82,11 +88,19 @@ def _validate_evidence(document):
         entry_basis = entry.get("basis", "official-notice")
         if entry_basis not in _BASIS:
             raise CalendarUnavailableError(f"{year} basis 未知：{entry_basis!r}")
-        if entry_basis == "cross-validated":
+        # A year may cite its own checks without claiming they replace the notice.
+        # Whenever it does, they must be complete: a half-recorded audit is the
+        # same silent gap as the unexplained date list this whole gate exists to
+        # refuse. ``cross-validated`` always has to carry all three.
+        if entry_basis == "cross-validated" or any(
+            field in entry for field in _AUDIT_FIELDS
+        ):
             for field in ("derivedFrom", "checkedOn"):
                 value = entry.get(field)
                 if not isinstance(value, str) or not value:
-                    raise CalendarUnavailableError(f"{year} 交叉核对缺少 {field}")
+                    raise CalendarUnavailableError(
+                        f"{year} {entry_basis} 记录缺少 {field}"
+                    )
                 if field == "checkedOn":
                     try:
                         date.fromisoformat(value)
@@ -99,7 +113,7 @@ def _validate_evidence(document):
                 isinstance(item, str) and item for item in checks
             ):
                 raise CalendarUnavailableError(
-                    f"{year} 非公告来源必须列出 verifiedAgainst 独立核对项"
+                    f"{year} 缺少 verifiedAgainst 独立核对项"
                 )
         ranges = entry.get("closures")
         if not isinstance(ranges, list) or not ranges:

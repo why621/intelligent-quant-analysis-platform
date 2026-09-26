@@ -98,3 +98,35 @@ def test_shipped_calendar_still_matches_both_independent_observations():
         assert _weekday_closures(sina, year) == _weekday_closures(traded, year), (
             f"{year} 逐年双向比对失败"
         )
+
+
+def test_cited_official_notice_urls_still_serve_the_cited_document():
+    """An ``official-notice`` claim is only as good as the page it points at.
+
+    Re-fetches each upgraded year's annual notice and checks that the cited 文号
+    and title really are on that page: the cheap guard against a dead link, a
+    redirect to a generic list, or a citation pasted onto the wrong document.
+    """
+    import json
+    import re
+
+    import requests
+
+    document = json.loads(calendar.DEFAULT_EVIDENCE_PATH.read_text(encoding="utf-8"))
+    upgraded = 0
+    for year, entry in sorted(document["years"].items()):
+        if entry["basis"] != "official-notice":
+            continue
+        cited = re.search(r"《([^》]+)》（(上证公告〔\d{4}〕\d+号)", entry["derivedFrom"])
+        assert cited, f"{year} official-notice 记录未写出所依据的公告标题与文号"
+        page = requests.get(
+            entry["source"], timeout=30, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        page.raise_for_status()
+        page.encoding = "utf-8"
+        for claim in cited.groups():
+            assert claim in page.text, (
+                f"{year} 引用的 {claim} 未出现在 {entry['source']} 页面里"
+            )
+        upgraded += 1
+    assert upgraded >= 9, "证据表应至少有九年为公告原文口径"

@@ -77,13 +77,18 @@ def test_adapter_does_not_deduplicate_conflicting_dates():
 
 
 def test_probe_stays_in_officially_verified_calendar_years(monkeypatch):
-    """The shipped research evidence table must not widen what the worker accepts."""
+    """Even a shipped evidence table must not widen what the worker accepts.
+
+    2020 stays ``cross-validated`` and 2011 has no record at all; both are still
+    outside the notice-backed years this short-lived worker may probe.
+    """
     from quant_platform.data import calendar, history_probe
 
     monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
+    assert calendar.closure_basis(2015) == "official-notice"
     for payload in (
-        {"symbol": "600000", "start": "2016-03-01", "end": "2016-05-30"},
-        {"symbol": "600000", "start": "2024-12-02", "end": "2025-01-20"},
+        {"symbol": "600000", "start": "2020-03-02", "end": "2020-05-29"},
+        {"symbol": "600000", "start": "2011-03-01", "end": "2011-05-30"},
     ):
         with pytest.raises(ValueError, match="verified calendar years"):
             history_probe.probe(payload)

@@ -29,15 +29,23 @@ def _isolated_from_shipped_evidence(monkeypatch):
     monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", "no-such-directory/absent.json")
 
 
-def test_shipped_evidence_table_parses_and_is_only_cross_validated():
+def test_shipped_evidence_table_records_a_per_year_basis():
     document = json.loads(
         calendar.DEFAULT_EVIDENCE_PATH.read_text(encoding="utf-8")
     )
     table = calendar.parse_evidence(document)
     basis = calendar.parse_evidence_basis(document)
     assert set(range(2015, 2025)) <= set(table)
-    assert set(basis.values()) == {"cross-validated"}
-    assert all(entry["verifiedAgainst"] for entry in document["years"].values())
+    assert basis == {
+        year: "cross-validated" if year == 2020 else "official-notice"
+        for year in range(2015, 2025)
+    }
+    for entry in document["years"].values():
+        assert entry["checkedOn"] and entry["verifiedAgainst"]
+        if entry["basis"] == "official-notice":
+            assert entry["source"].startswith("https://www.sse.com.cn/")
+    # 2020 stays research-grade only because of that one uncited closure day.
+    assert "2020-01-31" in json.dumps(document["years"]["2020"], ensure_ascii=False)
 
 
 def test_cross_validated_needs_an_audit_trail():
@@ -73,6 +81,20 @@ def test_unknown_basis_is_refused():
         parse_evidence(
             _document({2015: {**SSE_2015, "basis": "heard-it-from-a-friend"}})
         )
+
+
+def test_a_partly_cited_official_year_is_refused():
+    """Citing some checks but not all is the same silent gap as citing none."""
+    for partial, missing in (
+        ({"derivedFrom": "公告正文逐日展开"}, "checkedOn"),
+        ({"verifiedAgainst": ["腾讯日线双向一致"]}, "derivedFrom"),
+        ({"derivedFrom": "公告正文逐日展开", "checkedOn": "2026-09-26"}, "verifiedAgainst"),
+    ):
+        with pytest.raises(CalendarUnavailableError, match=missing):
+            parse_evidence(_document({2015: {**SSE_2015, **partial}}))
+    # A notice-only entry still passes: the audit trail is optional, not half-mandatory.
+    notice_only = parse_evidence(_document({2015: SSE_2015}))
+    assert notice_only == {2015: [("01-01", "01-02"), ("02-18", "02-23")]}
 
 
 def test_unverified_years_are_the_backfill_blocker():
@@ -125,9 +147,10 @@ def test_preflight_separates_official_from_cross_validated_years(monkeypatch):
     monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
     report = preflight(date(2015, 1, 1), date(2026, 6, 30))
     assert report["ready"] is True and report["unverifiedYears"] == []
-    assert report["crossValidatedYears"] == list(range(2015, 2025))
+    assert report["crossValidatedYears"] == [2020]
     assert calendar.closure_basis(2025) == "official-notice"
-    assert calendar.closure_basis(2019) == "cross-validated"
+    assert calendar.closure_basis(2019) == "official-notice"
+    assert calendar.closure_basis(2020) == "cross-validated"
     assert calendar.closure_basis(2014) is None
 
 
@@ -153,13 +176,25 @@ def test_published_path_never_leans_on_a_cross_validated_calendar(tmp_path, monk
 
     monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
     provider = AkShareMarketDataProvider(data_dir=tmp_path / "processed")
-    provider._fetch_tencent = lambda *args, **kwargs: _bars()
+    provider._fetch_tencent = lambda *args, **kwargs: _bars("2020-02-03", "2020-02-04")
 
     with pytest.raises(UpstreamUnavailableError, match="仅限研究回填"):
-        provider.history("510300", date(2015, 1, 5), date(2015, 1, 6))
+        provider.history("510300", date(2020, 2, 3), date(2020, 2, 4))
     assert provider._load_history_cache("510300", "qfq").empty
 
     provider.allow_research_calendar = True
+    assert len(provider.history("510300", date(2020, 2, 3), date(2020, 2, 4))) == 2
+
+
+def test_published_path_accepts_an_officially_verified_history_year(tmp_path, monkeypatch):
+    """The 2015—2024 upgrades are the point: a notice-backed year is published evidence."""
+    from quant_platform.data.akshare_provider import AkShareMarketDataProvider
+
+    monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
+    provider = AkShareMarketDataProvider(data_dir=tmp_path / "processed")
+    provider._fetch_tencent = lambda *args, **kwargs: _bars()
+
+    assert calendar.closure_basis(2015) == "official-notice"
     assert len(provider.history("510300", date(2015, 1, 5), date(2015, 1, 6))) == 2
 
 
