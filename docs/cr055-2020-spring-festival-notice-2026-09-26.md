@@ -90,13 +90,13 @@ $ PYTHONUTF8=1 .venv/Scripts/python.exe -m pytest services/backend -o addopts="-
   —— 逐年映射改为十年全部 `official-notice`，并断言 2020 记录确实引用〔2020〕6号及其 URL；
 - `test_deep_history.py::test_preflight_reports_no_research_only_year_left_in_the_table`
   —— 原 `test_preflight_separates_official_from_cross_validated_years`，改断
-  `crossValidatedYears == []` 且 2014 仍为 `None`；
+  `crossValidatedYears == []` 且 2014 仍为 `None`（CR-056 把 2014 补入后，该断言改为 2014 已核对、2013 为 `None`）；
 - `test_deep_history.py::test_published_path_never_leans_on_a_cross_validated_calendar`
   —— 触发口径改为临时副本里把 2020 降级（区间不变），拒绝后仍断言 `_load_history_cache` 为空；
 - `test_deep_history.py::test_published_path_accepts_an_officially_verified_history_year`
   —— 参数化为 2015 与 2020 两个窗口，钉住"这十年都是已发布口径"；
 - `test_history_probe.py::test_probe_stays_in_officially_verified_calendar_years`
-  —— 拒绝窗口换成 2011（无记录）与 2014-12→2015-01（跨年），并新增"把 2015 降级即拒"一段；
+  —— 拒绝窗口换成 2011（无记录）与 2014-12→2015-01（跨年），并新增"把 2015 降级即拒"一段（CR-056 后跨年窗改为 2013-12→2014-01）；
 - `test_deep_history_probe.py::test_cited_official_notice_urls_still_serve_the_cited_document`
   —— 从只查每年 `source` 扩到查记录引用的**每一张**公告页（16 条），`>= 13` 下限。
 
@@ -107,7 +107,13 @@ $ PYTHONUTF8=1 .venv/Scripts/python.exe -m pytest services/backend -o addopts="-
    拒绝补齐并让该年变红，不会静默放过——届时需要显式改规则并说明依据。
 2. 上证公告〔2020〕3号仍只在文字里被引用，没有 URL：它不在「休市安排」栏目，本轮没有逐页翻
    「一般公告」栏目历史列表去找（不猜 URL）。2020 年口径不依赖它（65号 + 6号已足够）。
+   —— CR-056 实测补一句，免得下一个人白翻：「一般公告」栏目是分页的**滚动窗口**（约 50 页 ×15 条，
+   第 50 页已在 2026-07），翻不到 2020 年；那条 URL 只能靠用户提供或站外检索得到。
 3. 2015 年之前（含 510300 上市后的 2012—2014）仍无任何证据年份，preflight 继续拒绝。
+   —— **本条已被 CR-056 部分推翻**：栏目第六页就有 2014 年全年通知与〔2014〕2/4/6/10 号四份专项
+   公告，2014 年已按同一标准入表为 `official-notice`；2013 及更早则实测确认为交易所在线归档不可得
+   （该栏目最旧一条为 2013-09-11，一般公告栏目只留约 750 条），继续拒绝。见
+   [CR-056 实录](cr056-2014-calendar-evidence-2026-09-26.md) 第 2 节。
 4. 深历史仍只有 510300 一个资产；T-035d 完整版（≥3 seed、多资产、跨资产长期绩效、过拟合与
    幸存者偏差披露）未做。RL 四策略继续 `experimental`，是否转 `available` 由后端依证据决定。
 5. 后端接缝待办不变：`WebRL.model_context()` 的 `outOfSampleStartDate` 与 `validate_web_request()`
