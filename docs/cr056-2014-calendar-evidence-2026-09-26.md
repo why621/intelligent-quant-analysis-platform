@@ -128,4 +128,45 @@ cd ../backend && PYTHONUTF8=1 python -m pytest -q   # 146 passed + 3 errors（�
    `calendar.latest_session(date.today())`——本轮 3 个 errors 即此缺陷，与 CR-055 一致。
 6. 仓库侧：`package-lock.json`（npm 版本差异造成的 `libc` 字段抖动）、`.zcode/` 与
    `services/backend/data/`（此前本机起服务联调留下的后端运行时缓存）有意未提交——
-   真实行情缓存不入库。本轮未推送、未开 PR、未部署。RL 四策略继续 `experimental`。
+   真实行情缓存不入库。RL 四策略继续 `experimental`。
+7. 推送状态：提交时未推送；同日用户明确授权后，分支 `algorithm/rl-long-window`
+   推送至 origin（见 §8）。未开 PR、未部署、未动 main。
+
+## 8. 审查官复核与推送（2026-09-26 同日追加）
+
+用户指令：以代码指令审查官身份对 CR-056 新增代码做逻辑审查，并写临时测试文件
+钉桩验证。执行方式：一次性脚本 `services/algorithms/tmp_audit_cr056_logic.py`
+（离线、无网络），命令
+`PYTHONUTF8=1 .venv/Scripts/python.exe tmp_audit_cr056_logic.py`，两轮运行均
+`AUDIT OK — 全部钉桩通过`，随后删除脚本，`git status` 干净。
+
+钉住的事实（全部通过）：
+
+- 证据表：2014 条目 9 区间有序不重叠、展开 16 个工作日休市；审计字段齐全；
+  全表 11 年过 `_validate_evidence`，basis 均为 `official-notice`；
+- 日历 API：`closure_basis(2014)=="official-notice"`、`closure_basis(2013) is None`、
+  `is_session(2013-12-31)` 抛 `CalendarUnavailableError`；交易日黄金值 2014=245、
+  2015–2024=2431；逐年休市工作日 16/17/16/18/17/19/18/18/18/18/20；
+- 引注解析：全表 21 条、2014 的 5 条全锚 2014；"标题年份优先于文号年份"用合成
+  条目（标题 2015年 + 文号〔2014〕15号 → 锚 2015）与真实 2015 条目（2 条全锚
+  2015）双重钉住；
+- RL/深历史门：`HISTORY_FLOOR` 仍 2015-01-01，`Split(2014-01-01,…)` 照旧拒绝；
+  `preflight(2014..2024)` ready、`preflight(2013..)` 拒绝且
+  `unverifiedYears==[2013]`；
+- 防线：证据文件覆盖内置 2025 被拒；`cross-validated` 缺审计字段被拒。
+
+审查发现（均为既有现状，非 CR-056 回归，建议与已搁置的 RL 训练器缺陷同批立
+后续 CR 处理）：
+
+1. `recheck_official_closures.cited_notices` 的 `anchor()` 返回 None 时静默丢弃该条
+   引注（fail-open）：若未来某年引了一份标题无年份且无文号的公告，复算工具不会
+   核对它。建议对"引注出现次数 vs 返回条数"加守恒检查；
+2. `test_deep_history_probe.py` 的文号前缀是封闭集（上证公告|上证函|证监办发），
+   其他文号（如上证交字〔2012〕205号）会漏配，2014–2024 实测不受影响；
+3. `calendar.py` 的 MM-DD 区间无法表达跨年休市（既有设计），如出现 12-31→01-02
+   需拆两条记录，当前表不受影响。
+
+裁决：CR-056 新增代码逻辑自洽、防线未松动，唯一行为变化是 2014 以官方公告口径
+进入已核对年份，与登记范围一致；维持已提交状态，无需返工。据此用户授权推送，
+`git push -u origin algorithm/rl-long-window`（新建远端分支，基线 = 远端 main
+7320702，领先 17 / 落后 0，未触碰 main）。
