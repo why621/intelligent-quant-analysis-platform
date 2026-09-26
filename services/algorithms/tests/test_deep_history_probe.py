@@ -6,7 +6,9 @@ SQLite cache, so running them cannot enlarge or re-anchor published history.
 
 ``test_shipped_calendar_still_matches_both_independent_observations`` re-runs the
 CR-053 audit behind ``data/calendar_closures.json``: if either upstream moves, the
-cross-validated years stop being admissible evidence and the run fails loudly.
+table stops being admissible evidence and the run fails loudly.
+``test_cited_official_notice_urls_still_serve_the_cited_document`` then checks that
+each year's ``official-notice`` claim still resolves to the notice it names.
 """
 
 from __future__ import annotations
@@ -103,9 +105,10 @@ def test_shipped_calendar_still_matches_both_independent_observations():
 def test_cited_official_notice_urls_still_serve_the_cited_document():
     """An ``official-notice`` claim is only as good as the page it points at.
 
-    Re-fetches each upgraded year's annual notice and checks that the cited 文号
-    and title really are on that page: the cheap guard against a dead link, a
-    redirect to a generic list, or a citation pasted onto the wrong document.
+    Every notice a year cites is re-fetched, not just its annual one: 2020's
+    1月31日 is closed by a later adjustment notice, and a dead or mis-pasted link
+    would silently downgrade that year to an unsourced date list. Each page has to
+    really carry the title and 文号 the record quotes.
     """
     import json
     import re
@@ -113,20 +116,25 @@ def test_cited_official_notice_urls_still_serve_the_cited_document():
     import requests
 
     document = json.loads(calendar.DEFAULT_EVIDENCE_PATH.read_text(encoding="utf-8"))
-    upgraded = 0
+    citations = []
     for year, entry in sorted(document["years"].items()):
         if entry["basis"] != "official-notice":
             continue
-        cited = re.search(r"《([^》]+)》（(上证公告〔\d{4}〕\d+号)", entry["derivedFrom"])
-        assert cited, f"{year} official-notice 记录未写出所依据的公告标题与文号"
-        page = requests.get(
-            entry["source"], timeout=30, headers={"User-Agent": "Mozilla/5.0"}
+        found = re.findall(
+            r"《([^》]+)》（(上证公告〔\d{4}〕\d+号)，[^）]*发布）"
+            r"(https://www\.sse\.com\.cn[A-Za-z0-9._/?=&%-]+)",
+            "；".join(entry["verifiedAgainst"]),
         )
-        page.raise_for_status()
-        page.encoding = "utf-8"
-        for claim in cited.groups():
-            assert claim in page.text, (
-                f"{year} 引用的 {claim} 未出现在 {entry['source']} 页面里"
-            )
-        upgraded += 1
-    assert upgraded >= 9, "证据表应至少有九年为公告原文口径"
+        assert found, f"{year} official-notice 记录未给出公告标题、文号与 URL"
+        citations += [(year, *item) for item in found]
+
+    pages: dict[str, str] = {}
+    for year, title, doc_no, url in citations:
+        if url not in pages:
+            page = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+            page.raise_for_status()
+            page.encoding = "utf-8"
+            pages[url] = page.text
+        for claim in (title, doc_no):
+            assert claim in pages[url], f"{year} 引用的 {claim} 未出现在 {url} 页面里"
+    assert len(citations) >= 13, "十年公告口径应逐份复核，而不是只查年度通知"

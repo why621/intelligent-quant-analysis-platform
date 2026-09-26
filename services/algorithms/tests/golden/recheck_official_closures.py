@@ -24,6 +24,12 @@ TABLE = Path(__file__).resolve().parents[2] / "data" / "calendar_closures.json"
 DATE = r"(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日（星期([一二三四五六日天])）"
 SPAN = re.compile(DATE + "至" + DATE + "休市")
 SINGLE = re.compile(DATE + "休市")
+# "延长2020年春节休市至2月2日（星期日），2月3日（星期一）正常开市" names the new
+# end of a closure period and not its start; 上证公告〔2020〕6号 is written that way.
+EXTENDS = re.compile(r"休市至" + DATE)
+# How far back an extension may reach. Bounded on purpose: a clause that leaves
+# the start unstated must not be allowed to invent a long closure run.
+GAP_LIMIT = 7
 # Notices are cited inline, so a URL runs straight into Chinese punctuation:
 # stop at the last ASCII path character or the next "fetch" asks for a 404.
 URL = r"https://www\.sse\.com\.cn[A-Za-z0-9._/?=&%-]+"
@@ -57,9 +63,13 @@ def pin(month: int, day: int, label: str, year: int, dated: bool) -> date:
     raise AssertionError(f"{month}-{day} 星期{label} matches no year near {year}")
 
 
-def notice_closures(text: str, stated_year: int) -> set[date]:
-    """Weekday closures a single notice asserts, each filed under its own year."""
-    days: set[date] = set()
+def notice_closures(text: str, stated_year: int) -> tuple[set[date], set[date]]:
+    """(closure days, extension endpoints) a notice asserts, weekends included.
+
+    Each date is filed under its own calendar year; an endpoint is only the far
+    end of a period whose start the notice left unstated.
+    """
+    days, endpoints = set(), set()
     for line in text.splitlines():
         if "休市" not in line:
             continue
@@ -87,7 +97,34 @@ def notice_closures(text: str, stated_year: int) -> set[date]:
                             match.group(1) is not None,
                         )
                     )
-    return {day for day in days if day.weekday() < 5}
+            for match in EXTENDS.finditer(sentence):
+                endpoints.add(
+                    pin(
+                        int(match.group(2)), int(match.group(3)), match.group(4),
+                        int(match.group(1) or stated_year),
+                        match.group(1) is not None,
+                    )
+                )
+    return days, endpoints
+
+
+def fill_extensions(days: set[date], endpoints: set[date]) -> set[date]:
+    """Close the gap an "延长……休市至X" clause leaves by naming no start date.
+
+    The period being extended is the one already stated by the cited notices, so
+    the fill runs from the last such day up to the endpoint. An endpoint with no
+    reachable predecessor contributes only itself.
+    """
+    filled = set(days)
+    for end in sorted(endpoints):
+        earlier = [day for day in days if day < end]
+        if not earlier or (end - max(earlier)).days > GAP_LIMIT:
+            continue
+        day = max(earlier) + timedelta(days=1)
+        while day <= end:
+            filled.add(day)
+            day += timedelta(days=1)
+    return filled
 
 
 def cited_notices(entry: dict) -> list[tuple[int, str]]:
@@ -101,13 +138,14 @@ def cited_notices(entry: dict) -> list[tuple[int, str]]:
     return sorted({(int(year), url) for year, url in CITATION.findall(text)})
 
 
-def fetch_closures(url: str, anchor_year: int) -> set[date]:
+def fetch_closures(url: str, anchor_year: int) -> tuple[set[date], set[date]]:
     page = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
     page.raise_for_status()
     page.encoding = "utf-8"
     title = re.search(r'<span id="searchTitle">(.*?)</span>', page.text, re.S)
     stated = re.search(r"(20\d{2})年", title.group(1) if title else "")
-    return notice_closures(article_text(page.text), int(stated.group(1)) if stated else anchor_year)
+    year = int(stated.group(1)) if stated else anchor_year
+    return notice_closures(article_text(page.text), year)
 
 
 def table_closures(year: int, ranges) -> set[date]:
@@ -123,7 +161,7 @@ def table_closures(year: int, ranges) -> set[date]:
 def main() -> int:
     document = json.loads(TABLE.read_text(encoding="utf-8"))
     years = sorted(int(year) for year in document["years"])
-    notices: dict[str, set[date]] = {}
+    notices: dict[str, tuple[set[date], set[date]]] = {}
     for year in years:
         for anchor, url in cited_notices(document["years"][str(year)]):
             notices.setdefault(url, fetch_closures(url, anchor))
@@ -131,11 +169,11 @@ def main() -> int:
     failures = []
     for year in years:
         entry = document["years"][str(year)]
+        cited = [notices[url] for _, url in cited_notices(entry)]
+        stated_days = {day for days, _ in cited for day in days if day.year == year}
+        endpoints = {day for _, ends in cited for day in ends if day.year == year}
         stated = {
-            day
-            for _, url in cited_notices(entry)
-            for day in notices[url]
-            if day.year == year
+            day for day in fill_extensions(stated_days, endpoints) if day.weekday() < 5
         }
         recorded = table_closures(year, [tuple(row) for row in entry["closures"]])
         notice_only = sorted(str(day) for day in stated - recorded)

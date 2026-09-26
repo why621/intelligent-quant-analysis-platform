@@ -76,19 +76,32 @@ def test_adapter_does_not_deduplicate_conflicting_dates():
         provider._fetch_tencent_inline("600000", date(2026, 9, 7), date(2026, 9, 7), "qfq")
 
 
-def test_probe_stays_in_officially_verified_calendar_years(monkeypatch):
-    """Even a shipped evidence table must not widen what the worker accepts.
+def test_probe_stays_in_officially_verified_calendar_years(tmp_path, monkeypatch):
+    """The worker may not answer "is this history reachable" on research-grade years.
 
-    2020 stays ``cross-validated`` and 2011 has no record at all; both are still
-    outside the notice-backed years this short-lived worker may probe.
+    2011 has no record at all and 2014 sits before the shipped table, so a window
+    touching either is refused even when its last year is notice-backed. A year the
+    table marks ``cross-validated`` is refused the same way: widening the table to
+    ten verified years must not quietly become a licence to probe on any basis.
     """
+    import json
+
     from quant_platform.data import calendar, history_probe
 
     monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
     assert calendar.closure_basis(2015) == "official-notice"
+    assert calendar.closure_basis(2020) == "official-notice"
     for payload in (
-        {"symbol": "600000", "start": "2020-03-02", "end": "2020-05-29"},
         {"symbol": "600000", "start": "2011-03-01", "end": "2011-05-30"},
+        {"symbol": "600000", "start": "2014-12-02", "end": "2015-01-20"},
     ):
         with pytest.raises(ValueError, match="verified calendar years"):
             history_probe.probe(payload)
+
+    document = json.loads(calendar.DEFAULT_EVIDENCE_PATH.read_text(encoding="utf-8"))
+    document["years"]["2015"]["basis"] = "cross-validated"
+    downgraded = tmp_path / "closures.json"
+    downgraded.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(downgraded))
+    with pytest.raises(ValueError, match="verified calendar years"):
+        history_probe.probe({"symbol": "600000", "start": "2015-03-02", "end": "2015-05-29"})
