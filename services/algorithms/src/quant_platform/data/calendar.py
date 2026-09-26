@@ -20,7 +20,7 @@ the date of the check. Such a year is research evidence, not a published one; a
 bare, unexplained list of dates is refused. An ``official-notice`` year may record
 the same audit fields, and when it does they have to be complete as well.
 
-The shipped table (``services/algorithms/data/calendar_closures.json``) covers
+The shipped table (``quant_platform/data/calendar_closures.json``) covers
 2014-2024, every year read from the exchange's own notices. Where a year needs more
 than one notice, all of them are cited: 2020's annual notice closed Spring Festival
 through 1月30日 and 上证公告〔2020〕6号 extended the closure to 2月2日. Nothing earlier
@@ -41,7 +41,7 @@ _CLOSURES = {
 }
 
 ENV_PATH = "QUANT_CALENDAR_EVIDENCE"
-DEFAULT_EVIDENCE_PATH = Path(__file__).resolve().parents[3] / "data" / "calendar_closures.json"
+DEFAULT_EVIDENCE_PATH = Path(__file__).with_name("calendar_closures.json")
 _BASIS = ("official-notice", "cross-validated")
 _AUDIT_FIELDS = ("derivedFrom", "checkedOn", "verifiedAgainst")
 _cache: tuple | None = None

@@ -138,6 +138,7 @@ class AkShareMarketDataProvider:
         universe_snapshot: UniverseSnapshot | None = None,
         trading_events=(),
         index_snapshot=None,
+        cache_only: bool = False,
     ) -> None:
         self._assets: dict[str, Asset] = {
             a["symbol"]: Asset(
@@ -163,7 +164,8 @@ class AkShareMarketDataProvider:
         # Deep-history research windows lean on cross-validated calendar years; the
         # published path must never extend the live cache with them.
         self.allow_research_calendar = False
-        self._storage = OHLCVStore(resolved_data_dir)
+        self._cache_only = cache_only
+        self._storage = OHLCVStore(resolved_data_dir, read_only=cache_only)
         self._overview_storage = MarketOverviewStore(resolved_data_dir)
         self._status_storage = DataStatusStore(resolved_data_dir)
         self._request_interval_seconds = max(0.0, request_interval_seconds)
@@ -239,7 +241,7 @@ class AkShareMarketDataProvider:
             if set(expected).issubset(set(cached["date"].dt.date)):
                 return cached[(cached["date"] >= lo) & (cached["date"] <= hi)]
 
-        if cutoff is not None:
+        if cutoff is not None or self._cache_only:
             raise UpstreamUnavailableError(
                 "published history incomplete; research cannot fetch or write"
             )

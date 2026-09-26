@@ -18,6 +18,7 @@ from quant_platform.rl.errors import (
 )
 from quant_platform.rl.features import validate_history
 from quant_platform.rl.policies import RL_POLICIES, RLStrategy
+from quant_platform.rl.splits import in_sample_end
 from quant_platform.rl.store import ModelStore
 
 from app.services.errors import ServiceError, ValidationError
@@ -31,7 +32,7 @@ class RLServiceError(ServiceError):
             "RL_DEPENDENCIES_MISSING": "RL运行环境尚未就绪，请稍后重试",
             "RL_MODEL_NOT_FOUND": "已部署的RL模型不可用，请联系维护人员",
             "RL_INCOMPATIBLE_MODEL": "RL模型版本或完整性不匹配，已拒绝执行",
-            "RL_IN_SAMPLE_REQUEST": "回测起始日必须晚于模型训练截止日",
+            "RL_IN_SAMPLE_REQUEST": "回测起始日必须晚于模型训练及验证截止日",
             "RL_INSUFFICIENT_HISTORY": "RL至少需要22根行情，其中前20根用于预热",
             "RL_NOT_TRAINED": "RL模型尚未就绪",
         }
@@ -157,7 +158,7 @@ class WebRL(RLStrategy):
             "trainStartDate": m["trainStartDate"],
             "trainEndDate": m["trainEndDate"],
             "outOfSampleStartDate": (
-                date.fromisoformat(m["trainEndDate"]) + timedelta(days=1)
+                date.fromisoformat(in_sample_end(m)) + timedelta(days=1)
             ).isoformat(),
             "symbols": self.release["symbols"],
             "trainingSymbols": self.release["symbols"],
@@ -186,7 +187,7 @@ class WebRL(RLStrategy):
         if payload.get("adjust", "qfq") != "qfq":
             raise ValidationError("RL模型仅支持前复权回测")
         start, end = (date.fromisoformat(str(payload[k])) for k in ("startDate", "endDate"))
-        if start <= date.fromisoformat(self.manifest["trainEndDate"]):
+        if start <= date.fromisoformat(in_sample_end(self.manifest)):
             raise RLInSampleRequest("training overlap")
         context = getattr(provider, "publication_context", {})
         if context.get("universeVersion") != self.manifest["universeVersion"]:

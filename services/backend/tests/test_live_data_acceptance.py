@@ -1,7 +1,7 @@
 """Synthetic, isolated HTTP/cache acceptance; not a claim of live upstream success."""
 
 import importlib.util
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import urlsplit
@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 import pandas as pd
 import pytest
 from quant_platform.data import market_fetch
+from quant_platform.data.calendar import latest_session
 
 from app import create_app
 
@@ -18,9 +19,7 @@ def stack(tmp_path, monkeypatch):
     monkeypatch.setenv("QUANT_DATA_DIR", str(tmp_path))
     application = create_app({"TESTING": True, "ALLOWED_ORIGINS": "https://why621.github.io"})
     provider = application.extensions["market_data_service"]._provider
-    day = date.today()
-    while day.weekday() >= 5:
-        day -= timedelta(days=1)
+    day = latest_session(date.today())
     provider._storage.save(
         "510300",
         pd.DataFrame(

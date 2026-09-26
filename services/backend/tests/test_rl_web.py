@@ -169,3 +169,31 @@ def test_ranking_uses_sample_out_warmup_and_own_model(release, algo):
         strategy.ranking_request(date(2026, 9, 18), "1d", provider)
     provider.history.return_value = frame.iloc[-22:]
     assert strategy.ranking_request(date(2026, 9, 18), "1d", provider)
+
+
+def test_validation_cutoff_drives_web_metadata_requests_and_ranking(release):
+    from quant_platform.rl.errors import RLInSampleRequest
+
+    path, entries = release
+    store = ModelStore(path.parent)
+    ref = entries[0]["modelRef"]
+    bundle = store.load(ref)
+    manifest = dict(bundle.manifest)
+    manifest.update(trainStartDate="2015-01-05", trainEndDate="2020-12-31",
+                    valStartDate="2021-01-04", valEndDate="2022-12-30")
+    # Use a new immutable bundle instead of rewriting an existing model.
+    new_ref = "long-window-test"
+    manifest["runId"] = new_ref
+    store.save(new_ref, b"synthetic-not-for-inference", manifest)
+    entries[0]["modelRef"] = new_ref
+    entries[0]["bundleHash"] = store.load(new_ref).manifest["bundleHash"]
+    path.write_text(json.dumps({"schemaVersion": 2, "models": entries}))
+    strategy = StrategyCatalogService(rl_release=path).get_strategy(entries[0]["algo"])
+    assert strategy.model_context()["outOfSampleStartDate"] == "2022-12-31"
+    provider = SimpleNamespace(history=Mock(side_effect=AssertionError("must reject first")))
+    with pytest.raises(RLInSampleRequest):
+        strategy.validate_web_request({"startDate": "2022-12-30",
+                                       "endDate": "2023-03-01"}, provider)
+    with pytest.raises(RLInSampleRequest):
+        strategy.ranking_request(date(2023, 1, 20), "30d", provider)
+    provider.history.assert_not_called()

@@ -84,9 +84,14 @@ def _training_provider(publication_root: Path, history_root: Path | None):
     gate refuses it — those weights are research evidence, not a release.
     """
     if history_root is not None:
-        from quant_platform.data.akshare_provider import AkShareMarketDataProvider
+        from quant_platform.data.akshare_provider import (
+            AkShareMarketDataProvider,
+            _default_data_dir,
+        )
 
-        provider = AkShareMarketDataProvider(data_dir=history_root)
+        if history_root.resolve() == _default_data_dir().resolve():
+            raise RLInvalidSplit("训练必须使用独立研究历史目录，不可使用线上缓存")
+        provider = AkShareMarketDataProvider(data_dir=history_root, cache_only=True)
         provider.allow_research_calendar = True
         return provider
     from quant_platform.data.publication import load_publication
