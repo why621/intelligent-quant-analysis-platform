@@ -21,9 +21,11 @@ bare, unexplained list of dates is refused. An ``official-notice`` year may reco
 the same audit fields, and when it does they have to be complete as well.
 
 The shipped table (``services/algorithms/data/calendar_closures.json``) covers
-2015-2024, every year read from the exchange's own notices. Where a year needs more
+2014-2024, every year read from the exchange's own notices. Where a year needs more
 than one notice, all of them are cited: 2020's annual notice closed Spring Festival
-through 1月30日 and 上证公告〔2020〕6号 extended the closure to 2月2日.
+through 1月30日 and 上证公告〔2020〕6号 extended the closure to 2月2日. Nothing earlier
+is reachable: the notice column's 84 entries stop at 2013-09-11, so 2013's own annual
+notice is not in the exchange's online archive and 2013 and earlier stay refused.
 """
 import json
 import os

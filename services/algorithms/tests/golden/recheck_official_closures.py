@@ -33,9 +33,7 @@ GAP_LIMIT = 7
 # Notices are cited inline, so a URL runs straight into Chinese punctuation:
 # stop at the last ASCII path character or the next "fetch" asks for a 404.
 URL = r"https://www\.sse\.com\.cn[A-Za-z0-9._/?=&%-]+"
-CITATION = re.compile(
-    r"《[^》]*》（上证公告〔(\d{4})〕\d+号，[^）]*发布）(" + URL + r")"
-)
+CITATION = re.compile(r"《([^》]+)》（([^）]*)发布）(" + URL + r")")
 WEEKDAY = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
 
 
@@ -130,12 +128,23 @@ def fill_extensions(days: set[date], endpoints: set[date]) -> set[date]:
 def cited_notices(entry: dict) -> list[tuple[int, str]]:
     """(anchor year, URL) for every notice this year's record cites.
 
-    The anchor is the 文号 year, because a temporary-arrangement notice has no year
-    in its title (「…70周年纪念日休市安排的公告」) while its dates still need one.
+    A notice with a year in its title is pinned by that year; one without it (the
+    「…70周年纪念日休市安排的公告」) falls back to the year in its 文号, because its
+    dates still need a year to be placed. The 2014 annual notice carries no 文号 at
+    all, so it is cited by title alone and pinned by the year in its title.
     """
 
+    def anchor(title: str, note: str) -> int | None:
+        stated = re.search(r"(20\d{2})年", title) or re.search(r"〔(\d{4})〕", note)
+        return int(stated.group(1)) if stated else None
+
     text = json.dumps(entry, ensure_ascii=False)
-    return sorted({(int(year), url) for year, url in CITATION.findall(text)})
+    pairs = {
+        (year, url)
+        for title, note, url in CITATION.findall(text)
+        if (year := anchor(title, note)) is not None
+    }
+    return sorted(pairs)
 
 
 def fetch_closures(url: str, anchor_year: int) -> tuple[set[date], set[date]]:

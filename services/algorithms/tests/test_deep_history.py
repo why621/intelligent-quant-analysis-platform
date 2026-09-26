@@ -25,7 +25,7 @@ SSE_2015 = {
 
 @pytest.fixture(autouse=True)
 def _isolated_from_shipped_evidence(monkeypatch):
-    """The repository ships a 2015—2024 table; these tests assert the *unverified* path."""
+    """The repository ships a 2014—2024 table; these tests assert the *unverified* path."""
     monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", "no-such-directory/absent.json")
 
 
@@ -35,8 +35,8 @@ def test_shipped_evidence_table_records_a_per_year_basis():
     )
     table = calendar.parse_evidence(document)
     basis = calendar.parse_evidence_basis(document)
-    assert set(range(2015, 2025)) <= set(table)
-    assert basis == {year: "official-notice" for year in range(2015, 2025)}
+    assert set(range(2014, 2025)) <= set(table)
+    assert basis == {year: "official-notice" for year in range(2014, 2025)}
     for entry in document["years"].values():
         assert entry["checkedOn"] and entry["verifiedAgainst"]
         assert entry["source"].startswith("https://www.sse.com.cn/")
@@ -45,6 +45,12 @@ def test_shipped_evidence_table_records_a_per_year_basis():
     year_2020 = json.dumps(document["years"]["2020"], ensure_ascii=False)
     assert "上证公告〔2020〕6号" in year_2020
     assert "c_20200127_4991582.shtml" in year_2020
+    # 2014's annual notice carries no 文号 of its own; the record says so and names
+    # the 函 its four holiday announcements cite it by, rather than inventing one.
+    year_2014 = json.dumps(document["years"]["2014"], ensure_ascii=False)
+    assert "未标注文号" in year_2014
+    assert "上证函〔2013〕269号" in year_2014
+    assert "上证公告〔2014〕10号" in year_2014
 
 
 def test_cross_validated_needs_an_audit_trail():
@@ -143,15 +149,19 @@ def test_malformed_closure_rows_are_refused(entry, reason):
 
 
 def test_preflight_reports_no_research_only_year_left_in_the_table(monkeypatch):
-    """Every shipped year is now notice-backed; the years before it stay refused."""
+    """Every shipped year is now notice-backed; where the archive stops stays refused."""
     monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
-    report = preflight(date(2015, 1, 1), date(2026, 6, 30))
+    report = preflight(date(2014, 1, 1), date(2026, 6, 30))
     assert report["ready"] is True and report["unverifiedYears"] == []
     assert report["crossValidatedYears"] == []
     assert calendar.closure_basis(2025) == "official-notice"
     assert calendar.closure_basis(2019) == "official-notice"
     assert calendar.closure_basis(2020) == "official-notice"
-    assert calendar.closure_basis(2014) is None
+    assert calendar.closure_basis(2014) == "official-notice"
+    # 2013 is where the exchange's own notice column runs out, not where we stopped
+    # looking: the table's oldest year still has a hard edge.
+    assert calendar.closure_basis(2013) is None
+    assert unverified_years(date(2013, 1, 1), date(2014, 12, 31)) == [2013]
 
 
 def _bars(first="2015-01-05", last="2015-01-06"):
@@ -198,7 +208,11 @@ def test_published_path_never_leans_on_a_cross_validated_calendar(tmp_path, monk
 
 @pytest.mark.parametrize(
     "first,last",
-    [("2015-01-05", "2015-01-06"), ("2020-02-03", "2020-02-04")],
+    [
+        ("2014-01-02", "2014-01-03"),
+        ("2015-01-05", "2015-01-06"),
+        ("2020-02-03", "2020-02-04"),
+    ],
 )
 def test_published_path_accepts_an_officially_verified_history_year(
     tmp_path, monkeypatch, first, last

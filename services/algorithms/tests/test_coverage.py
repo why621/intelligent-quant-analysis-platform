@@ -52,7 +52,7 @@ def test_unordered_duplicate_and_schema():
 
 
 @pytest.mark.parametrize("start,end", [
-    (END, START), (date(2014, 1, 1), date(2014, 1, 2)),
+    (END, START), (date(2013, 1, 1), date(2013, 1, 2)),
     (date(2025, 1, 1), date(2026, 9, 7)), (date(2026, 9, 5), date(2026, 9, 6)),
 ])
 def test_calendar_and_interval_fail_closed(start, end):

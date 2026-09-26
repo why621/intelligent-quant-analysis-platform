@@ -79,21 +79,22 @@ def test_adapter_does_not_deduplicate_conflicting_dates():
 def test_probe_stays_in_officially_verified_calendar_years(tmp_path, monkeypatch):
     """The worker may not answer "is this history reachable" on research-grade years.
 
-    2011 has no record at all and 2014 sits before the shipped table, so a window
-    touching either is refused even when its last year is notice-backed. A year the
-    table marks ``cross-validated`` is refused the same way: widening the table to
-    ten verified years must not quietly become a licence to probe on any basis.
+    2011 has no record at all and 2013 stops where the exchange's own notice column
+    does, so a window touching either is refused even when its last year is
+    notice-backed. A year the table marks ``cross-validated`` is refused the same
+    way: widening the table to eleven verified years must not quietly become a
+    licence to probe on any basis.
     """
     import json
 
     from quant_platform.data import calendar, history_probe
 
     monkeypatch.setenv("QUANT_CALENDAR_EVIDENCE", str(calendar.DEFAULT_EVIDENCE_PATH))
-    assert calendar.closure_basis(2015) == "official-notice"
+    assert calendar.closure_basis(2014) == "official-notice"
     assert calendar.closure_basis(2020) == "official-notice"
     for payload in (
         {"symbol": "600000", "start": "2011-03-01", "end": "2011-05-30"},
-        {"symbol": "600000", "start": "2014-12-02", "end": "2015-01-20"},
+        {"symbol": "600000", "start": "2013-12-02", "end": "2014-01-20"},
     ):
         with pytest.raises(ValueError, match="verified calendar years"):
             history_probe.probe(payload)

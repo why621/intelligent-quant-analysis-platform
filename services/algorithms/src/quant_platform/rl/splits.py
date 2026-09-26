@@ -16,7 +16,8 @@ import pandas as pd
 
 from quant_platform.rl.errors import RLInvalidSplit
 
-# Earlier bars would need a session calendar we have not verified year by year.
+# REQ-11 asks for bars from 2015 onwards; the session calendar has since CR-056
+# been verified from 2014, so this floor is the requirement's own edge, not a gap.
 HISTORY_FLOOR = date(2015, 1, 1)
 MIN_TRAIN_DAYS = 3 * 365
 MIN_VALIDATION_DAYS = 365

@@ -92,8 +92,8 @@ def test_shipped_calendar_still_matches_both_independent_observations():
 
     # Observation 2: bars from the transport the backfill itself uses.
     provider = object.__new__(AkShareMarketDataProvider)
-    bars = provider._fetch_tencent_inline("510300", date(2015, 1, 1), date(2024, 12, 31), "qfq")
-    assert not bars.empty, "腾讯通道无 2015—2024 日线，证据表失去观测支撑"
+    bars = provider._fetch_tencent_inline("510300", date(2014, 1, 1), date(2024, 12, 31), "qfq")
+    assert not bars.empty, "腾讯通道无 2014—2024 日线，证据表失去观测支撑"
     traded = {day.date() for day in pd.to_datetime(bars["date"])}
     assert not sorted(traded - sina), "真实K线出现在候选休市日，候选日历有误"
     for year in sorted(table):
@@ -108,7 +108,9 @@ def test_cited_official_notice_urls_still_serve_the_cited_document():
     Every notice a year cites is re-fetched, not just its annual one: 2020's
     1月31日 is closed by a later adjustment notice, and a dead or mis-pasted link
     would silently downgrade that year to an unsourced date list. Each page has to
-    really carry the title and 文号 the record quotes.
+    really be the document the record quotes — matched by title, and by 文号 too
+    where the record states one (the 2014 annual notice carries none, so none is
+    claimed and none is checked).
     """
     import json
     import re
@@ -121,20 +123,21 @@ def test_cited_official_notice_urls_still_serve_the_cited_document():
         if entry["basis"] != "official-notice":
             continue
         found = re.findall(
-            r"《([^》]+)》（(上证公告〔\d{4}〕\d+号)，[^）]*发布）"
+            r"《([^》]+)》（([^）]*?)发布）"
             r"(https://www\.sse\.com\.cn[A-Za-z0-9._/?=&%-]+)",
             "；".join(entry["verifiedAgainst"]),
         )
-        assert found, f"{year} official-notice 记录未给出公告标题、文号与 URL"
+        assert found, f"{year} official-notice 记录未给出公告标题、发布日与 URL"
         citations += [(year, *item) for item in found]
 
     pages: dict[str, str] = {}
-    for year, title, doc_no, url in citations:
+    for year, title, note, url in citations:
         if url not in pages:
             page = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
             page.raise_for_status()
             page.encoding = "utf-8"
             pages[url] = page.text
-        for claim in (title, doc_no):
+        claims = [title, *re.findall(r"(?:上证公告|上证函|证监办发)〔\d{4}〕\d+号", note)]
+        for claim in claims:
             assert claim in pages[url], f"{year} 引用的 {claim} 未出现在 {url} 页面里"
-    assert len(citations) >= 13, "十年公告口径应逐份复核，而不是只查年度通知"
+    assert len(citations) >= 21, "十一年公告口径应逐份复核，而不是只查年度通知"
