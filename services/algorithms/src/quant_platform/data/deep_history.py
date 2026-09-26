@@ -18,13 +18,26 @@ from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
-from quant_platform.data.calendar import CalendarUnavailableError, verified_years
+from quant_platform.data.calendar import (
+    CalendarUnavailableError,
+    closure_basis,
+    verified_years,
+)
 
 
 def unverified_years(start: date, end: date) -> list[int]:
     """Years in the range whose session calendar we cannot prove."""
     known = set(verified_years())
     return [year for year in range(start.year, end.year + 1) if year not in known]
+
+
+def cross_validated_years(start: date, end: date) -> list[int]:
+    """Years covered only by a cross-checked third-party calendar, not a notice."""
+    return [
+        year
+        for year in range(start.year, end.year + 1)
+        if closure_basis(year) == "cross-validated"
+    ]
 
 
 def preflight(start: date, end: date) -> dict[str, object]:
@@ -35,6 +48,7 @@ def preflight(start: date, end: date) -> dict[str, object]:
         "end": end.isoformat(),
         "verifiedYears": [year for year in verified_years() if start.year <= year <= end.year],
         "unverifiedYears": blocking,
+        "crossValidatedYears": cross_validated_years(start, end),
         "ready": not blocking,
         "reason": ""
         if not blocking
@@ -70,6 +84,7 @@ def backfill(
         raise CalendarUnavailableError(f"休市日历未核对年份：{blocking}")
 
     provider = AkShareMarketDataProvider(data_dir=resolved)
+    provider.allow_research_calendar = True
     rows: list[dict[str, object]] = []
     for symbol in symbols:
         frame = provider.history(symbol, start, end, adjust)  # type: ignore[arg-type]

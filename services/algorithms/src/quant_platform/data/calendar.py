@@ -11,6 +11,13 @@ Rather than guess those holidays, ``QUANT_CALENDAR_EVIDENCE`` may point at a JSO
 table recording each year's closure ranges *with the official source URL*. A year
 without such a record stays unavailable, so an unverified window fails loudly
 instead of silently producing a wrong expected-session set.
+
+An entry states its ``basis``. ``official-notice`` (the default) means a human read
+the exchange notice at ``source``. ``cross-validated`` is for years whose notice we
+could not retrieve: it still cites ``source``, and additionally records where the
+ranges came from and which independent comparisons matched them day-for-day, with
+the date of the check. Such a year is research evidence, not a published one; a
+bare, unexplained list of dates is refused.
 """
 import json
 import os
@@ -26,7 +33,8 @@ _CLOSURES = {
 }
 
 ENV_PATH = "QUANT_CALENDAR_EVIDENCE"
-_DEFAULT_PATH = Path(__file__).resolve().parents[3] / "data" / "calendar_closures.json"
+DEFAULT_EVIDENCE_PATH = Path(__file__).resolve().parents[3] / "data" / "calendar_closures.json"
+_BASIS = ("official-notice", "cross-validated")
 _cache: tuple | None = None
 
 
@@ -36,17 +44,27 @@ class CalendarUnavailableError(ValueError):
 
 def evidence_path() -> Path | None:
     configured = os.getenv(ENV_PATH)
-    return Path(configured).expanduser() if configured else _DEFAULT_PATH
+    return Path(configured).expanduser() if configured else DEFAULT_EVIDENCE_PATH
 
 
 def parse_evidence(document) -> dict[int, list[tuple[str, str]]]:
-    """Validate a closure table; every year must cite an official source."""
+    """Validate a closure table and return its year -> ranges mapping."""
+    return _validate_evidence(document)[0]
+
+
+def parse_evidence_basis(document) -> dict[int, str]:
+    """Validate a closure table and return each year's basis."""
+    return _validate_evidence(document)[1]
+
+
+def _validate_evidence(document):
     if not isinstance(document, dict) or document.get("schemaVersion") != 1:
         raise CalendarUnavailableError("calendar evidence requires schemaVersion=1")
     years = document.get("years")
     if not isinstance(years, dict):
         raise CalendarUnavailableError("calendar evidence requires a years object")
     table: dict[int, list[tuple[str, str]]] = {}
+    basis: dict[int, str] = {}
     for key, entry in years.items():
         try:
             year = int(key)
@@ -61,6 +79,28 @@ def parse_evidence(document) -> dict[int, list[tuple[str, str]]]:
         source = entry.get("source")
         if not isinstance(source, str) or not source.startswith("https://"):
             raise CalendarUnavailableError(f"{year} 缺少官方 https 来源，拒绝采用")
+        entry_basis = entry.get("basis", "official-notice")
+        if entry_basis not in _BASIS:
+            raise CalendarUnavailableError(f"{year} basis 未知：{entry_basis!r}")
+        if entry_basis == "cross-validated":
+            for field in ("derivedFrom", "checkedOn"):
+                value = entry.get(field)
+                if not isinstance(value, str) or not value:
+                    raise CalendarUnavailableError(f"{year} 交叉核对缺少 {field}")
+                if field == "checkedOn":
+                    try:
+                        date.fromisoformat(value)
+                    except ValueError as exc:
+                        raise CalendarUnavailableError(
+                            f"{year} checkedOn 需为 YYYY-MM-DD"
+                        ) from exc
+            checks = entry.get("verifiedAgainst")
+            if not isinstance(checks, list) or not checks or not all(
+                isinstance(item, str) and item for item in checks
+            ):
+                raise CalendarUnavailableError(
+                    f"{year} 非公告来源必须列出 verifiedAgainst 独立核对项"
+                )
         ranges = entry.get("closures")
         if not isinstance(ranges, list) or not ranges:
             raise CalendarUnavailableError(f"{year} 缺少休市区间")
@@ -76,23 +116,40 @@ def parse_evidence(document) -> dict[int, list[tuple[str, str]]]:
                 raise CalendarUnavailableError(f"{year} 休市区间倒置：{row!r}")
             checked.append((start, end))
         table[year] = checked
-    return table
+        basis[year] = entry_basis
+    return table, basis
 
 
-def _evidence_closures() -> dict[int, list[tuple[str, str]]]:
+def _load_evidence():
+    """Read the evidence table once per (path, mtime); a bad file fails loudly."""
     global _cache
     path = evidence_path()
     if path is None or not path.is_file():
-        return {}
+        return {}, {}
     stamp = (str(path), path.stat().st_mtime_ns)
     if _cache is not None and _cache[0] == stamp:
-        return _cache[1]
+        return _cache[1], _cache[2]
     try:
-        table = parse_evidence(json.loads(path.read_text(encoding="utf-8")))
+        table, basis = _validate_evidence(json.loads(path.read_text(encoding="utf-8")))
     except CalendarUnavailableError as exc:
         raise CalendarUnavailableError(f"{path}: {exc}") from exc
-    _cache = (stamp, table)
-    return table
+    _cache = (stamp, table, basis)
+    return table, basis
+
+
+def _evidence_closures() -> dict[int, list[tuple[str, str]]]:
+    return _load_evidence()[0]
+
+
+def closure_basis(year: int) -> str | None:
+    """How a year's closure ranges were established, or None when unverified.
+
+    ``cross-validated`` years are research-scope only: they were not read from the
+    exchange's own annual notice, so the published data path must not rely on them.
+    """
+    if year in _CLOSURES:
+        return "official-notice"
+    return _load_evidence()[1].get(year)
 
 
 def verified_years() -> list[int]:

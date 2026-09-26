@@ -14,7 +14,12 @@ import akshare as ak
 import pandas as pd
 
 from quant_platform.data import upstream
-from quant_platform.data.calendar import CalendarUnavailableError, latest_session, sessions
+from quant_platform.data.calendar import (
+    CalendarUnavailableError,
+    closure_basis,
+    latest_session,
+    sessions,
+)
 from quant_platform.data.storage import DataStatusStore, MarketOverviewStore, OHLCVStore
 from quant_platform.data.universe import UniverseSnapshot
 from quant_platform.models import AdjustMode, Asset, AssetType, DataStatus
@@ -155,6 +160,9 @@ class AkShareMarketDataProvider:
                 **{symbol: a for symbol, a in self._assets.items() if a.asset_type == "etf"},
             }
         resolved_data_dir = Path(data_dir).resolve() if data_dir else _default_data_dir()
+        # Deep-history research windows lean on cross-validated calendar years; the
+        # published path must never extend the live cache with them.
+        self.allow_research_calendar = False
         self._storage = OHLCVStore(resolved_data_dir)
         self._overview_storage = MarketOverviewStore(resolved_data_dir)
         self._status_storage = DataStatusStore(resolved_data_dir)
@@ -201,6 +209,16 @@ class AkShareMarketDataProvider:
             expected = sessions(start_date, end_date)
         except CalendarUnavailableError as exc:
             raise UpstreamUnavailableError(str(exc)) from exc
+        if cutoff is None and not self.allow_research_calendar:
+            research_only = [
+                year
+                for year in range(start_date.year, end_date.year + 1)
+                if closure_basis(year) == "cross-validated"
+            ]
+            if research_only:
+                raise UpstreamUnavailableError(
+                    f"休市日历 {research_only} 未经官方公告核对，仅限研究回填取数"
+                )
         if not expected:
             return _empty_ohlcv()
         start_date, end_date = expected[0], expected[-1]
