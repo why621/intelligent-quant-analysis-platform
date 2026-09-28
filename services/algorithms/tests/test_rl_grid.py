@@ -37,6 +37,11 @@ TRAIN_MANIFEST = {
     "weightSelection": "validation-best",
     "bestEvalReward": 0.5,
     "hyperparameters": {"learning_rate": 3e-4},
+    # CR-059: serving reads the band from the manifest and refuses a bundle that
+    # does not carry one, so a fixture without bandPct is not a loadable bundle.
+    "bandPct": 0.02,
+    "rewardMode": "log_return",
+    "selectionMetric": "excessSharpe",
 }
 
 
@@ -173,7 +178,9 @@ class TestOrchestration:
         assert "ppo-510300-s42" not in fake.calls
         assert len(fake.calls) == 7
         assert summary["totals"]["skippedExisting"] == 1
-        scored = {r["runId"]: r for r in summary["picks"]["byTestSharpe"]["510300"]}
+        scored = {
+            r["runId"]: r for r in summary["picks"]["byTestSharpe"]["ranking"]["510300"]
+        }
         assert scored["ppo-510300-s42"]["testSharpe"] == 0.9
 
     def test_eval_only_trains_nothing_and_scores_what_exists(self, tmp_path):
@@ -246,7 +253,7 @@ class TestArtifacts:
         assert "买入持有" in line
         assert "0笔" in line  # a flat policy must not read as skill
         assert "超额 16.58pp" in line
-        assert "best_val +0.25" in line
+        assert "折中位 +0.25" in line
 
     def test_caveats_flag_the_empty_position_reading(self, tmp_path):
         _, _, summary = run(tmp_path)
@@ -340,7 +347,8 @@ class TestSameWindowContract:
             frame_provider(_rising_frame(200)),
             ModelStore(cfg.models_root),
         )
-        assert set(seen) == {"ppo", "dqn", "sac", "ddpg", "ma_cross", "momentum_reversal"}
+        # Derived from the registry so adding an algorithm cannot make this stale.
+        assert set(seen) == set(G.RL_POLICIES) | {"ma_cross", "momentum_reversal"}
         assert seen["ppo"].rebalance_band_pct == cfg.rebalance_band_pct
         assert seen["ppo"].min_trade_cny == cfg.min_trade_cny
         assert seen["ma_cross"].info().category == "traditional"
@@ -538,6 +546,10 @@ class TestRealTinyRun:
             val_end=date(2019, 7, 31),
             test_start=date(2019, 8, 1),
             test_end=date(2020, 7, 31),
+            # Single synthetic validation window on purpose: this test is the
+            # regression proof that the pre-CR-059 one-window path still trains
+            # end to end. The multi-fold selection path is covered separately.
+            val_folds=(),
             timesteps=2048,
             eval_freq=2048,
             progress_every=1024,

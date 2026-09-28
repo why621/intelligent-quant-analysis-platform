@@ -95,8 +95,9 @@ def test_progress_lines_and_validation_best_selection(tmp_path, capsys):
     assert manifest["weightSelection"] == "validation-best"
     assert isinstance(manifest["bestEvalReward"], float)
     assert manifest["hyperparameters"]["learning_rate"] == 0.005
-    # 未被覆盖的超参保持 spec 默认
-    assert manifest["hyperparameters"]["buffer_size"] == 100_000
+    # 未被覆盖的超参保持 spec 默认（CR-059 把 off-policy 的 buffer 由 100k 降到 20k，
+    # 因为一个训练窗只有约 850 根K线，20 万容量的回放池是同一批 transition 的重复）
+    assert manifest["hyperparameters"]["buffer_size"] == 20_000
     assert manifest["symbol"] == "SYNTH"
     assert manifest["requestedTimesteps"] == 600
     assert manifest["actualTimesteps"] >= 600
