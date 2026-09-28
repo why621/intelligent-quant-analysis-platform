@@ -1,11 +1,16 @@
 """Deterministic, causal feature pipeline shared by training and inference.
 
-Every feature at bar *t* is a function of rows ``<= t`` only — rolling and
-expanding windows never look ahead — so a live inference pass reproduces, bit
-for bit, the observations the agent was trained on. Normalisation is an
-*expanding* z-score rather than a fitted scaler for the same reason: a fitted
-scaler is a training-time artefact that can smuggle future statistics into the
-transform. Warm-up rows are left as ``NaN`` and carried by the caller.
+Every feature at bar *t* is a function of rows ``<= t`` only — rolling windows
+never look ahead. Normalisation is a *rolling* z-score over the last
+``Z_WINDOW`` rows rather than an expanding one: expanding statistics are
+anchored to row 0 of whatever frame the caller happens to pass, so the same
+calendar date would standardise differently in a training frame (row 0 = the
+2015 window start) and a serving frame (row 0 = the backtest start, and the
+live cache can only reach ~400 days back). Rolling statistics depend only on
+the trailing window, which makes train/serve observations identical by
+construction. A fitted scaler is still excluded — it is a training-time
+artefact that can smuggle future statistics into the transform. Warm-up rows
+are left as ``NaN`` and carried by the caller.
 """
 
 from __future__ import annotations
@@ -17,7 +22,10 @@ import numpy as np
 import pandas as pd
 
 DEFAULT_WINDOW = 20
-MIN_WARMUP = 20
+Z_WINDOW = 120
+# Bars needed before every feature column AND its z-score are fully populated:
+# the features look back DEFAULT_WINDOW rows, the z-score Z_WINDOW more.
+MIN_WARMUP = DEFAULT_WINDOW + Z_WINDOW
 
 FEATURE_COLUMNS: tuple[str, ...] = (
     "ret_1",
@@ -59,14 +67,15 @@ def build_features(prices: pd.DataFrame, window: int = DEFAULT_WINDOW) -> pd.Dat
     return feats[list(FEATURE_COLUMNS)]
 
 
-def expanding_zscore(features: pd.DataFrame) -> np.ndarray:
-    """Causal normalisation: subtract the expanding mean, divide by expanding std.
+def rolling_zscore(features: pd.DataFrame, window: int = Z_WINDOW) -> np.ndarray:
+    """Causal, frame-origin-independent normalisation over the trailing ``window``.
 
-    The first ``MIN_WARMUP`` rows are NaN (insufficient history to standardise)
-    and are the caller's responsibility to skip or carry.
+    Rows before ``MIN_WARMUP`` carry at least one ``NaN`` column (insufficient
+    trailing history to standardise every feature) and are the caller's
+    responsibility to skip or carry.
     """
-    mean = features.expanding(min_periods=MIN_WARMUP).mean()
-    std = features.expanding(min_periods=MIN_WARMUP).std()
+    mean = features.rolling(window, min_periods=window).mean()
+    std = features.rolling(window, min_periods=window).std()
     scaled = (features - mean) / std.replace(0.0, np.nan)
     return scaled.to_numpy(dtype=float)
 
@@ -74,7 +83,12 @@ def expanding_zscore(features: pd.DataFrame) -> np.ndarray:
 def feature_signature(window: int = DEFAULT_WINDOW) -> str:
     """Stable hash binding the exact feature recipe, stored in model manifests."""
     payload = json.dumps(
-        {"window": window, "columns": list(FEATURE_COLUMNS), "min_warmup": MIN_WARMUP},
+        {
+            "window": window,
+            "z_window": Z_WINDOW,
+            "columns": list(FEATURE_COLUMNS),
+            "min_warmup": MIN_WARMUP,
+        },
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]

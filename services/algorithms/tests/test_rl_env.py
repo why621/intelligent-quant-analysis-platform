@@ -12,7 +12,7 @@ pytestmark = pytest.mark.rl
 from quant_platform.rl.env import TradingEnv  # noqa: E402
 
 
-def _prices(n=80, seed=1):
+def _prices(n=200, seed=1):
     rng = np.random.default_rng(seed)
     close = 100 + np.cumsum(rng.normal(0, 1.0, n))
     dates = pd.date_range("2025-01-01", periods=n, freq="B")
@@ -90,14 +90,14 @@ def test_training_equity_matches_engine_each_bar(discrete, capital, band, minimu
     from quant_platform.backtesting.engine import BacktestEngine
     from quant_platform.models import TradingCosts
 
-    frame = _prices(45)
+    frame = _prices(180)
     costs = TradingCosts(.2, .1, .3)
     env = TradingEnv(frame, discrete=discrete, initial_capital=capital,
                      trading_costs=costs, band_pct=band, min_trade_cny=minimum)
     env.reset()
     signals = pd.Series(0. if discrete else np.nan, index=frame.index)
     expected = {}
-    for i in range(20, len(frame) - 1):
+    for i in range(env._first, len(frame) - 1):
         w = [0., 1.][i % 2] if discrete else [.004, .8, 1., 0.][i % 4]
         signals.iloc[i] = (1. if w else -1.) if discrete else w
         env.step(int(w) if discrete else np.array([w]))
@@ -112,7 +112,7 @@ def test_training_equity_matches_engine_each_bar(discrete, capital, band, minimu
         assert equity.loc[day] == pytest.approx(value, abs=1e-8)
 
 
-@pytest.mark.parametrize("n", [0, 1, 20, 21])
+@pytest.mark.parametrize("n", [0, 1, 20, 21, 141])
 def test_short_environment_fails_before_reset(n):
     from quant_platform.rl.errors import RLInsufficientHistory
 
@@ -121,7 +121,7 @@ def test_short_environment_fails_before_reset(n):
 
 
 def test_minimum_environment_has_one_step():
-    env = TradingEnv(_prices(22))
+    env = TradingEnv(_prices(142))
     env.reset()
     _, reward, done, _, _ = env.step(np.array([.5]))
     assert done and np.isfinite(reward)

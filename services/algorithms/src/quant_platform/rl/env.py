@@ -16,7 +16,12 @@ from gymnasium import spaces
 
 from quant_platform.backtesting.execution import execute_bar
 from quant_platform.models import TradingCosts
-from quant_platform.rl.features import build_features, expanding_zscore, validate_history
+from quant_platform.rl.features import (
+    MIN_WARMUP,
+    build_features,
+    rolling_zscore,
+    validate_history,
+)
 
 _LONG_ONLY_WEIGHTS = (0.0, 1.0)
 
@@ -53,7 +58,7 @@ class TradingEnv(gym.Env):
         self._band = band_pct
         self._min_trade = min_trade_cny
         self._raw = prices.reset_index(drop=True)
-        self._features = expanding_zscore(build_features(self._raw, window=window))
+        self._features = rolling_zscore(build_features(self._raw, window=window))
         self._open = self._raw["open"].to_numpy(dtype=float)
         self._close = self._raw["close"].to_numpy(dtype=float)
         self._discrete = discrete
@@ -65,8 +70,9 @@ class TradingEnv(gym.Env):
             if not np.isfinite(transaction_cost) or not 0 <= transaction_cost < 1:
                 raise ValueError("transaction_cost must be in [0, 1)")
             self._commission, self._stamp, self._slippage = float(transaction_cost), 0.0, 0.0
-        # Start after the feature warm-up so the first observation is finite.
-        self._first = max(window, 1)
+        # Start after the full feature+z-score warm-up so every training
+        # observation is finite and frame-origin-independent, matching serve.
+        self._first = max(MIN_WARMUP, window)
         self._last = len(self._raw) - 1
 
         obs_dim = self._features.shape[1] + 1  # features + current weight

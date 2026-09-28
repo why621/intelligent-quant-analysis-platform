@@ -23,8 +23,11 @@ def _prices(n=60, seed=0):
         {
             "date": dates,
             "open": close * 0.999,
-            "high": close * 1.01,
-            "low": close * 0.99,
+            # Random intraday range: fixed multiples would make hl_range a
+            # constant whose near-zero rolling std turns its z-score into
+            # float noise amplified to O(1).
+            "high": close * (1 + rng.uniform(0.004, 0.012, n)),
+            "low": close * (1 - rng.uniform(0.004, 0.012, n)),
             "close": close,
         }
     )
@@ -45,21 +48,35 @@ class TestFeatures:
         shocked = F.build_features(shock)
         pd.testing.assert_frame_equal(clean.iloc[:-1], shocked.iloc[:-1])
 
-    def test_expanding_zscore_warmup_is_nan(self):
-        arr = F.expanding_zscore(F.build_features(_prices(40)))
-        # Nothing is standardisable at the very top; everything is finite once
-        # every column has accumulated min_periods finite observations.
-        assert np.isnan(arr[0]).all()
-        assert np.isnan(arr[: F.MIN_WARMUP - 1]).all()
-        assert np.isfinite(arr[-1]).all()
+    def test_rolling_zscore_warmup_is_nan(self):
+        arr = F.rolling_zscore(F.build_features(_prices(200)))
+        # Nothing is standardisable at the very top; every column becomes
+        # finite once it has DEFAULT_WINDOW feature rows plus Z_WINDOW rows
+        # of trailing history behind it.
+        assert np.isnan(arr[: F.MIN_WARMUP - 1]).any(axis=1).all()
+        assert np.isfinite(arr[F.MIN_WARMUP - 1 :]).all()
 
-    def test_expanding_normalisation_is_causal(self):
-        feats = F.build_features(_prices(40))
-        z = F.expanding_zscore(feats)
+    def test_rolling_normalisation_is_causal(self):
+        feats = F.build_features(_prices(200))
+        z = F.rolling_zscore(feats)
         shock = feats.copy()
         shock.iloc[-1] = shock.iloc[-1] + 50.0
-        z2 = F.expanding_zscore(shock)
+        z2 = F.rolling_zscore(shock)
         np.testing.assert_allclose(z[:-1], z2[:-1], equal_nan=True)
+
+    def test_rolling_zscore_is_frame_origin_invariant(self):
+        """The train/serve parity contract: same bars behind you → same z-score.
+
+        The expanding recipe made row *t* depend on frame row 0, so a 2015
+        training frame and a backtest-start serving frame standardised the
+        same calendar date differently.
+        """
+        full = _prices(300)
+        z_full = F.rolling_zscore(F.build_features(full))
+        tail = full.iloc[100:].reset_index(drop=True)
+        z_tail = F.rolling_zscore(F.build_features(tail))
+        # tail row t mirrors full row t+100; compare only fully finite rows.
+        np.testing.assert_allclose(z_full[260:], z_tail[160:], rtol=1e-12, atol=1e-12)
 
 
 class TestStore:

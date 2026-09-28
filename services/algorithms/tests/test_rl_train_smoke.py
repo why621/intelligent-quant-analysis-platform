@@ -96,7 +96,7 @@ def test_train_save_load_infer_pipeline_is_deterministic(tmp_path, algo):
 
     # Inference on an OUT-OF-SAMPLE slice (first date strictly after trainEndDate).
     oos = _synthetic_ohlc(
-        first_day=train_end + timedelta(days=1), rows=60, seed=11
+        first_day=train_end + timedelta(days=1), rows=160, seed=11
     )
     shared = RLStrategy(RL_POLICIES[algo], store=ModelStore(models_root))
 
@@ -205,5 +205,5 @@ def test_validation_window_is_recorded_and_still_in_sample(tmp_path):
     with pytest.raises(RLInSampleRequest, match="验证"):
         instance.generate_signals(in_validation, {})
 
-    out_of_sample = frame[frame["date"] >= pd.Timestamp("2023-06-01")].reset_index(drop=True)
+    out_of_sample = frame[frame["date"] >= pd.Timestamp("2023-04-01")].reset_index(drop=True)
     assert len(instance.generate_signals(out_of_sample, {})) == len(out_of_sample)

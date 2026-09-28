@@ -266,7 +266,7 @@ class RLStrategy:
         self._reject_in_sample(prices)
         features.validate_history(prices)
         frame = prices.reset_index(drop=True)
-        observations = features.expanding_zscore(features.build_features(frame))
+        observations = features.rolling_zscore(features.build_features(frame))
 
         def signal_at(bar: int, current_weight: float) -> float:
             if bar < features.MIN_WARMUP:
