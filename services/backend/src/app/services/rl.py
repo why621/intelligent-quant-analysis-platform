@@ -157,6 +157,10 @@ class WebRL(RLStrategy):
             "bundleHash": m["bundleHash"],
             "trainStartDate": m["trainStartDate"],
             "trainEndDate": m["trainEndDate"],
+            "inSampleEndDate": in_sample_end(m),
+            **{key: m[key] for key in (
+                "valStartDate", "valEndDate", "testStartDate", "testEndDate"
+            ) if key in m},
             "outOfSampleStartDate": (
                 date.fromisoformat(in_sample_end(m)) + timedelta(days=1)
             ).isoformat(),

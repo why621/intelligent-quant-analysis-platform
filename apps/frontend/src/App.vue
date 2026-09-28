@@ -24,7 +24,7 @@
             所有结果仅用于教学研究，不会提交真实订单。
           </p>
           <p class="notice">研究范围：{{ dataStatus.assetCount || assetCatalog.length }} 只资产，批次目标日见右侧，各资产实际末日与缺口见选择列表。
-            当前成分固定名单研究存在幸存者偏差；自动日更验收独立记录，AI策略尚未接入。</p>
+            当前成分固定名单研究存在幸存者偏差；强化学习策略已开放实验回测，长期收益有效性尚未验证。</p>
           <div class="chips">
             <a href="#correlation">开始资产研究 ↗</a><a href="#backtest">策略实验室 →</a>
           </div>
@@ -155,11 +155,12 @@
             </label>
             <aside v-if="backtest.modelContext.value" class="hint ppo-notice" role="note">
               <strong>{{ backtest.selectedStrategy.value?.name }} · 实验性回测</strong>
-              <p>训练资产：{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}（前复权）。训练区间：{{ backtest.modelContext.value.trainStartDate }} 至 {{ backtest.modelContext.value.trainEndDate }}。</p>
+              <p>训练资产：{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}（前复权）。</p>
+              <p v-for="line in modelWindowLines(backtest.modelContext.value)" :key="line">{{ line }}</p>
               <p v-if="backtest.modelContext.value.assetScope === 'published_universe'">可选择资产池内1–10只股票或ETF。使用同一模型逐资产推理，初始资金等分后合并净值；未进行多资产联合训练，跨资产效果尚未验证。</p>
               <p v-else>当前服务仅支持 {{ backtest.modelContext.value.symbols.join('、') }}。</p>
-              <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，至少22根行情，前20根预热不交易。模型效果仅在短区间验证，存在过拟合与幸存者偏差，不代表未来收益。</p>
-              <button type="button" :disabled="backtestBusy || backtest.activeJob.value || !backtest.maxDate.value" @click="backtest.applyModelRange">使用样本外日期区间</button>
+              <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，至少22根行情，前20根预热不交易。训练链路可运行不代表长期绩效有效；存在过拟合与幸存者偏差，不代表未来收益。</p>
+              <button type="button" :disabled="backtestBusy || backtest.activeJob.value || !backtest.canApplyModelRange.value" @click="backtest.applyModelRange">使用当前可用样本外日期区间</button>
             </aside>
             <label>比较基准
               <select v-model="backtestBenchmark">
@@ -195,7 +196,8 @@
               {{ backtestResult ? '真实回测输出' : '尚未运行' }}
             </span></div>
             <p v-if="backtestJob" class="hint">{{ backtest.benchmarkLabel.value }}</p>
-            <p v-if="backtestJob?.result?.modelContext" class="hint">实验性模型：{{ backtestJob.result.modelContext.modelRef }} · 训练截止 {{ backtestJob.result.modelContext.trainEndDate }} · 前20根预热不交易；不代表未来收益。</p>
+            <p v-if="backtestJob?.result?.modelContext" class="hint">实验性模型：{{ backtestJob.result.modelContext.modelRef }} · 前20根预热不交易；不代表未来收益。</p>
+            <p v-for="line in modelWindowLines(backtestJob?.result?.modelContext)" :key="line" class="hint">{{ line }}</p>
             <p v-if="backtestJob?.result?.modelContext?.assetScope === 'published_universe'" class="hint">训练资产 {{ backtestJob.result.modelContext.trainingSymbols.join('、') }} · 各资产等分初始资金、独立推理后合并净值；跨资产效果尚未验证。</p>
             <p v-if="backtestJob?.request" class="hint">
               {{ backtestJob.request.startDate }} 至 {{ backtestJob.request.endDate }} ·
@@ -287,6 +289,7 @@
 </template>
 
 <script setup>
+import { modelWindowLines } from './dashboard/model-disclosure.js'
 const contextLabel = context => `发布截止 ${context.publicationDate} · 数据 ${context.dataVersion.slice(0, 12)} · 名单 ${context.universeVersion.slice(0, 12)}（${context.consistency === 'published_snapshot' ? '不可变研究批次' : '旧池修订'}）`
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'

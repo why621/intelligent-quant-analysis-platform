@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智能量化分析平台 API
-  version: 0.9.0
+  version: 0.9.1
   description: |
     前端、Flask 后端与算法模块之间唯一具有约束力的 HTTP 契约。
     平台面向 A 股及场内 ETF，按交易日收盘后更新。配置建议仅用于研究，
@@ -170,7 +170,7 @@ paths:
       operationId: listStrategies
       responses:
         "200":
-          description: 可用、试验中和规划中的策略；experimental仅backtestEnabled=true可提交实验回测，modelContext说明已部署模型范围。
+          description: 可用、试验中和规划中的策略；experimental仅backtestEnabled=true可提交实验回测，modelContext说明已部署模型的训练、验证、预留测试和样本外下限；旧模型未记录的验证/测试字段省略，预留测试不代表绩效已验收。
           content:
             application/json:
               schema:
@@ -206,7 +206,7 @@ paths:
     post:
       tags: [Backtest]
       summary: 提交异步回测任务
-      description: 同步校验策略参数、已接入独立指数或ETF基准和已发布日期范围后入队。experimental仅backtestEnabled=true可回测；DQN/PPO/SAC/DDPG仅各自已部署白名单modelRef与qfq；assetScope=published_universe时支持发布资产池内1至10只资产，等分初始资金后逐资产独立运行，跨资产效果尚未验证。起始日须晚于训练截止且每只资产不少于22根行情，短数据错误details.symbol指出资产。RL_IN_SAMPLE_REQUEST、RL_INSUFFICIENT_HISTORY、RL_INCOMPATIBLE_MODEL、RL_MODEL_NOT_FOUND返回422；worker依赖缺失为RL_DEPENDENCIES_MISSING。日期错误含请求区间、可用截止及symbols；查询返回提交时request快照，RL结果附modelContext。
+      description: 同步校验策略参数、已接入独立指数或ETF基准和已发布日期范围后入队。experimental仅backtestEnabled=true可回测；DQN/PPO/SAC/DDPG仅各自已部署白名单modelRef与qfq；assetScope=published_universe时支持发布资产池内1至10只资产，等分初始资金后逐资产独立运行，跨资产效果尚未验证。起始日须晚于训练及验证截止且每只资产不少于22根行情，短数据错误details.symbol指出资产。RL_IN_SAMPLE_REQUEST、RL_INSUFFICIENT_HISTORY、RL_INCOMPATIBLE_MODEL、RL_MODEL_NOT_FOUND返回422；worker依赖缺失为RL_DEPENDENCIES_MISSING。日期错误含请求区间、可用截止及symbols；查询返回提交时request快照，RL结果附modelContext。
       operationId: createBacktest
       parameters:
         - $ref: "#/components/parameters/ResearchVersion"

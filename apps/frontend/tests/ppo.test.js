@@ -91,3 +91,25 @@ for (const algo of ['dqn','sac','ddpg']) {
     assert.equal(state.selectedStrategy.value.name,'PPO')
   })
 }
+
+
+test('long-window shortcut stays within published rolling data, not the training archive', t => {
+  const {state,strategies}=setup(t)
+  Object.assign(strategies.value[0].modelContext, {
+    trainStartDate:'2015-01-05',trainEndDate:'2019-12-31',
+    valStartDate:'2020-01-02',valEndDate:'2021-12-31',outOfSampleStartDate:'2022-01-01'
+  })
+  state.applyModelRange()
+  assert.equal(state.startDate.value,'2025-09-18')
+  assert.equal(state.endDate.value,'2026-09-18')
+  assert.equal(state.canSubmit.value,true)
+})
+
+test('shortcut cannot write a reversed interval if no sample-out data is published', t => {
+  const {state,strategies}=setup(t)
+  strategies.value[0].modelContext.outOfSampleStartDate='2027-01-01'
+  const original=state.startDate.value
+  assert.equal(state.canApplyModelRange.value,false)
+  state.applyModelRange()
+  assert.equal(state.startDate.value,original)
+})

@@ -60,6 +60,9 @@ def test_each_algorithm_isolated_and_gated(release, algo):
     assert len(items) == 6
     item = next(x for x in items if x["id"] == algo)
     assert item["status"] == "experimental" and item["backtestEnabled"] is True
+    assert item["modelContext"]["inSampleEndDate"] == "2026-06-30"
+    assert "valStartDate" not in item["modelContext"]
+    assert "testStartDate" not in item["modelContext"]
     assert item["parameterSchema"]["properties"]["modelRef"]["enum"] == [algo + "-test"]
     strategy = catalog.get_strategy(algo)
     for other in RL_POLICIES:
@@ -189,7 +192,12 @@ def test_validation_cutoff_drives_web_metadata_requests_and_ranking(release):
     entries[0]["bundleHash"] = store.load(new_ref).manifest["bundleHash"]
     path.write_text(json.dumps({"schemaVersion": 2, "models": entries}))
     strategy = StrategyCatalogService(rl_release=path).get_strategy(entries[0]["algo"])
-    assert strategy.model_context()["outOfSampleStartDate"] == "2022-12-31"
+    context = strategy.model_context()
+    assert context["outOfSampleStartDate"] == "2022-12-31"
+    assert context["inSampleEndDate"] == "2022-12-30"
+    assert context["valStartDate"] == "2021-01-04"
+    assert context["valEndDate"] == "2022-12-30"
+    assert "testStartDate" not in context
     provider = SimpleNamespace(history=Mock(side_effect=AssertionError("must reject first")))
     with pytest.raises(RLInSampleRequest):
         strategy.validate_web_request({"startDate": "2022-12-30",
@@ -197,3 +205,33 @@ def test_validation_cutoff_drives_web_metadata_requests_and_ranking(release):
     with pytest.raises(RLInSampleRequest):
         strategy.ranking_request(date(2023, 1, 20), "30d", provider)
     provider.history.assert_not_called()
+
+
+def test_long_model_split_metadata_matches_http_contract(release):
+    from pathlib import Path
+
+    import jsonschema
+    import yaml
+
+    path, entries = release
+    store = ModelStore(path.parent)
+    manifest = dict(store.load(entries[0]["modelRef"]).manifest)
+    manifest.update(runId="split-contract", trainStartDate="2015-01-05",
+                    trainEndDate="2019-12-31", valStartDate="2020-01-02",
+                    valEndDate="2021-12-31", testStartDate="2022-01-04",
+                    testEndDate="2024-12-31")
+    store.save("split-contract", b"synthetic-not-for-inference", manifest)
+    entries[0].update(modelRef="split-contract",
+                      bundleHash=store.load("split-contract").manifest["bundleHash"])
+    path.write_text(json.dumps({"schemaVersion": 2, "models": entries}))
+    strategy = StrategyCatalogService(rl_release=path).get_strategy(entries[0]["algo"])
+    context = strategy.model_context()
+    assert context["testStartDate"] == "2022-01-04"
+    assert context["testEndDate"] == "2024-12-31"
+    assert context["outOfSampleStartDate"] == "2022-01-01"
+    schema_path = Path(__file__).resolve().parents[3] / "packages/contracts/schemas/strategy.yaml"
+    schema = yaml.safe_load(schema_path.read_text())["ModelContext"]
+    for field in ("symbols", "trainingSymbols"):
+        schema["properties"][field]["items"] = {"type": "string", "pattern": "^[0-9]{6}$"}
+    validator = jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker())
+    validator.validate(context)
