@@ -804,3 +804,14 @@ CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”�
 | T-039b 入表、下限归属澄清与拒绝路径回归 | 完成 | REQ-02/11 / D-12 | T-039a | 证据表新增 2014 年 basis=official-notice（9 个区间、source 为年度通知 URL，五份公告以标题+发布日+URL 记入 derivedFrom/verifiedAgainst 并写明"页面未标注文号"），2015—2024 closures 与元数据零改动（期望交易日 2431 根不变，不重填不重训）；HISTORY_FLOOR 经复核保持 2015-01-01（REQ-11 自身的边界）并把 splits.py 注释改为真实理由；拒绝路径改由 2013 及更早与临时副本降级两类用例钉住；2013 年及更早记为交易所在线归档不可得（栏目最旧 2013-09-11、一般公告栏目约 750 条滚动窗口），不猜 URL |
 
 验证：Ruff 通过；算法离线 337 passed/14 network 排除（+1 来自 accept 用例增列 2014 一窗）；network 单跑 test_deep_history_probe.py 6 passed（21 条引用逐份回抓）；recheck_official_closures.py 十一年 18 份公告 exit 0 且十年逐年数字与 CR-055 一致；preflight 输出 verifiedYears=[2014..2024] ready=true；后端 146 passed + 3 errors 与既有日期缺陷一致。命令、检索边界与实测数字见[CR-056 实录](docs/cr056-2014-calendar-evidence-2026-09-26.md)。仍未完成：2013 年及更早的日历证据（交易所在线归档不可得，需纸面公告或其他官方渠道）、2014 年若要参与训练需要同时放宽 REQ-11 下限并回填该年K线（本轮按需求未做）、上证公告〔2020〕3号无 URL（不影响 2020 口径）、多资产深历史、T-035d 完整版（多种子/多资产/跨资产绩效与幸存者偏差披露）、后端 in_sample_end 与 live-acceptance fixture 待办。RL 继续 experimental；本轮未推送、未部署。
+
+### CR-057 RL 训练网格与基准对比 CLI（算法模块，2026-09-28）
+
+同一本地分支 algorithm/rl-train-production 接续 T-035d 训练器；范围仅 services/algorithms/** 加根SDD，不改后端、前端与 packages/contracts，不新增外网取数、不回填缓存。用户要求把 36 个 run 的手写命令收敛成一条：依次训练四算法，训练完在留出窗与基准比较并保存结果，便于后续调参。
+
+| 任务 | 状态 | 需求/决策 | 依赖 | 完成条件 |
+| --- | --- | --- | --- | --- |
+| T-040a 网格编排与基准评估 CLI | 完成 | REQ-06 / D-07 | T-035d | rl/grid.py + pyproject 入口 quant-rl-grid：进程内串行展开 symbols×algos×seeds，train_run 逐 job try/except；基准三条（买入持有自身 close 归一不计费、ma_cross 5/20、momentum_reversal 10/±5）与 RL 同标的同 test 窗同资金同费率；指标走引擎既有 _compute_metrics，另记成交笔数与费用；增量 jsonl（逐 flush）＋ summary.csv ＋ summary.json（配置回显、组内按 bestEvalReward 选种、按 test Sharpe 排名）；ModelStore.exists 即跳过训练仍可评估，--overwrite/--eval-only 显式；单 job 失败继续、末尾非零退出 |
+| T-040b 离线回归与本地小步数真跑 | 完成 | REQ-06 | T-040a | 离线用例钉住：job 展开与 run-id 命名、续跑跳过已完成、单 run 失败不中断网格且退出码非零、jsonl 逐行可解析且 csv 列稳定、基准行确实与 RL 行同窗；另用一次真实小步数 run（ppo，2048 步，合成/研究缓存价格）证明训练→存盘→加载→test 窗回测→基准对比全链路在非注入条件下可跑通；Ruff 与离线套件全绿，不新增 network 用例 |
+
+验证：Ruff（CI 口径 `ruff check services/algorithms`）通过，并顺带修掉一处 CR-057 之前未过闸的长行；算法离线 364 passed/16 network 排除（CR-056 时点 344，+20 全在 tests/test_rl_grid.py，其中一条为真实端到端 ppo/2048 步训练→存盘→加载→留出窗回测→三基准对比）。本地真实缓存两次跑通 CLI：510300/ppo/2048 步 ok，随后换 --grid-id 复跑同一 --models-root 得 trained=0/skippedExisting=1 且复评数字逐位一致。上述收益差不是研究结论（2048 步近未训练、44 笔成交、净值近乎持平，只在下跌基准上显得大幅超额），故进度行加印成交笔数、caveats 增列该读法风险。T-035d 的 36 条手写命令由 `quant-rl-grid --history-root data/research_history --models-root data/research_history/models` 一条替代。仍未完成：缺陷 #5（后端接缝）、research_backfill_unpublished 权重不可上线、指数级基准序列不在研究缓存内。RL 继续 experimental；本轮未推送、未部署、未改后端与前端。

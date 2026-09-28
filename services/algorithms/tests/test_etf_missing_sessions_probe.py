@@ -3,7 +3,8 @@
 用途：判定 510500（2015-04-13/14）与 159915（2021-02-08）的缺口是
 「个券真实停牌」还是「腾讯源数据缺口」，为研究缓存回填选择处理方式。
 只打印证据，不断言盈亏，不写任何缓存。跑法：
-    PYTHONUTF8=1 python -m pytest tests/test_etf_missing_sessions_probe.py -o addopts="-q" -m network
+    PYTHONUTF8=1 python -m pytest tests/test_etf_missing_sessions_probe.py \
+        -o addopts="-q" -m network
 """
 
 from __future__ import annotations
