@@ -765,3 +765,20 @@ CR057 边界：不做多资产池训练、不做跨资产资金分配（allocati
 CR057 验收条件：(1) 一条命令依次产出所请求的全部 run 目录；(2) 每个 run 在 jsonl 中同时含 RL 自身与三条基准的同窗指标；(3) 中断后重跑不重复训练已完成 run（离线用例钉住）；(4) 单 run 失败不终止网格且末尾退出码非零（离线用例钉住）；(5) jsonl 逐行可解析、csv 列稳定；(6) 离线套件与 Ruff 全绿，不新增 network 用例。
 
 CR057 验收回写：Ruff（CI 口径 `ruff check services/algorithms`）通过，顺带修掉 CR-057 之前一处未过闸的长行（tests/test_etf_missing_sessions_probe.py 文档串内的一行跑法命令）。算法离线 364 passed/16 deselected（CR-056 时点 344，+20 全部来自 tests/test_rl_grid.py），其中一条为真实端到端：真 train_run（ppo，2048 步，合成窗口）→ 存盘 → ModelStore 加载 → test 窗回测 → 与 ma_cross/momentum_reversal/买入持有同窗对比，并断言 trainer 自身的 `[2048/2048 100.0%]` 进度行仍在 stdout 内。其余 19 条用注入的假 train/scorer 与假 run_grid 钉住编排与 CLI 语义：job 展开顺序与 run-id 唯一、test 窗落进训练/验证窗在训练前即拒、既有 run-id 跳过训练但仍被评估、--eval-only 不训练、有权重缺失记为 eval-failed、单 job 失败八格全试完、jsonl 逐行可解析、csv 列序恒等于 CSV_COLUMNS 且失败行仍出现、选种只按验证窗 bestEvalReward、基准与 RL 的请求在标的/窗口/资金/费率上逐项相同。本地另用真实研究缓存跑通 CLI 两次：第一次 510300/ppo/2048 步 ok，第二次同 --models-root 换 --grid-id resume-check，totals.trained=0 且 skippedExisting=1，复评数字与第一次逐位一致（留出窗 -0.0226% 对买入持有 -16.6266%），证明评估路径可复现。CLI 契约由四条用例钉住（标志逐项落到配置、窗口可覆盖、有失败时退出码为 1、全绿为 0）；其中退出码用例暴露了一个真实缺陷——main 打印的收尾 JSON 未含 failures，跑坏了要在文件里找是哪个 run，已把 failures 加进打印。这两次的收益差**不是研究结论**：2048 步权重接近未训练，44 笔成交后净值近乎持平，只在下跌基准上显得"超额 16.6pp"，因此 caveats 增列"成交笔数接近 0 的跑赢不是技能"，进度行也改为同时打印笔数。实测确认的既有闸门：MIN_TRAIN_DAYS=1095 天、验证窗 365–730 天且 ≥180 根、RUN_ID_RE `^[a-z0-9][a-z0-9_-]{2,63}$`（故 run-id 不得含大写字母，测试标的改用合成小写码）。T-035d 交付的 36 条手写命令由本 CLI 一条替代：`quant-rl-grid --history-root data/research_history --models-root data/research_history/models`。未完成：缺陷 #5 仍未修（后端接缝）、权重仍为 research_backfill_unpublished 不可上线、指数基准序列不在研究缓存内故 alpha/beta 未采（买入持有用标的自身K线归一，510300 即沪深300 的场内代理）。RL 四策略继续 experimental；本轮未推送、未部署、未改后端与前端。
+
+## 2026-09-28 CR058 RL 网格并行执行登记
+
+CR058 范围与授权：仍限 services/algorithms/** 与本仓库 SDD/文档，不改后端、前端与 packages/contracts；分支 algorithm/rl-train-production 继续只在本地、不推送。用户在 CR-057 交付后确认要做并行（"那就B"），并指出 36 个 run 在算法、标的、种子三个维度上互不依赖，可整体并行、结果分别记录后合并。本轮不新增外网取数、不改训练语义与窗口。
+
+CR058 设计：`--parallel N`（默认 1，保持 CR-057 的串行语义不变）。
+1. **必须是多进程**：每个 run 内部已 `torch.set_num_threads(1)`，线程并行受 GIL 与 torch 单线程双重限制，只会有开销没有收益。并行度上限是物理核数，超出即超卖。
+2. 把"一个 job 的全部工作"抽成模块级 `run_job(cfg, job, *, provider, store, train, scorer)`：自带 skip 判定（`ModelStore.exists` 且未 `--overwrite` 则只评估）、自带失败捕获。串行路径注入同一函数，保证两种模式跑的是同一套单元逻辑，不出现"只有并行路径被改坏"的分叉。
+3. 并行路径由 `ProcessPoolExecutor(max_workers=N)` 提交，父进程按**完成顺序**追加 jsonl（崩溃友好），收尾把记录按 job 序号排序后再写 csv 与 summary，使 `picks` 与排名只算一次、与串行产物同构。
+4. 失败面：`BrokenProcessPool`（worker 段错误/OOM 被杀）时，父进程把尚未完成的 job 记为 `not-run` 写入报告并以非零码退出；由于 skip 判定依赖已存在的权重，重跑同一条命令即从断点继续。`KeyboardInterrupt` 经 `finally` 仍写出报告。
+5. `N > os.cpu_count()` 时打印一行提示，不拒绝执行（用户可能故意超卖，且这是他的机器与预算）。
+
+CR058 边界：并行只改变墙钟时间，不改变任何 run 的种子、窗口、数据与评估口径，因此不触发权重失效，CR-057 的串行产物可被并行网格直接续用。全局进度行仍是步数加权（每 job 的 `--timesteps` 相同），但**分片内 ETA 语义消失**：并行后父进程只报"已完成/总数"与整网格实测均值，不再承诺单 run 预估。GPU 不在此轮范围：训练链实测为 CPU-only torch，且 SB3 的 `device="auto"` 检测到 CUDA 会静默改变执行设备，属于未验证路径，故本轮明确选择 CPU 机型。
+
+CR058 验收条件：(1) `--parallel 1` 行为与 CR-057 完全一致（既有用例不回归）；(2) 并行路径下 36 个 job 全部被尝试、jsonl 逐行可解析、csv 行序按 job 序号稳定、`picks` 一次算出全网格结果；(3) worker 池损坏时未跑 job 记为 `not-run` 且退出码非零；(4) 真实多进程用例（≥2 worker）在 Windows spawn 与 Linux fork 下均可跑通；(5) Ruff 与离线套件全绿，不新增 network 用例。
+
+CR058 验收回写：Ruff（CI 口径 `ruff check services/algorithms`）通过；算法离线 370 passed/16 network 排除（CR-057 时点 364，+6 = 5 条假池用例 + 1 条真实双进程用例）。真实用例在本机 Windows 的 spawn 启动方式下通过：2 个 worker 各训 2048 步、各自从 pickle 出来的配置重建 provider 与 store、两份 bundleHash 不同、csv 按 job 序号稳定。CLI 另跑一次 `--parallel 2 --symbols 510300 510050`，两个 run 并发完成，worker 自身的 `[2048/2048 100.0%]` 行按整行交错进入同一 stdout（这是预期形态，行内不撕裂）。实现期有一处需要记下的自纠：我最初按"提交顺序=完成顺序"写断言，实测 `as_completed` 对已就绪 future 不保证该顺序，于是把契约改成顺序无关——只要求"不丢 job、池损坏后未完成者记 not-run、总数守恒"，并把这条理由写进用例注释，避免以后有人再加回脆弱断言。`--parallel` 默认 1，CR-057 的串行语义与既有用例一字未改；`os.cpu_count()` 本机为 12（逻辑核），提示行据此判超卖，服务器 16 核建议 `--parallel 14`。并行不改变任何 run 的种子、窗口、数据与评估口径，因此 CR-057 已产出的权重可被并行网格直接续用。未完成：GPU 路径仍不启用（SB3 `device="auto"` 会静默改用 CUDA，属未验证路径）；缺陷 #5 仍未修。本轮未推送、未部署、未改后端与前端。

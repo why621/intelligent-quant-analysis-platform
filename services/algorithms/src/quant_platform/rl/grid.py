@@ -12,8 +12,11 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import time
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -121,6 +124,7 @@ class GridConfig:
     eval_freq: int = 20_000
     progress_every: int = 10_000
     threads: int = 1
+    parallel: int = 1
     require_regimes: bool = True
     hyper_overrides: Mapping[str, object] = field(default_factory=dict)
     overwrite: bool = False
@@ -140,6 +144,8 @@ class GridConfig:
             raise ValueError(f"未知基准: {sorted(unknown_baseline)}")
         if not self.symbols or not self.algos or not self.seeds:
             raise ValueError("symbols/algos/seeds 都不能为空")
+        if self.parallel < 1:
+            raise ValueError("--parallel 至少为 1")
         if self.test_start <= self.train_end:
             raise ValueError(
                 f"留出窗起点 {self.test_start} 不晚于训练窗终点 {self.train_end}，"
@@ -331,13 +337,16 @@ class GridResults:
         self._fh.close()
 
     def write_reports(self, cfg: GridConfig, jobs: Sequence[Job]) -> dict:
+        # The jsonl stays in completion order (crash-friendly append); the tables
+        # are re-sorted into job order so a parallel grid reads like a serial one.
+        ordered = sorted(self.records, key=lambda record: record.get("index", 0))
         csv_path = cfg.out_root / f"{cfg.grid_id}-summary.csv"
         with csv_path.open("w", encoding="utf-8", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(CSV_COLUMNS), extrasaction="ignore")
             writer.writeheader()
-            for record in self.records:
+            for record in ordered:
                 writer.writerow(_csv_row(cfg, record))
-        summary = build_summary(cfg, jobs, self.records)
+        summary = build_summary(cfg, jobs, ordered)
         json_path = cfg.out_root / f"{cfg.grid_id}-summary.json"
         json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         summary["artifacts"] = {
@@ -399,6 +408,7 @@ def build_summary(cfg: GridConfig, jobs: Sequence[Job], records: Sequence[dict])
             "timesteps": cfg.timesteps,
             "evalFreq": cfg.eval_freq,
             "threads": cfg.threads,
+            "parallel": cfg.parallel,
             "requireRegimes": cfg.require_regimes,
             "hyperOverrides": dict(cfg.hyper_overrides),
             "capital": cfg.capital,
@@ -427,94 +437,207 @@ def build_summary(cfg: GridConfig, jobs: Sequence[Job], records: Sequence[dict])
     }
 
 
+def _record(cfg: GridConfig, job: Job, index: int, of: int, **over) -> dict:
+    record = {
+        "gridId": cfg.grid_id,
+        "index": index,
+        "of": of,
+        "runId": job.run_id,
+        "algo": job.algo,
+        "symbol": job.symbol,
+        "seed": job.seed,
+        "timesteps": cfg.timesteps,
+        "status": "ok",
+    }
+    record.update(over)
+    return record
+
+
+def run_job(
+    cfg: GridConfig,
+    job: Job,
+    *,
+    index: int = 1,
+    of: int = 1,
+    provider=None,
+    store: ModelStore | None = None,
+    train: Callable | None = None,
+    scorer: Callable | None = None,
+) -> dict:
+    """Train one model (unless a bundle already exists) and score it.
+
+    Module-level and self-contained on purpose: a worker process builds its
+    own provider and store, so the same function serves the serial loop and the
+    process pool without sharing a sqlite handle across processes. The seams are
+    resolved here rather than in the signature so a test can swap them.
+    """
+    train = train or train_run
+    scorer = scorer or score_run
+    store = store or ModelStore(cfg.models_root)
+    provider = provider or _training_provider(Path(""), cfg.history_root)
+    started = time.time()
+    record = _record(cfg, job, index, of)
+    if cfg.eval_only:
+        record["trainSkipped"] = True
+    elif store.exists(job.run_id) and not cfg.overwrite:
+        record["trainSkipped"] = True
+    else:
+        try:
+            train(
+                publication_root=Path(""),
+                models_root=cfg.models_root,
+                run_id=job.run_id,
+                algo=job.algo,
+                symbol=job.symbol,
+                seed=job.seed,
+                start=cfg.train_start,
+                end=cfg.train_end,
+                total_timesteps=cfg.timesteps,
+                provider=provider,
+                val_start=cfg.val_start,
+                val_end=cfg.val_end,
+                test_start=cfg.test_start,
+                test_end=cfg.test_end,
+                require_regimes=cfg.require_regimes,
+                threads=cfg.threads,
+                eval_freq=cfg.eval_freq,
+                progress_every=cfg.progress_every,
+                overwrite=cfg.overwrite,
+                hyper_overrides=cfg.hyper_overrides,
+            )
+        except Exception as exc:  # one bad run must not cost the whole grid
+            record["status"] = "train-failed"
+            record["error"] = f"{type(exc).__name__}: {exc}"
+    if record["status"] == "ok":
+        try:
+            record["bundle"] = _bundle_facts(store.load(job.run_id).manifest)
+            record["test"] = scorer(cfg, job, provider, store)
+        except Exception as exc:
+            record["status"] = "eval-failed"
+            record["error"] = f"{type(exc).__name__}: {exc}"
+    record["wallSeconds"] = round(time.time() - started, 1)
+    return record
+
+
 def run_grid(
     cfg: GridConfig,
     *,
     provider=None,
     train: Callable = train_run,
     scorer: Callable = score_run,
-    printer: Callable[[str], None] = print,
+    printer: Callable[..., None] = print,
+    executor=None,
 ) -> dict:
     cfg.validate()
     jobs = expand_jobs(cfg)
-    provider = provider or _training_provider(Path(""), cfg.history_root)
-    store = ModelStore(cfg.models_root)
     results = GridResults(cfg.out_root, cfg.grid_id)
     total_steps = max(1, cfg.timesteps) * len(jobs)
-    done_steps = 0
-    grid_start = time.time()
-    printer(
-        f"[grid {cfg.grid_id}] {len(jobs)} 个 run × {cfg.timesteps} 步 = {total_steps} 步；"
-        f"留出窗 {cfg.test_start}..{cfg.test_end}；"
-        "ETA 按已完成 run 实测均值外推，早期偏乐观",
-        flush=True,
-    )
-    for index, job in enumerate(jobs, start=1):
-        started = time.time()
-        record: dict = {
-            "gridId": cfg.grid_id,
-            "index": index,
-            "of": len(jobs),
-            "runId": job.run_id,
-            "algo": job.algo,
-            "symbol": job.symbol,
-            "seed": job.seed,
-            "timesteps": cfg.timesteps,
-            "status": "ok",
-        }
-        if cfg.eval_only:
-            record["trainSkipped"] = True
-        elif store.exists(job.run_id) and not cfg.overwrite:
-            record["trainSkipped"] = True
-        else:
-            try:
-                train(
-                    publication_root=Path(""),
-                    models_root=cfg.models_root,
-                    run_id=job.run_id,
-                    algo=job.algo,
-                    symbol=job.symbol,
-                    seed=job.seed,
-                    start=cfg.train_start,
-                    end=cfg.train_end,
-                    total_timesteps=cfg.timesteps,
-                    provider=provider,
-                    val_start=cfg.val_start,
-                    val_end=cfg.val_end,
-                    test_start=cfg.test_start,
-                    test_end=cfg.test_end,
-                    require_regimes=cfg.require_regimes,
-                    threads=cfg.threads,
-                    eval_freq=cfg.eval_freq,
-                    progress_every=cfg.progress_every,
-                    overwrite=cfg.overwrite,
-                    hyper_overrides=cfg.hyper_overrides,
-                )
-            except Exception as exc:  # one bad run must not cost the whole grid
-                record["status"] = "train-failed"
-                record["error"] = f"{type(exc).__name__}: {exc}"
-        if record["status"] == "ok":
-            try:
-                record["bundle"] = _bundle_facts(store.load(job.run_id).manifest)
-                record["test"] = scorer(cfg, job, provider, store)
-            except Exception as exc:
-                record["status"] = "eval-failed"
-                record["error"] = f"{type(exc).__name__}: {exc}"
-        record["wallSeconds"] = round(time.time() - started, 1)
-        done_steps += cfg.timesteps
+    state = {"done_steps": 0, "emitted": set(), "start": time.time()}
+
+    def emit(record: dict) -> None:
+        state["done_steps"] += record["timesteps"]
+        state["emitted"].add(record["runId"])
         results.append(record)
-        elapsed = time.time() - grid_start
-        eta = elapsed / done_steps * (total_steps - done_steps)
-        suffix = _progress_suffix(record)
+        elapsed = time.time() - state["start"]
+        done = state["done_steps"]
+        eta = elapsed / done * (total_steps - done)
         printer(
-            f"[grid {index}/{len(jobs)} {100.0 * done_steps / total_steps:5.1f}%] "
-            f"{job.run_id} {record['status']} run用时 {_fmt(record['wallSeconds'])} "
-            f"网格已耗时 {_fmt(elapsed)} 网格ETA {_fmt(eta)}{suffix}",
+            f"[grid {record['index']}/{len(jobs)} {100.0 * done / total_steps:5.1f}%] "
+            f"{record['runId']} {record['status']} run用时 {_fmt(record.get('wallSeconds', 0))} "
+            f"网格已耗时 {_fmt(elapsed)} 网格ETA {_fmt(eta)}{_progress_suffix(record)}",
             flush=True,
         )
-    summary = results.write_reports(cfg, jobs)
-    results.close()
+
+    printer(
+        f"[grid {cfg.grid_id}] {len(jobs)} 个 run × {cfg.timesteps} 步 = {total_steps} 步；"
+        f"留出窗 {cfg.test_start}..{cfg.test_end}；并行 {cfg.parallel} 进程"
+        f"（本机 {os.cpu_count()} 核）；ETA 按已完成 run 实测均值外推，早期偏乐观",
+        flush=True,
+    )
+    if cfg.parallel > (os.cpu_count() or 1):
+        printer(
+            f"[grid {cfg.grid_id}] 提示：并行 {cfg.parallel} 超过核数 {os.cpu_count()}，"
+            "会超卖，ETA 会相应变长",
+            flush=True,
+        )
+    try:
+        if cfg.parallel <= 1:
+            shared = provider or _training_provider(Path(""), cfg.history_root)
+            for index, job in enumerate(jobs, start=1):
+                emit(
+                    run_job(
+                        cfg,
+                        job,
+                        index=index,
+                        of=len(jobs),
+                        provider=shared,
+                        train=train,
+                        scorer=scorer,
+                    )
+                )
+        elif executor is not None:
+            _run_parallel(cfg, jobs, executor, emit, state["emitted"])
+        else:
+            with ProcessPoolExecutor(max_workers=cfg.parallel) as pool:
+                _run_parallel(cfg, jobs, pool, emit, state["emitted"])
+    finally:
+        # A Ctrl-C or a killed worker still has to leave a readable report.
+        summary = results.write_reports(cfg, jobs)
+        results.close()
     return summary
+
+
+def _run_parallel(
+    cfg: GridConfig,
+    jobs: Sequence[Job],
+    pool,
+    emit: Callable[[dict], None],
+    emitted: set,
+) -> None:
+    futures = {
+        pool.submit(run_job, cfg, job, index=index, of=len(jobs)): (index, job)
+        for index, job in enumerate(jobs, start=1)
+    }
+    broken = None
+    for future in as_completed(futures):
+        index, job = futures[future]
+        try:
+            emit(future.result())
+        except BrokenProcessPool as exc:
+            broken = exc
+            break
+        except Exception as exc:
+            emit(
+                _record(
+                    cfg,
+                    job,
+                    index,
+                    len(jobs),
+                    status="job-failed",
+                    error=f"{type(exc).__name__}: {exc}",
+                    wallSeconds=0.0,
+                )
+            )
+    if broken is not None:
+        # The pool is gone; the surviving jobs are recorded rather than lost, so
+        # re-running the same command resumes from the bundles already written.
+        for index, job in futures.values():
+            if job.run_id in emitted:
+                continue
+            emit(
+                _record(
+                    cfg,
+                    job,
+                    index,
+                    len(jobs),
+                    status="not-run",
+                    error=(
+                        f"worker 进程池已损坏（{broken}）；"
+                        "重跑本命令会跳过已完成权重继续这些 run"
+                    ),
+                    wallSeconds=0.0,
+                )
+            )
 
 
 def _progress_suffix(record: dict) -> str:
@@ -563,6 +686,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--progress-every", type=int, default=10_000)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help="同时训练几个 run（多进程；每 run 内部已是单线程），建议取物理核数",
+    )
+    parser.add_argument(
         "--require-regimes",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -605,6 +734,7 @@ def config_from_args(args: argparse.Namespace) -> GridConfig:
         eval_freq=args.eval_freq,
         progress_every=args.progress_every,
         threads=args.threads,
+        parallel=args.parallel,
         require_regimes=args.require_regimes,
         hyper_overrides=parse_overrides(args.overrides),
         overwrite=args.overwrite,

@@ -815,3 +815,14 @@ CR051授权上线回写（2026-09-22）：用户明确要求“推送上线”�
 | T-040b 离线回归与本地小步数真跑 | 完成 | REQ-06 | T-040a | 离线用例钉住：job 展开与 run-id 命名、续跑跳过已完成、单 run 失败不中断网格且退出码非零、jsonl 逐行可解析且 csv 列稳定、基准行确实与 RL 行同窗；另用一次真实小步数 run（ppo，2048 步，合成/研究缓存价格）证明训练→存盘→加载→test 窗回测→基准对比全链路在非注入条件下可跑通；Ruff 与离线套件全绿，不新增 network 用例 |
 
 验证：Ruff（CI 口径 `ruff check services/algorithms`）通过，并顺带修掉一处 CR-057 之前未过闸的长行；算法离线 364 passed/16 network 排除（CR-056 时点 344，+20 全在 tests/test_rl_grid.py，其中一条为真实端到端 ppo/2048 步训练→存盘→加载→留出窗回测→三基准对比）。本地真实缓存两次跑通 CLI：510300/ppo/2048 步 ok，随后换 --grid-id 复跑同一 --models-root 得 trained=0/skippedExisting=1 且复评数字逐位一致。上述收益差不是研究结论（2048 步近未训练、44 笔成交、净值近乎持平，只在下跌基准上显得大幅超额），故进度行加印成交笔数、caveats 增列该读法风险。T-035d 的 36 条手写命令由 `quant-rl-grid --history-root data/research_history --models-root data/research_history/models` 一条替代。仍未完成：缺陷 #5（后端接缝）、research_backfill_unpublished 权重不可上线、指数级基准序列不在研究缓存内。RL 继续 experimental；本轮未推送、未部署、未改后端与前端。
+
+### CR-058 RL 网格并行执行（算法模块，2026-09-28）
+
+同一本地分支接续 CR-057；范围仅 services/algorithms/** 加根SDD，不改后端、前端与 packages/contracts，不新增外网取数。用户确认要并行，并指出算法/标的/种子三个维度互不依赖，可整体并行、结果分别落盘后合并。
+
+| 任务 | 状态 | 需求/决策 | 依赖 | 完成条件 |
+| --- | --- | --- | --- | --- |
+| T-041a 并行执行与断点语义 | 完成 | REQ-06 / D-07 | T-040a | 抽出模块级 run_job（自带 skip 与失败捕获），run_grid 在 parallel>1 时用 ProcessPoolExecutor 提交、按完成顺序 flush jsonl、收尾按 job 序号排序写 csv 与 summary；BrokenProcessPool 记未跑 job 为 not-run 并非零退出；KeyboardInterrupt 仍写报告；--parallel 默认 1 保持 CR-057 语义；N>cpu_count 提示不拒绝 |
+| T-041b 并行回归与真实多进程用例 | 完成 | REQ-06 | T-041a | 假 executor 覆盖父侧记账（完成顺序写盘、排序后出表、not-run、退出码）；一条真实 ≥2 worker 小步数用例证明 spawn/fork 下 provider 与 store 在子进程各自可用、产物与串行同构；全量离线套件与 Ruff 全绿 |
+
+验证：Ruff 通过；算法离线 370 passed/16 network 排除（CR-057 时点 364，+6）。真实双进程用例在本机 Windows spawn 下通过（2 worker 各 2048 步、各自重建 provider/store、bundleHash 互异、csv 按 job 序稳定）；CLI 另跑 `--parallel 2 --symbols 510300 510050` 两 run 并发完成。实现期纠正一处脆弱假设：`as_completed` 不保证已就绪 future 按提交顺序产出，故池损坏的契约改为顺序无关（不丢 job、未完成者记 not-run、总数守恒）。`--parallel` 默认 1，CR-057 串行语义未变，旧权重可被并行网格续用。仍未完成：GPU 路径不启用、缺陷 #5 未修。本轮未推送、未部署。

@@ -7,6 +7,8 @@ the real backtest comparison for one tiny PPO run.
 
 import csv
 import json
+from concurrent.futures import Future
+from concurrent.futures.process import BrokenProcessPool
 from datetime import date
 from pathlib import Path
 
@@ -427,6 +429,89 @@ class TestCommandLine:
         assert G.main(["--history-root", "."]) == 0
 
 
+class TestParallel:
+    """The pool path, with a synchronous stand-in so no real worker is needed."""
+
+    class FakePool:
+        def __init__(self, break_after=None):
+            self.submitted = []
+            self.break_after = break_after
+
+        def submit(self, fn, *args, **kwargs):
+            self.submitted.append(kwargs["index"])
+            future = Future()
+            if self.break_after is not None and len(self.submitted) > self.break_after:
+                future.set_exception(BrokenProcessPool("worker 被 OOM 杀掉"))
+            else:
+                future.set_result(fn(*args, **kwargs))
+            return future
+
+    def _wire(self, tmp_path, monkeypatch):
+        store = ModelStore(tmp_path / "models")
+        monkeypatch.setattr(G, "train_run", FakeTrain(store))
+        monkeypatch.setattr(G, "score_run", fake_scorer)
+        monkeypatch.setattr(G, "_training_provider", lambda root, history=None: object())
+        return store
+
+    def test_pool_receives_every_job_exactly_once(self, tmp_path, monkeypatch):
+        store = self._wire(tmp_path, monkeypatch)
+        pool = self.FakePool()
+        cfg = _cfg(tmp_path, models_root=store.root, parallel=3)
+        summary = G.run_grid(cfg, executor=pool, printer=silent)
+        assert sorted(pool.submitted) == list(range(1, 9))
+        assert summary["totals"]["ok"] == 8
+        assert summary["totals"]["failed"] == 0
+        assert summary["config"]["parallel"] == 3
+
+    def test_broken_pool_records_the_unrun_jobs_instead_of_losing_them(
+        self, tmp_path, monkeypatch
+    ):
+        store = self._wire(tmp_path, monkeypatch)
+        pool = self.FakePool(break_after=2)
+        cfg = _cfg(tmp_path, models_root=store.root, parallel=8)
+        summary = G.run_grid(cfg, executor=pool, printer=silent)
+        # Which futures the parent got to read before the pool died is not
+        # ordered, so the contract is only: nothing is lost, and the survivors
+        # are marked as not-run so a re-run resumes instead of silently skipping.
+        statuses = {r["runId"]: r["status"] for r in summary["failures"]}
+        assert statuses
+        assert set(statuses.values()) == {"not-run"}
+        assert summary["totals"]["ok"] + len(statuses) == 8
+        assert "进程池已损坏" in summary["failures"][0]["error"]
+        lines = Path(summary["artifacts"]["jsonl"]).read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 8  # every job is still accounted for on disk
+        assert len({json.loads(line)["runId"] for line in lines}) == 8
+
+    def test_tables_are_re_sorted_into_job_order(self, tmp_path):
+        cfg = _cfg(tmp_path, grid_id="order")
+        results = G.GridResults(cfg.out_root, cfg.grid_id)
+        for run_id in ["c", "a", "b"]:
+            results.append(
+                {
+                    "gridId": "order",
+                    "index": {"c": 3, "a": 1, "b": 2}[run_id],
+                    "runId": run_id,
+                    "algo": "ppo",
+                    "symbol": "510300",
+                    "seed": 42,
+                    "timesteps": cfg.timesteps,
+                    "status": "ok",
+                }
+            )
+        results.write_reports(cfg, [])
+        results.close()
+        with (cfg.out_root / "order-summary.csv").open(encoding="utf-8") as fh:
+            assert [r["run_id"] for r in csv.DictReader(fh)] == ["a", "b", "c"]
+
+    def test_parallel_must_be_at_least_one(self, tmp_path):
+        with pytest.raises(ValueError, match="parallel"):
+            _cfg(tmp_path, parallel=0).validate()
+
+    def test_parallel_flag_reaches_the_config(self, tmp_path):
+        args = G.build_parser().parse_args(["--history-root", str(tmp_path), "--parallel", "14"])
+        assert G.config_from_args(args).parallel == 14
+
+
 class TestRealTinyRun:
     """One genuine PPO run through the real trainer and the real comparison."""
 
@@ -493,6 +578,48 @@ class TestRealTinyRun:
             rows = list(csv.DictReader(fh))
         assert len(rows) == 1 and rows[0]["status"] == "ok"
         assert float(rows[0]["test_trades"]) >= 0
+
+    def test_two_real_workers_share_nothing_but_the_cache(self, tmp_path):
+        """A genuine process pool against the research cache, if it is present.
+
+        Spawn/fork is exactly what a fake executor cannot prove: the child has
+        to rebuild its own provider and store from the pickled config.
+        """
+        pytest.importorskip("stable_baselines3")
+        pytest.importorskip("gymnasium")
+        cache = Path(__file__).resolve().parents[3] / "data/research_history"
+        if not (cache / "market_data.db").exists():
+            pytest.skip(f"研究缓存不在 {cache}，真实多进程用例需要它")
+        import torch
+
+        torch.set_num_threads(1)
+        store = ModelStore(tmp_path / "models")
+        cfg = G.GridConfig(
+            history_root=cache,
+            models_root=store.root,
+            out_root=tmp_path / "out",
+            grid_id="pool",
+            symbols=("510300",),
+            algos=("ppo",),
+            seeds=(42, 43),
+            timesteps=2048,
+            eval_freq=2048,
+            progress_every=2048,
+            parallel=2,
+        )
+        summary = G.run_grid(cfg, printer=silent)
+        assert summary["failures"] == []
+        assert summary["totals"]["ok"] == 2
+        assert (store.root / "ppo-510300-s42" / "model.zip").exists()
+        assert (store.root / "ppo-510300-s43" / "model.zip").exists()
+        # Two workers must not hand each other a half-written bundle.
+        lines = [
+            json.loads(line)
+            for line in Path(summary["artifacts"]["jsonl"]).read_text(encoding="utf-8").splitlines()
+        ]
+        assert len({r["bundle"]["bundleHash"] for r in lines}) == 2
+        with (cfg.out_root / "pool-summary.csv").open(encoding="utf-8") as fh:
+            assert [r["run_id"] for r in csv.DictReader(fh)] == ["ppo-510300-s42", "ppo-510300-s43"]
 
     class WindowProvider:
         publication_context = {
