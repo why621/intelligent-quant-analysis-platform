@@ -27,10 +27,20 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   const selectedStrategy = computed(() => availableStrategies.value.find(item => item.id === strategyId.value))
   const parameterForm = useStrategyParameters(selectedStrategy)
   const modelContext = computed(() => selectedStrategy.value?.modelContext || null)
+  const modelRangeStart = computed(() => {
+    if (!modelContext.value || !dates.maxDate.value) return ''
+    const start = [modelContext.value.outOfSampleStartDate, dates.minDate].sort().at(-1)
+    // Published daily research is a rolling year, not the research training archive.
+    const rolling = new Date(dates.maxDate.value)
+    rolling.setUTCDate(rolling.getUTCDate() - 365)
+    return [start, rolling.toISOString().slice(0, 10)].sort().at(-1)
+  })
+  const canApplyModelRange = computed(() => Boolean(modelRangeStart.value
+    && modelRangeStart.value < dates.maxDate.value))
   const applyModelRange = () => {
-    if (!modelContext.value || !dates.maxDate.value || busy.value || activeJob.value) return
+    if (!canApplyModelRange.value || busy.value || activeJob.value) return
     if (modelContext.value.assetScope !== 'published_universe') symbols.value = [...modelContext.value.symbols]
-    dates.startDate.value = modelContext.value.outOfSampleStartDate
+    dates.startDate.value = modelRangeStart.value
     dates.endDate.value = dates.maxDate.value
   }
   const benchmarkOptions = computed(() => [
@@ -62,7 +72,7 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     if (modelContext.value) {
       const model = modelContext.value
       if (model.assetScope !== 'published_universe' && (symbols.value.length !== model.symbols.length || symbols.value.some((value, i) => value !== model.symbols[i]))) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
-      if (dates.startDate.value < model.outOfSampleStartDate) return `${selectedStrategy.value.name}起始日须从 ${model.outOfSampleStartDate} 起，不能与训练区间重叠。`
+      if (dates.startDate.value < model.outOfSampleStartDate) return `${selectedStrategy.value.name}起始日须从 ${model.outOfSampleStartDate} 起，不能与训练区间或验证区间重叠。`
     }
     return ''
   })
@@ -126,7 +136,7 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
       startDate: dates.startDate.value, endDate: dates.endDate.value,
       ...(benchmark.value ? { benchmark: benchmark.value } : {}),
       initialCapitalCny: 100000, adjust: 'qfq',
-      tradingCosts: { commissionPct: 0.03, stampDutyPct: 0.05, slippagePct: 0.02 }
+      tradingCosts: modelContext.value?.requiredTradingCosts || { commissionPct: 0.03, stampDutyPct: 0.05, slippagePct: 0.02 }
     }
     try {
       const response = await client.createBacktest(payload)
@@ -146,5 +156,5 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   if (getCurrentScope()) onScopeDispose(() => { disposed = true; generation += 1; stopTimer() })
   return { ...dates, ...parameterForm, symbols, strategyId, benchmark, benchmarkOptions,
     benchmarkLabel, job, busy, error, recoveryId, activeJob, availableStrategies, strategyName,
-    modelContext, selectedStrategy, applyModelRange, validationError, canSubmit, submit, resume }
+    modelContext, selectedStrategy, modelRangeStart, canApplyModelRange, applyModelRange, validationError, canSubmit, submit, resume }
 }

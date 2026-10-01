@@ -81,7 +81,21 @@ ModelContext:
     bundleHash: {type: string, pattern: '^[a-f0-9]{64}$'}
     trainStartDate: {type: string, format: date}
     trainEndDate: {type: string, format: date}
-    outOfSampleStartDate: {type: string, format: date}
+    inSampleEndDate:
+      type: string
+      format: date
+      description: 训练与验证区间的截止日；旧响应可缺省，不能仅按训练截止推断长窗口样本外边界。
+    valStartDate: {type: string, format: date}
+    valEndDate: {type: string, format: date}
+    testStartDate:
+      type: string
+      format: date
+      description: 模型记录的预留测试区间起点，不代表当前网页有该段行情或绩效验收通过。
+    testEndDate: {type: string, format: date}
+    outOfSampleStartDate:
+      type: string
+      format: date
+      description: 样本内截止次日，属于理论日期下限；实际回测仍受已发布行情范围和预热门禁约束。验证或测试字段缺省表示模型未记录，不得编造。
     symbols:
       description: 历史兼容字段；assetScope缺省时是允许资产列表，published_universe时保留已验证训练资产，不再限制请求资产。
       type: array
@@ -93,7 +107,7 @@ ModelContext:
       items: {$ref: "./common.yaml#/Symbol"}
       description: 模型训练资产；不是允许回测的资产列表。
     assetScope:
-      enum: [published_universe]
+      enum: [published_universe, training_symbols]
       description: 可回测当前已发布资产池内1至10只股票或ETF；缺省沿用历史symbols限制。
     portfolioMode:
       enum: [equal_cash_independent]
@@ -101,6 +115,19 @@ ModelContext:
     crossAssetValidated:
       type: boolean
       description: 跨资产效果是否已验证；当前false，可运行不代表收益有效性验证。
+    trainingConsistency: {const: research_backfill_unpublished}
+    targetUniverseVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
+    performanceStatus: {const: unproven}
+    requiredTradingCosts: {$ref: './backtest.yaml#/TradingCosts'}
+    trainingTradingCosts: {$ref: './backtest.yaml#/TradingCosts'}
+    valFolds:
+      type: array
+      items:
+        type: object
+        required: [start, end]
+        properties:
+          start: {type: string, format: date}
+          end: {type: string, format: date}
     adjust: {const: qfq}
     warmupBars: {type: integer, minimum: 0}
     minimumBars: {type: integer, minimum: 1}

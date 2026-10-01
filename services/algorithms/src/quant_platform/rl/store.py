@@ -76,7 +76,11 @@ def validate_manifest(manifest):
             raise RLIncompatibleModel(f"invalid manifest field: {key}")
     if type(manifest["seed"]) is not int or manifest["seed"] < 0:
         raise RLIncompatibleModel("invalid model seed")
-    if manifest["algo"] not in {"dqn", "ppo", "sac", "ddpg"}:
+    # Single source of truth: the registry. A hardcoded set here went stale the
+    # moment CR-059 added TD3, which would have rejected valid new bundles.
+    from quant_platform.rl.policies import RL_STRATEGY_IDS
+
+    if manifest["algo"] not in RL_STRATEGY_IDS:
         raise RLIncompatibleModel("invalid model algorithm")
     validate_training_dates(manifest)
     validate_split_dates(manifest)

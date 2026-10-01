@@ -91,3 +91,44 @@ for (const algo of ['dqn','sac','ddpg']) {
     assert.equal(state.selectedStrategy.value.name,'PPO')
   })
 }
+
+
+test('long-window shortcut stays within published rolling data, not the training archive', t => {
+  const {state,strategies}=setup(t)
+  Object.assign(strategies.value[0].modelContext, {
+    trainStartDate:'2015-01-05',trainEndDate:'2019-12-31',
+    valStartDate:'2020-01-02',valEndDate:'2021-12-31',outOfSampleStartDate:'2022-01-01'
+  })
+  state.applyModelRange()
+  assert.equal(state.startDate.value,'2025-09-18')
+  assert.equal(state.endDate.value,'2026-09-18')
+  assert.equal(state.canSubmit.value,true)
+})
+
+test('shortcut cannot write a reversed interval if no sample-out data is published', t => {
+  const {state,strategies}=setup(t)
+  strategies.value[0].modelContext.outOfSampleStartDate='2027-01-01'
+  const original=state.startDate.value
+  assert.equal(state.canApplyModelRange.value,false)
+  state.applyModelRange()
+  assert.equal(state.startDate.value,original)
+})
+
+
+test('reviewed research model sends its canonical ETF fees and locks training asset', async t => {
+  const scope=effectScope();t.after(()=>scope.stop())
+  const model={...ppo(true),id:'td3',name:'TD3',modelContext:{...ppo(true).modelContext,
+    assetScope:'training_symbols',outOfSampleStartDate:'2022-01-01',warmupBars:140,minimumBars:142,
+    requiredTradingCosts:{commissionPct:.03,stampDutyPct:0,slippagePct:.02}}}
+  let sent
+  const jobId='11111111-1111-4111-8111-111111111111'
+  const client={createBacktest:async p=>{sent=p;return {jobId,status:'queued'}},
+    getBacktest:async()=>({jobId,status:'succeeded',request:sent})}
+  const state=scope.run(()=>useBacktest(ref([model]),ref({status:'ready',latestTradeDate:'2026-09-30'}),ref([]),client,null))
+  state.strategyId.value='td3';state.symbols.value=['600519'];state.applyModelRange()
+  assert.deepEqual(state.symbols.value,['510300'])
+  await state.submit()
+  assert.deepEqual(sent.tradingCosts,model.modelContext.requiredTradingCosts)
+  state.symbols.value=['600519']
+  assert.match(state.validationError.value,/仅支持 510300/)
+})

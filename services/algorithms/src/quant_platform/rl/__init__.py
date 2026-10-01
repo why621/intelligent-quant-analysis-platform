@@ -1,4 +1,4 @@
-"""Single-agent reinforcement-learning strategies (DQN / PPO / SAC / DDPG).
+"""Single-agent reinforcement-learning strategies (DQN / PPO / SAC / TD3 / DDPG).
 
 The runtime only depends on numpy/pandas for feature construction and model
 metadata. The heavy training/inference stack (torch, stable-baselines3,
