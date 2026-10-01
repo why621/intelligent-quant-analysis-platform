@@ -42,6 +42,7 @@ def configured(tmp_path, monkeypatch):
         total_timesteps=32,
         code_sha="test",
     )
+    manifest["bandPct"] = 0.02
     store = ModelStore(tmp_path)
     store.save("ppo-test", b"synthetic-model-not-for-inference", manifest)
     saved = store.load("ppo-test")
@@ -57,7 +58,7 @@ def configured(tmp_path, monkeypatch):
         )
     )
     catalog = StrategyCatalogService(rl_release=release)
-    dates = pd.bdate_range("2026-07-01", periods=30)
+    dates = pd.bdate_range("2026-07-01", periods=160)
     frame = pd.DataFrame({"date": dates, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0})
     provider = SimpleNamespace(
         publication_context={"universeVersion": "test-universe"}, history=Mock(return_value=frame)
@@ -94,7 +95,7 @@ def test_valid_request_records_model_context_without_loading_weights(configured)
     catalog, provider, payload, *_ = configured
     context = validate_web_model(catalog, payload, provider)
     assert context["outOfSampleStartDate"] == "2026-07-01"
-    assert context["warmupBars"] == 20 and context["minimumBars"] == 22
+    assert context["warmupBars"] == 140 and context["minimumBars"] == 142
     assert catalog.get_strategy("ppo")._model is None
 
 
@@ -110,7 +111,7 @@ def test_training_window_and_short_history_are_typed(configured):
     with pytest.raises(RLServiceError) as error:
         validate_web_model(catalog, payload | {"startDate": "2026-06-30"}, provider)
     assert error.value.code == "RL_IN_SAMPLE_REQUEST"
-    provider.history.return_value = provider.history.return_value.iloc[:21]
+    provider.history.return_value = provider.history.return_value.iloc[:141]
     with pytest.raises(RLServiceError) as error:
         validate_web_model(catalog, payload, provider)
     assert error.value.code == "RL_INSUFFICIENT_HISTORY"
@@ -149,7 +150,7 @@ def test_one_short_asset_rejects_entire_request_with_symbol(configured):
     catalog, provider, payload, *_ = configured
     frame = provider.history.return_value
     provider.history.side_effect = lambda symbol, *args: (
-        frame if symbol == "512100" else frame.iloc[:21]
+        frame if symbol == "512100" else frame.iloc[:141]
     )
     with pytest.raises(RLServiceError) as error:
         validate_web_model(catalog, payload | {"symbols": ["512100", "600519"]}, provider)

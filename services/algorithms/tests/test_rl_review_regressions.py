@@ -10,12 +10,12 @@ from quant_platform.backtesting.engine import BacktestEngine
 from quant_platform.backtesting.execution import EXECUTION_VERSION
 from quant_platform.models import BacktestRequest, TradingCosts
 from quant_platform.rl.errors import RLIncompatibleModel, RLInsufficientHistory
-from quant_platform.rl.features import feature_signature
+from quant_platform.rl.features import MIN_WARMUP, feature_signature
 from quant_platform.rl.policies import RL_POLICIES, RLStrategy
 from quant_platform.rl.store import ModelStore
 
 
-def prices(n=45):
+def prices(n=MIN_WARMUP + 25):
     # Gaps between dates model a sequence of observed tradable bars, not fills.
     close = 100 + 2 * np.sin(np.arange(n))
     return pd.DataFrame({
@@ -73,8 +73,8 @@ def test_model_observes_actual_executed_account(algo, capital, costs, band, mini
         end_date=frame.date.iloc[-1].date(), initial_capital_cny=capital, trading_costs=costs,
         parameters={"modelRef": "case-a"},
     ))
-    assert len(policy.observed) == len(frame) - 21
-    for bar, observed in enumerate(policy.observed, start=20):
+    assert len(policy.observed) == len(frame) - MIN_WARMUP - 1
+    for bar, observed in enumerate(policy.observed, start=MIN_WARMUP):
         cash, shares = capital, 0.
         for trade in result.trades:
             if trade.trade_date > frame.date.iloc[bar].date():
@@ -90,14 +90,14 @@ def test_model_observes_actual_executed_account(algo, capital, costs, band, mini
         assert observed == pytest.approx(shares * frame.close.iloc[bar] / equity, abs=1e-7)
     if algo != "dqn" and capital == 100000:
         assert policy.observed[1] == 0.  # Initial 400 CNY order must be skipped.
-    assert all(t.trade_date > frame.date.iloc[20].date() for t in result.trades)
+    assert all(t.trade_date > frame.date.iloc[MIN_WARMUP].date() for t in result.trades)
 
 
 @pytest.mark.parametrize("n", [0, 1, 20, 21])
 def test_short_observed_history_is_typed_error(n):
     strategy = RLStrategy(RL_POLICIES["ppo"], model=RecordingPolicy(),
                           bundle=SimpleNamespace(manifest=manifest()))
-    with pytest.raises(RLInsufficientHistory, match="22"):
+    with pytest.raises(RLInsufficientHistory, match="142"):
         strategy.prepare_inference(prices(n), {})
     strategy.create_for_request = lambda parameters: strategy
     provider = SimpleNamespace(history=lambda *a: prices(n))
@@ -111,18 +111,18 @@ def test_short_observed_history_is_typed_error(n):
 
 
 def test_minimum_history_and_causality():
-    frame = prices(22)
+    frame = prices(MIN_WARMUP + 2)
     policy = RecordingPolicy()
     strategy = RLStrategy(RL_POLICIES["ppo"], model=policy,
                           bundle=SimpleNamespace(manifest=manifest()))
-    first = strategy.prepare_inference(frame, {})(20, .3)
-    frame.loc[21, ["open", "high", "low", "close"]] *= 4
-    second = strategy.prepare_inference(frame, {})(20, .3)
+    first = strategy.prepare_inference(frame, {})(MIN_WARMUP, .3)
+    frame.loc[MIN_WARMUP + 1, ["open", "high", "low", "close"]] *= 4
+    second = strategy.prepare_inference(frame, {})(MIN_WARMUP, .3)
     assert first == .004
     # Compare observations with a model that returns a function of features.
     strategy._model = SimpleNamespace(predict=lambda obs, **kw: ([float(obs[0])], None))
-    changed = strategy.prepare_inference(frame, {})(20, .3)
-    original = strategy.prepare_inference(prices(22), {})(20, .3)
+    changed = strategy.prepare_inference(frame, {})(MIN_WARMUP, .3)
+    original = strategy.prepare_inference(prices(MIN_WARMUP + 2), {})(MIN_WARMUP, .3)
     assert changed == original
     assert np.isfinite(second)
 

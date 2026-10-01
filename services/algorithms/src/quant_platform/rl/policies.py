@@ -52,10 +52,17 @@ DQN = RLAlgorithmSpec(
     discrete=True,
     signal_semantics="discrete_hold",
     description=(
-        "深度 Q 网络学习满仓/空仓两种动作。收盘决策、次日开盘成交；"
+        "深度 Q 网络学习空仓/保持/满仓三种动作（CR-059 起由两种扩为三种，"
+        "「保持」不下单以避免每次噪声翻转都付全额往返成本）。收盘决策、次日开盘成交；"
         "回测需指定已训练权重 modelRef，且只能在训练窗口之外使用。"
     ),
-    hyperparameters={"learning_rate": 1e-3, "buffer_size": 100_000, "target_update_interval": 500},
+    hyperparameters={
+        "learning_rate": 1e-3,
+        "buffer_size": 20_000,
+        "target_update_interval": 500,
+        "train_freq": 4,
+        "gradient_steps": 1,
+    },
 )
 PPO = RLAlgorithmSpec(
     algo_id="ppo",
@@ -79,8 +86,43 @@ SAC = RLAlgorithmSpec(
         "Soft Actor-Critic 输出最大熵连续目标权重（仅做多）。收盘决策、次日开盘成交；"
         "回测需指定已训练权重 modelRef，且只能在训练窗口之外使用。"
     ),
-    hyperparameters={"learning_rate": 3e-4, "buffer_size": 200_000, "batch_size": 256},
+    # CR-059: train_freq/gradient_steps align the update count with the data volume.
+    # The default of one update per env step gave ~199,900 updates over the ~1,078
+    # distinct transitions a training window contains — about 185 passes each.
+    hyperparameters={
+        "learning_rate": 3e-4,
+        "buffer_size": 20_000,
+        "batch_size": 256,
+        "train_freq": 4,
+        "gradient_steps": 1,
+    },
 )
+TD3 = RLAlgorithmSpec(
+    algo_id="td3",
+    name="TD3 强化学习",
+    sb3_class="TD3",
+    discrete=False,
+    signal_semantics="continuous_target_weight",
+    description=(
+        "双延迟深度确定性策略梯度输出连续目标权重（仅做多）。收盘决策、次日开盘成交；"
+        "回测需指定已训练权重 modelRef，且只能在训练窗口之外使用。"
+    ),
+    # Replaces vanilla DDPG (CR-059): DDPG's systematic Q overestimation and
+    # brittleness are exactly what TD3 was introduced to fix (Fujimoto et al. 2018).
+    hyperparameters={
+        "learning_rate": 3e-4,
+        "buffer_size": 20_000,
+        "batch_size": 256,
+        "train_freq": 4,
+        "gradient_steps": 1,
+    },
+)
+
+# Retained deliberately, not by oversight. CR-059 promotes TD3 over vanilla DDPG for
+# NEW training, but the CR-049 release already deployed `ddpg-*` bundles to the live
+# web backtest, and dropping the id here would make store.validate_manifest reject
+# them as "invalid model algorithm" — a live-service break in a module I do not own.
+# So ddpg stays loadable; the grid's default algo list is where the switch happens.
 DDPG = RLAlgorithmSpec(
     algo_id="ddpg",
     name="DDPG 强化学习",
@@ -94,7 +136,9 @@ DDPG = RLAlgorithmSpec(
     hyperparameters={"learning_rate": 3e-4, "buffer_size": 200_000, "batch_size": 256},
 )
 
-RL_POLICIES: dict[str, RLAlgorithmSpec] = {s.algo_id: s for s in (DQN, PPO, SAC, DDPG)}
+RL_POLICIES: dict[str, RLAlgorithmSpec] = {s.algo_id: s for s in (DQN, PPO, SAC, TD3, DDPG)}
+# Algorithms the research grid trains and scores by default (TD3 in, DDPG out).
+RESEARCH_ALGOS: tuple[str, ...] = ("ppo", "dqn", "sac", "td3")
 RL_STRATEGY_IDS: frozenset[str] = frozenset(RL_POLICIES)
 
 
@@ -132,13 +176,15 @@ class RLStrategy:
         store=None,
         bundle=None,
         model=None,
-        rebalance_band_pct: float = 0.005,
+        rebalance_band_pct: float = 0.02,
         min_trade_cny: float = 100.0,
     ) -> None:
         self._spec = spec
         self._store = store
         self._bundle = bundle
         self._model = model
+        # Only a fallback for the metadata-only shared instance: every inference
+        # instance gets its band from the loaded manifest (see create_for_request).
         self.rebalance_band_pct = rebalance_band_pct
         self.min_trade_cny = min_trade_cny
 
@@ -181,7 +227,11 @@ class RLStrategy:
             self._spec,
             store=self._store,
             bundle=bundle,
-            rebalance_band_pct=self.rebalance_band_pct,
+            # The band decides which bars actually trade, so serving it from the
+            # manifest is what keeps the fill sequence (and therefore the weight
+            # observation) identical to training. Two independent defaults that
+            # merely happened to agree (0.005 == 0.005) was the old arrangement.
+            rebalance_band_pct=float(bundle.manifest["bandPct"]),
             min_trade_cny=self.min_trade_cny,
         )
         instance._load_model()
@@ -208,6 +258,12 @@ class RLStrategy:
             raise RLIncompatibleModel(
                 f"模型特征配方签名 {recorded_sig!r} 与当前 {current_sig!r} 不符，拒绝混版推理"
             )
+        recorded_band = manifest.get("bandPct")
+        if isinstance(recorded_band, bool) or not isinstance(recorded_band, (int, float)):
+            raise RLIncompatibleModel(
+                "模型未记录调仓死区 bandPct（CR-059 之前训练的权重），"
+                "无法保证训练/服务成交口径一致，拒绝加载"
+            )
 
     # -- heavy, model-backed paths -----------------------------------------
 
@@ -217,14 +273,14 @@ class RLStrategy:
         try:
             import io
 
-            from stable_baselines3 import DDPG, DQN, PPO, SAC
+            from stable_baselines3 import DDPG, DQN, PPO, SAC, TD3
         except ImportError as exc:  # pragma: no cover - exercised only without [rl]
             from quant_platform.rl.errors import RLDependenciesMissing
 
             raise RLDependenciesMissing(
                 '强化学习依赖缺失，请安装 extras: pip install -e "services/algorithms[rl]"'
             ) from exc
-        classes = {"DQN": DQN, "PPO": PPO, "SAC": SAC, "DDPG": DDPG}
+        classes = {"DQN": DQN, "PPO": PPO, "SAC": SAC, "TD3": TD3, "DDPG": DDPG}
         model_cls = classes[self._spec.sb3_class]
         self._model = model_cls.load(io.BytesIO(self._bundle.model_bytes))
 
@@ -266,7 +322,7 @@ class RLStrategy:
         self._reject_in_sample(prices)
         features.validate_history(prices)
         frame = prices.reset_index(drop=True)
-        observations = features.expanding_zscore(features.build_features(frame))
+        observations = features.build_observations(frame)
 
         def signal_at(bar: int, current_weight: float) -> float:
             if bar < features.MIN_WARMUP:
@@ -278,9 +334,14 @@ class RLStrategy:
             if not np.isfinite(value):
                 raise ValueError("RL model emitted a non-finite action")
             if self._spec.discrete:
-                if value not in (0.0, 1.0):
-                    raise ValueError("DQN action must be flat or all-in")
-                return 1.0 if value else -1.0
+                index = int(value)
+                if index not in (0, 1, 2) or index != value:
+                    raise ValueError("DQN action must be flat/hold/all-in (0/1/2)")
+                if index == 1:
+                    # hold: emit no order at all, so a banded rebalance cannot
+                    # charge a round trip on mere noise.
+                    return 0.0
+                return 1.0 if index == 2 else -1.0
             return float(np.clip(value, 0.0, 1.0))
 
         return signal_at

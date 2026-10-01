@@ -136,7 +136,7 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
       startDate: dates.startDate.value, endDate: dates.endDate.value,
       ...(benchmark.value ? { benchmark: benchmark.value } : {}),
       initialCapitalCny: 100000, adjust: 'qfq',
-      tradingCosts: { commissionPct: 0.03, stampDutyPct: 0.05, slippagePct: 0.02 }
+      tradingCosts: modelContext.value?.requiredTradingCosts || { commissionPct: 0.03, stampDutyPct: 0.05, slippagePct: 0.02 }
     }
     try {
       const response = await client.createBacktest(payload)

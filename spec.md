@@ -768,3 +768,120 @@ CR057回写（2026-09-26）：PR39/main 1aa761c已合并并部署云端cr057；�
 验证：算法/后端离线467 passed、2 skipped、14 network deselected（18.70秒；联合运行有3条既有network marker警告）；追加契约用例后模型专项19 passed（2.38秒）。前端完整92 passed，Pages路径生产构建通过；Ruff首次发现测试行长，修正后通过；git diff --check通过。不同批次测试不相加。公开GET /strategies确认仍是cr049旧模型，训练2025-09-09至2026-06-30；GitHub main dd96ea3。尚未执行新权重推理或新版本云端/浏览器端到端验收。
 阻塞：本工作区data、models与artifacts及现有工作树没有发现组员的*-real-2015-2021新模型bundle，只找到既有cr049模型；组员CR053使用的是其Windows训练环境data/research_history/models，新权重未随Git提交。已询问用户提供完整路径/文件，至少需要四算法各自manifest.json、model.zip及原训练/回填证据。不能从文档日期重新包装旧权重冒充新模型，亦未重训。另研究模型universeVersion=research-backfill-root不同于线上发布池，现行门禁会拒绝；需拿到真实产物后完成来源、特征/执行版本、哈希及显式发布兼容性审查，当前未放宽门禁。
 A批代码准备推送codex/long-model-release-cr058供审阅；缺权重期间不切换线上模型，不把本地页面构建冒充Pages发布。完整后续：取得四bundle → 验证来源/哈希/分区与真实推理 → 解决经审核的研究到线上发布绑定（若需新契约同步实现/反例测试）→ 禁网候选/备份回退 → 云端和Pages配套部署 → 四算法真实任务、排行、日期拒绝及桌面/移动浏览器 → B批最终回写。本次用户已授权这条发布链路，无需再次询问是否允许部署；缺的是模型实体。07:30 continuous、账本、线上行情、旧模型均未改。
+
+## 2026-09-28 CR057 RL 训练网格与基准对比 CLI 登记
+
+CR057 范围与授权：仍限 services/algorithms/** 与本仓库 SDD/文档，不改后端、前端与 packages/contracts。分支 algorithm/rl-train-production 继续只在本地、不推送，服务器靠 git bundle 取码。本轮不新增外网取数、不回填行情缓存（数据侧沿用已回填并离线验门的 510300/510050/159922）。用户明确要求：一条命令依次训练四种模型，训练完成后在留出窗与基准比较并保存结果，便于后续调参。此前只有单 run 的 quant-rl-train，36 个 run 需要手写命令、无基准对比、无结果汇总，是 T-035d 交付时记下的已知缺口。
+
+CR057 设计（rl/grid.py，入口 quant-rl-grid）：
+1. 编排为**进程内串行调用 train_run**，不起子进程、不解析子进程日志——因此全局进度无需外部监视器即可给出：网格知道自己有几个 job、每 job 的 --timesteps 相同，按 job 计数即等价于按步数加权。ETA 由已完成 job 的实测均值给出，仍受"早期 job 偏便宜"影响（off-policy 的梯度更新不计入步数），这一点必须在输出与文档里写明，不得包装成可靠预估。
+2. 基准三条同标的、同留出窗、同资金、同费率：买入持有该标的自身（close 归一，不计交易成本，在 assumptions 里记 costBasis=none，与 RL 的含成本净值口径差异显式保留）＋仓库已 shipped 的 ma_cross(5/20) 与 momentum_reversal(10,±5)。不新造基准策略。
+3. 指标复用回测引擎既有口径 _compute_metrics（总收益/年化/最大回撤/Sharpe/alpha/beta），另记成交笔数与费用合计；不新写一套指标。
+4. 结果**增量落盘**：每完成一个 job 立刻以 JSON 行写入 <out>/<grid-id>.jsonl 并 flush，使硬中断（OOM/断电）不丢已完成结果；收尾再出 summary.csv（调参时肉眼比）与 summary.json（含配置回显、按 bestEvalReward 的组内选种、按 test Sharpe 的排名）。grid-id 默认取时间戳，保证调参迭代之间互不覆盖。
+5. 续跑语义：ModelStore.exists(run-id) 即跳过训练、仍参与评估；--overwrite 显式重训；--eval-only 只评不训。单个 job 训练或评估失败记 {status:"failed", error} 后继续跑完网格，进程末尾以非零码退出——一次数据问题不得毁掉整轮 36 个 run。
+
+CR057 边界：不做多资产池训练、不做跨资产资金分配（allocation 仍拒绝 RL 与连续信号），RL 四策略继续 experimental；research_backfill_unpublished 权重仍被 Web 部署闸门拒绝，本 CLI 是纯离线研究工具，不需要发布快照。缺陷 #5（推理侧不校验请求标的与训练标的是否一致）本轮**不修**：网格按 symbol 生成 run-id 且评估时只喂该 run 自己的标的，属用法侧回避，不是修复，后端接缝仍在。留出窗若与训练/验证窗重叠，由 RLStrategy 既有的 RLInSampleRequest 闸门先拒——该闸门是这轮评估可信的前提，不用新代码替代它。
+
+CR057 验收条件：(1) 一条命令依次产出所请求的全部 run 目录；(2) 每个 run 在 jsonl 中同时含 RL 自身与三条基准的同窗指标；(3) 中断后重跑不重复训练已完成 run（离线用例钉住）；(4) 单 run 失败不终止网格且末尾退出码非零（离线用例钉住）；(5) jsonl 逐行可解析、csv 列稳定；(6) 离线套件与 Ruff 全绿，不新增 network 用例。
+
+CR057 验收回写：Ruff（CI 口径 `ruff check services/algorithms`）通过，顺带修掉 CR-057 之前一处未过闸的长行（tests/test_etf_missing_sessions_probe.py 文档串内的一行跑法命令）。算法离线 364 passed/16 deselected（CR-056 时点 344，+20 全部来自 tests/test_rl_grid.py），其中一条为真实端到端：真 train_run（ppo，2048 步，合成窗口）→ 存盘 → ModelStore 加载 → test 窗回测 → 与 ma_cross/momentum_reversal/买入持有同窗对比，并断言 trainer 自身的 `[2048/2048 100.0%]` 进度行仍在 stdout 内。其余 19 条用注入的假 train/scorer 与假 run_grid 钉住编排与 CLI 语义：job 展开顺序与 run-id 唯一、test 窗落进训练/验证窗在训练前即拒、既有 run-id 跳过训练但仍被评估、--eval-only 不训练、有权重缺失记为 eval-failed、单 job 失败八格全试完、jsonl 逐行可解析、csv 列序恒等于 CSV_COLUMNS 且失败行仍出现、选种只按验证窗 bestEvalReward、基准与 RL 的请求在标的/窗口/资金/费率上逐项相同。本地另用真实研究缓存跑通 CLI 两次：第一次 510300/ppo/2048 步 ok，第二次同 --models-root 换 --grid-id resume-check，totals.trained=0 且 skippedExisting=1，复评数字与第一次逐位一致（留出窗 -0.0226% 对买入持有 -16.6266%），证明评估路径可复现。CLI 契约由四条用例钉住（标志逐项落到配置、窗口可覆盖、有失败时退出码为 1、全绿为 0）；其中退出码用例暴露了一个真实缺陷——main 打印的收尾 JSON 未含 failures，跑坏了要在文件里找是哪个 run，已把 failures 加进打印。这两次的收益差**不是研究结论**：2048 步权重接近未训练，44 笔成交后净值近乎持平，只在下跌基准上显得"超额 16.6pp"，因此 caveats 增列"成交笔数接近 0 的跑赢不是技能"，进度行也改为同时打印笔数。实测确认的既有闸门：MIN_TRAIN_DAYS=1095 天、验证窗 365–730 天且 ≥180 根、RUN_ID_RE `^[a-z0-9][a-z0-9_-]{2,63}$`（故 run-id 不得含大写字母，测试标的改用合成小写码）。T-035d 交付的 36 条手写命令由本 CLI 一条替代：`quant-rl-grid --history-root data/research_history --models-root data/research_history/models`。未完成：缺陷 #5 仍未修（后端接缝）、权重仍为 research_backfill_unpublished 不可上线、指数基准序列不在研究缓存内故 alpha/beta 未采（买入持有用标的自身K线归一，510300 即沪深300 的场内代理）。RL 四策略继续 experimental；本轮未推送、未部署、未改后端与前端。
+
+## 2026-09-28 CR058 RL 网格并行执行登记
+
+CR058 范围与授权：仍限 services/algorithms/** 与本仓库 SDD/文档，不改后端、前端与 packages/contracts；分支 algorithm/rl-train-production 继续只在本地、不推送。用户在 CR-057 交付后确认要做并行（"那就B"），并指出 36 个 run 在算法、标的、种子三个维度上互不依赖，可整体并行、结果分别记录后合并。本轮不新增外网取数、不改训练语义与窗口。
+
+CR058 设计：`--parallel N`（默认 1，保持 CR-057 的串行语义不变）。
+1. **必须是多进程**：每个 run 内部已 `torch.set_num_threads(1)`，线程并行受 GIL 与 torch 单线程双重限制，只会有开销没有收益。并行度上限是物理核数，超出即超卖。
+2. 把"一个 job 的全部工作"抽成模块级 `run_job(cfg, job, *, provider, store, train, scorer)`：自带 skip 判定（`ModelStore.exists` 且未 `--overwrite` 则只评估）、自带失败捕获。串行路径注入同一函数，保证两种模式跑的是同一套单元逻辑，不出现"只有并行路径被改坏"的分叉。
+3. 并行路径由 `ProcessPoolExecutor(max_workers=N)` 提交，父进程按**完成顺序**追加 jsonl（崩溃友好），收尾把记录按 job 序号排序后再写 csv 与 summary，使 `picks` 与排名只算一次、与串行产物同构。
+4. 失败面：`BrokenProcessPool`（worker 段错误/OOM 被杀）时，父进程把尚未完成的 job 记为 `not-run` 写入报告并以非零码退出；由于 skip 判定依赖已存在的权重，重跑同一条命令即从断点继续。`KeyboardInterrupt` 经 `finally` 仍写出报告。
+5. `N > os.cpu_count()` 时打印一行提示，不拒绝执行（用户可能故意超卖，且这是他的机器与预算）。
+
+CR058 边界：并行只改变墙钟时间，不改变任何 run 的种子、窗口、数据与评估口径，因此不触发权重失效，CR-057 的串行产物可被并行网格直接续用。全局进度行仍是步数加权（每 job 的 `--timesteps` 相同），但**分片内 ETA 语义消失**：并行后父进程只报"已完成/总数"与整网格实测均值，不再承诺单 run 预估。GPU 不在此轮范围：训练链实测为 CPU-only torch，且 SB3 的 `device="auto"` 检测到 CUDA 会静默改变执行设备，属于未验证路径，故本轮明确选择 CPU 机型。
+
+CR058 验收条件：(1) `--parallel 1` 行为与 CR-057 完全一致（既有用例不回归）；(2) 并行路径下 36 个 job 全部被尝试、jsonl 逐行可解析、csv 行序按 job 序号稳定、`picks` 一次算出全网格结果；(3) worker 池损坏时未跑 job 记为 `not-run` 且退出码非零；(4) 真实多进程用例（≥2 worker）在 Windows spawn 与 Linux fork 下均可跑通；(5) Ruff 与离线套件全绿，不新增 network 用例。
+
+CR058 验收回写：Ruff（CI 口径 `ruff check services/algorithms`）通过；算法离线 370 passed/16 network 排除（CR-057 时点 364，+6 = 5 条假池用例 + 1 条真实双进程用例）。真实用例在本机 Windows 的 spawn 启动方式下通过：2 个 worker 各训 2048 步、各自从 pickle 出来的配置重建 provider 与 store、两份 bundleHash 不同、csv 按 job 序号稳定。CLI 另跑一次 `--parallel 2 --symbols 510300 510050`，两个 run 并发完成，worker 自身的 `[2048/2048 100.0%]` 行按整行交错进入同一 stdout（这是预期形态，行内不撕裂）。实现期有一处需要记下的自纠：我最初按"提交顺序=完成顺序"写断言，实测 `as_completed` 对已就绪 future 不保证该顺序，于是把契约改成顺序无关——只要求"不丢 job、池损坏后未完成者记 not-run、总数守恒"，并把这条理由写进用例注释，避免以后有人再加回脆弱断言。`--parallel` 默认 1，CR-057 的串行语义与既有用例一字未改；`os.cpu_count()` 本机为 12（逻辑核），提示行据此判超卖，服务器 16 核建议 `--parallel 14`。并行不改变任何 run 的种子、窗口、数据与评估口径，因此 CR-057 已产出的权重可被并行网格直接续用。未完成：GPU 路径仍不启用（SB3 `device="auto"` 会静默改用 CUDA，属未验证路径）；缺陷 #5 仍未修。本轮未推送、未部署、未改后端与前端。
+
+## 2026-09-28 CR059 强化学习选优口径与换手治理登记
+
+CR059 触发：CR-058 的 36 run 网格（codeSha 5a21559）已跑完并回收（36/36 ok、0 failed、12 条选优，36 份权重与 36 份训练日志落回本地 `data/research_history/models`）。按不含测试期信息的诚实口径评估（`picks.byValidation` 按验证窗 `bestEvalReward` 选种，再看 2022-01-01..2024-12-31），三个标的的 4 算法中位数 510300 −14.77%、510050 −16.62%、159922 −8.00%，全部输给最强基准（ma_cross −2.54% / momentum_reversal +4.11% / ma_cross +12.86%）。用户据结果要求分析成因并给出修改方案。
+
+CR059 诊断证据（全部实测，非推断）：(1) 训练窗 2015-01-05..2019-12-31 与验证窗 2020-01-02..2021-12-31 均为上涨（+24.78/+30.20/+3.81% 与 +25.4/+9.6/+48.9%），测试窗 2022-2024 为下跌（−16.63/−12.45/−18.88%），而验证窗是选 checkpoint 的唯一依据；(2) `bestEvalReward` 与该标的验证窗买入持有对数收益之比中位 0.24–0.59x、最大 0.60–1.45x，说明该指标主要在度量"验证期敞口"而非技能；(3) `bestEvalReward` 与测试期收益相关系数 r=−0.163（n=36，不显著，但无正向预测力），按奖励分 6 组后最高分组测试期均值 −15.54%、最低分组 −0.74%；(4) 换手中位 361–415 笔/726 根（约每 3.7 根一次往返，往返成本 15bp），年化拖累 2.64–3.59%，ma_cross 仅 40–47 笔、0.74–0.89%，最差 dqn-510050-s42 手续费占本金 13.02%；(5) 唯一信息量 = 训练窗 1219 根 − 预热 140 − 1 = 1078 个 transition，而 PPO 把同一路径走 186 遍、SAC/DDPG 各做 199,900 次梯度更新（约每个 transition 185 次），且 episode 起点固定（env.py:75）完全确定；(6) 观测仅 9 维，且 120 根滚动 z-score 抹掉水平信息，2022 阴跌与 2015 上涨标准化后同分布；(7) 种子跨度 6.7pp（ppo-510300）至 54.5pp（dqn-159922），大于算法间差异；(8) 按 Bailey & López de Prado 的 E[max SR]=(1−γ)Z⁻¹(1−1/N)+γZ⁻¹(1−1/(N·e))（γ=0.5772）在 T=726 下计算，12 次尝试的纯噪声期望最大年化夏普为 0.98、36 次为 1.27，而实测最高仅 0.761——连事后从 12 个里挑出的最优也未超过噪声门槛，故 `picks.byTestSharpe` 那份"+19~+54pp 超额"是 12 选 1 的极值，不是结论。
+
+CR059 结论修正（对上一轮口头诊断的更正，须随本 CR 保留）：奖励（env.py:127 的逐 bar 对数收益）方向本身正确——组合空仓记 0、持有下跌资产记负，故它已经奖励"下跌时空仓"；**主因不是目标函数选错，而是 agent 看不见 regime（证据 6）与没有为"熊市空仓"打分（证据 1/2/3）**，其次是换手（证据 4）与数据/容量错配（证据 5）。不得再沿用"目标函数错"的表述。
+
+CR059 范围与授权：仍限 services/algorithms/** 与本仓库 SDD/文档，不改后端、前端与 packages/contracts；分支 `algorithm/rl-train-production` 继续只在本地、不推送。用户确认按"全量"实施、验证设计选定"多折验证 + 单次 held-out 测试"。本轮不新增外网取数、不重跑训练（是否复跑由用户发起）、不启用 GPU、不重启多资产池化（CR-044/045 的 revert 仍然有效）。
+
+CR059 改动清单（P0 为验收必需，P1/P2 同批实施）：**P0-1 多折验证**（splits.py）训练窗收缩为 2015-01-05..2018-06-30，验证拆为三个互不重叠、恰好铺满 2018-07-01..2021-12-31 的折——2018-07-01..2019-09-30（456 天，2018 熊尾 + 2019 修复）、2019-10-01..2020-09-30（365 天，含 2020 疫情急跌与 V 形反弹）、2020-10-01..2021-12-31（456 天，牛市与结构分化），测试窗不变。折边界按实际天数择定并已用闸门实算：最初设想的自然年切法（2021 全年）只有 364 天，撞 MIN_VALIDATION_DAYS=365 下限被拒，故改为等长铺满；**代价必须写明：训练可用K线由 1219 根降到约 850 根，这是本 CR 唯一减少训练数据的改动**。**P0-2 折中位数选优**（train.py）选 checkpoint 的指标改为各折得分的**中位数**（默认 excessSharpe，可用 --selection-metric 切 excessReturn/medianReward），每折分数与所用指标写入 manifest。**P0-3 regime/水平特征**（features.py）新增 trend_120、dd_from_peak_120、vol_regime、mom_60、mom_120、sma_slope_120：短周期块继续滚动 z-score，**regime 块改为波动率缩放的解析尺度、不做 z-score**（滚动 z-score 会把持续趋势的水平信息抹掉，正是证据 6 的机制）；MIN_WARMUP 复核后仍为 140（regime 块最长回看 120+20=140 与短周期块 20+120=140 相同），故**不触发服务窗口加长**；featureSignature 与 validate_history 同步，旧 bundle 由兼容闸门拒绝。**P0-4 换手治理** band 默认 0.005→0.02 且可由 --band-pct 覆盖；新增 --turnover-penalty（在奖励中显式再扣一次成本，抵消 γ=0.99 的近视）；DQN 动作集由 {空仓,满仓} 扩为 {空仓,保持,满仓}，"保持"映射为 signal 0.0（不产生成交），signal_semantics 仍为 discrete_hold，故不改后端可见的成交口径。**P0-5 多重检验门槛**（新增 rl/selection.py + grid.py）把 E[max SR]、deflatedSharpe、minTrackRecordLength 写进 summary，并把 `picks.byTestSharpe` 标 diagnosticOnly=true 并附理由。**P1-1 随机起点** --random-start 与 --min-episode-bars，reset 时在 [MIN_WARMUP, len−min_episode] 内取起点，同 seed 可复现。**P1-2 更新次数对齐** SAC/DDPG 的 train_freq=4、gradient_steps=1、buffer_size 200k→20k（更新次数由 199,900 降到约 50k）。**P1-3** 步数默认 200k→500k（PPO/DQN）。**P2-1 奖励模式可选** --reward {log_return, excess, dsr}，默认 log_return 保持与既有口径可比；excess = 组合对数收益 − 标的自身买入持有对数收益；dsr 为 Moody & Saffell 差分夏普。**P2-2 新增 TD3、保留 DDPG**（policies.py）Q 高估修正在 Fujimoto 等 2018 已证，故**新训练**改用 TD3；但**不删除 DDPG**——CR-049 已把 `ddpg-*` 权重部署到线上实验回测，store 的算法白名单若去掉该 id 会把它们判为非法算法并打断线上服务（跨模块破坏，且该模块不在本轮范围），因此 DDPG 保留为可加载，切换只发生在网格默认算法表（新增 RESEARCH_ALGOS，ddpg 不在其中）。注册表由 4 项增为 5 项（后端枚举为 handoff）；同时把 store 里硬编码的算法白名单改为引用注册表本身，消除这类失配。**P2-3 口径落盘与一致性** band/rewardMode/turnoverPenalty/randomStart/selectionMetric/valFolds 写入 manifest；推理侧 rebalance_band_pct 改从 manifest 读取（现在 policy 默认 0.005 与 env 默认值只是"碰巧一致"，band 一旦可配就会漂移，属训练/服务口径缺陷）；executionVersion 递增使旧权重被兼容闸门拒绝。**P2-4** 修 CR-058 遗留缺陷：resume 时网格 ETA 把 trainSkipped 的 run 按满步数计入分母导致 ETA 失真。配套设施：grid.py 新增 --band-pct/--reward/--turnover-penalty/--random-start/--val-folds/--selection-metric；CSV 增列 trades_per_year 与 fees_pct_of_capital。
+
+CR059 验收条件：(1) 多折闸门——每折 365–730 天、互不重叠、严格晚于 train_end 且早于 test_start，缺折/重叠/越界均报 RLInvalidSplit；(2) 折中位数选优——注入假回调给三折不同分数时，选出的 checkpoint 是折中位数最大者，manifest 记录每折分数与 selectionMetric；(3) 奖励兼容——--reward log_return 与既有行为逐位一致（回归用例钉住），excess 在"空仓+下跌基准"下给正奖励，turnover_penalty>0 时同路径奖励严格更低；(4) 换手——band 新默认对同一权重序列的成交笔数下降，DQN"保持"动作不产生成交；(5) 随机起点——同 seed 可复现且起点落在 [MIN_WARMUP, len−min_episode]；(6) 更新次数——SAC/DDPG 的 gradientUpdates 由约 20 万降到约 5 万；(7) 噪声门槛——E[max SR] 对已知 (N,T) 与手算值一致（用例钉住数值），summary 含 noiseSharpeThreshold 且 `picks.byTestSharpe` 带 diagnosticOnly；(8) 口径一致性——featureSignature 与 executionVersion 变更后旧 36 个 bundle 被兼容闸门拒绝且有用例证明，推理侧 band 来自 manifest；(9) 离线套件与 Ruff 全绿，不新增 network 用例；(10) 旧产物处置——36 个 bundle 与 `_grid/` 作为 codeSha 5a21559 的冻结对照保留，不删除。
+
+CR059 研究判定规则（写入验收，防止下一轮变成"换个参数再试"）：只有在本口径的留出窗上过了 deflated Sharpe 门槛，才可称 RL"有边际"；否则交付结论必须写成"此数据规模下未证明 RL 超额能力"。
+
+CR059 出范围与 handoff：GPU 仍不启用；缺陷 #5（推理不校验请求标的==训练标的）仍未修，仍为后端接缝；research_backfill_unpublished 权重仍不可上线；注册表由 4 项增为 5 项（新增 TD3，DDPG 保留可加载以不打断 CR-049 线上权重），后端 RL 策略枚举为 handoff；MIN_WARMUP 实测仍为 140，服务端推理窗口要求不变（原登记的"须加长"预判已撤销）；指数基准序列不在研究缓存内，alpha/beta 仍不采。RL 四策略继续 experimental；本轮未推送、未部署、未改后端与前端。
+
+CR059 验收回写（2026-09-28，命令与实测）：`ruff check services/algorithms` → `All checks passed!`；CI 口径离线套件（`addopts=-q -m "not network"`）exit 0、**414 passed / 16 network 排除**（CR-058 时点 370，+44 = 新增 `tests/test_rl_cr059_contracts.py` 39 条 + 既有用例文件的 CR-059 契约扩充 5 条）。真实数据端到端小验证（小步数 1 run，非研究结论，只证接口接通）：`quant-rl-grid --grid-id cr059-check --symbols 510300 --algos ppo --seeds 42` 跑通，产物置于 `data/research_history/models_cr059_check/`，与 36 份冻结权重隔离；实测 manifest 记录 `bandPct=0.02`、`rewardMode=log_return`、`selectionMetric=excessSharpe`、`valFolds=[2018-07-01..2019-09-30, 2019-10-01..2020-09-30, 2020-10-01..2021-12-31]`、训练窗 `2015-01-05..2018-06-30`（P0-1 收缩已生效）；三折分数 `[-1.399, -1.803, -0.016]` 而选中的 `selectedFoldMedian=-1.399` 恰为折中位数、**不是**单折最高的 `-0.016`，折中位数选优确证；summary 含 `noiseSharpeThreshold` 且 `picks.byTestSharpe` 带 `diagnosticOnly`+理由；CSV 35 列（含 `trades_per_year`/`fees_pct_of_capital`/`band_pct`/`reward_mode`/`selection_metric`/`fold_scores`）；`_trainlogs/<run>/evaluations.npz` 与 `best_model.zip` 落盘。验收条件 (8) 的实测依据：`models/` 下 40 个 manifest 目录（36 份 CR-058 网格 bundle + 4 份 `{algo}-real-2015-2021` 长窗权重）全部 `featureSignature=c93e6b34a273b12c`（当前 `29ce5f44980b8c8c`）且全部无 `bandPct`，故被兼容闸门拒绝。
+
+CR059 实现期自纠（须保留，与 CR-058 回写同例）：(a) 自写回调最初静默吞掉原验收要求交付的 `evaluations.npz`，已补回；(b) 胜者夏普非正时 `minTrackRecordLength` 输出 `Infinity`，非合法严格 JSON，会让非 Python 消费方解析失败——改为 `null` 并补 `test_summary_json_survives_strict_serialisation` 钉住（该转换此前无用例覆盖）；(c) `_check_folds` 原先排在平铺窗口顺序检查之后，折边界的具体原因会被"窗口必须不重叠"的通用报错盖住，已前移到该检查之前。CR059 与登记的偏差（4 条）：**D-1 `executionVersion` 未递增**，仍为 `account-feedback-v2`——本轮只改 band 配置与观测维度，成交/撮合语义未变，旧权重改由 featureSignature 变化与新增 bandPct 闸门拒绝（已实测），不再依赖版本号递增，故登记中"executionVersion 递增使旧权重被拒绝"一句以本回写为准；D-2 `picks.byTestSharpe` 由排名表改为对象 `{diagnosticOnly, reason, ranking}`；D-3 选优指标只落 `excessSharpe`/`excessReturn`，登记提到的 `medianReward` 未实现（避免同一"中位数"口径出现两种语义）；D-4 MIN_WARMUP 仍 140、折边界 456/365/456、DDPG 保留可加载，三条均以登记时的实测更正为准并已落地。旧产物：36 份 bundle 与 `_grid/`（codeSha 5a21559）作冻结对照保留不删，本次验证产物另放 `models_cr059_check/`。仍未完成：GPU 不启用、缺陷 #5 未修、register 4→5 项的后端枚举 handoff、指数基准序列缺失故 alpha/beta 不采；是否用新口径复跑（四算法×多种子、500k 步）由用户发起，本地分支未推送。
+
+## 2026-09-29 CR060 折选优 manifest 口径修正（算法模块）
+
+CR060 触发：CR-059 首轮真实 500k 运行（本地 `cr059-time`，510300/ppo/s42，25 次评估）暴露出 manifest 报告口径错误——`foldScores` 与 `selectedFoldMedian` 语义不一致。实测：`selectedFoldMedian`/`bestEvalReward` = −0.7390（历史最佳中位数，发生在 **step 480000**，`best_model.zip` 即该步权重），而 `foldScores` = [−0.7726, −1.731, +0.4722]（**step 500000 最后一次评估**，中位数 −0.7726）。被选中 checkpoint 的真实三折为 [−0.739, −1.787, +0.192]，可从 `evaluations.npz` 的 `fold_scores` 第 24 行复原（数据未丢）。
+
+CR060 根因（代码出处，非推断）：`train.py:162` 的 `_evaluate()` 每次评估都覆盖 `self.fold_scores`，`train.py:433` 直接把它写进 manifest；而 `train.py:428` 写的是 `best_median`。故 manifest 的 `foldScores` 描述的是**训练结束时的模型**，而随包发布的 `best_model.zip` 是 480000 那步的。CR-059 的 `cr059-check` 验证之所以没露出，是因为那次只发生一次评估、两个语义意外重合——**该缺陷只在真实多次评估的运行里可见**。附带同类问题：`train.py:434` 的 `foldHistory` 只塞了 `history[-1:]`（单条），与字段名不符。
+
+CR060 影响：读 manifest 的人会把 `foldScores` 误读成"被选中模型的分折表现"；grid 的 CSV 列 `fold_scores` 与进度行的 `折中位 x[fold1,fold2,fold3]` 同样取自该字段，也会显示错误的折分布。CR-059 验收条件 (2) 的"manifest 记录每折分数"名义满足、语义错误，故本 CR 同时更正 CR-059 回写中"三折分数 [-1.399, -1.803, -0.016]"一处的证明力（该处两个语义重合，不能作为折分数口径正确的证据）。
+
+CR060 修法（最小改动，仅报告口径，不动选优规则）：`FoldEvalCallback` 在 median 改进步时同时记录 `best_fold_scores`；manifest 的 `foldScores` 在 `weightSelection == "validation-best"` 时写入该最佳那次的分数，否则（无 best_model.zip、发布 final 权重）写最后一次；`foldHistory` 改为完整评估历史（每条的 `timesteps/foldScores/median`）。**`executionVersion` 与 `featureSignature` 均不变**——这是报告元数据，不涉及模型语义或成交口径，旧 bundle 的兼容性闸门行为不变。
+
+CR060 验收条件：(1) 用脚本化的折分数序列（最佳出现在中间、最后一次明显更差）跑通真实三折流程，断言 `manifest["foldScores"]` 等于最佳那次的分数且**不等于**最后一次、`selectedFoldMedian` 等于该最佳中位数；(2) `foldHistory` 条数等于评估次数且每条的 `median` 等于其 `foldScores` 的中位数；(3) 无 `best_model.zip`（final 权重）时 `foldScores` 为最后一次评估；(4) 既有 CR-059 用例 `selectedFoldMedian == median(foldScores)` 由"巧合成立"变为真正的不变量；(5) Ruff 与离线套件全绿，不新增 network 用例；(6) 不改变任何选优结果——同一序列下 `selectedFoldMedian` 与修复前逐位一致。
+
+CR060 出范围：**选优规则本身（三折中位数）不改**。本轮实测发现的"折选优抖动"（相邻评估中位数只差 0.034，而同一对评估里 fold3 动了 0.28；fold2 全程 25 次为负）是**研究设计问题**，改它等于改变选型语义并使既有 run 不可比，需单独授权后再登记。缺陷 #5 仍未修；GPU 仍不启用。
+
+CR060 验收回写（2026-09-29）：`ruff check services/algorithms` → `All checks passed!`；CI 口径离线套件 exit 0、**418 passed / 16 network 排除**（CR-059 时点 414，+4 全部为新增 `tests/test_rl_cr060_foldscores.py`）。4 条用例覆盖：脚本化折分数序列下 `foldScores` 等于被选中那次（[5.0,5.1,5.2]）而非最后一次（[−1.0,−1.1,−1.2]）；`foldHistory` 条数等于评估次数且每条 `median` 等于其 `foldScores` 中位数（含最后一次也在历史里）；`evaluations.npz` 的 `fold_scores` 形状仍为 (4,3) 未被改动；无评估（`eval_freq` 大于总步数）时 `weightSelection=="final"`、`foldScores`/`foldHistory` 为空。**做了负向对照**：临时把分支改成恒假后重跑，用例按预期失败（`[-1.0,-1.1,-1.2]` vs 期望 `[5.0,5.1,5.2]`），证明用例非恒真；随后从备份还原，`train.py` md5 回到 `861dba2945ef8c478d24408f3f469ae5`、无临时代码残留。`executionVersion`/`featureSignature` 均未变（报告元数据，旧 bundle 兼容行为不变），`selectedFoldMedian` 与修复前逐位一致（选优结果不受影响）。已知遗留：`cr059-time` 那条真实 manifest 的 `foldScores` 仍是最后一次评估的分数，**不回改历史产物**，其被选中 checkpoint 的三折 [−0.739,−1.787,+0.192] 可从该 run 的 `evaluations.npz` 第 24 行复原。未完成：代码尚未部署到云端（SSH 公钥待追加、镜像待确认）；折选优抖动未处理；缺陷 #5 未修。本轮未推送、未部署、未改后端与前端。
+
+## 2026-09-29 CR059/060 网格实测回写（36 run 完成与本轮判定）
+
+CR059/060 网格实测（云端 `ecs.c7a.4xlarge`，Ubuntu 22.04.5 / Python 3.13.3，代码 = 单提交 `95c9290`，自包含 git bundle + 研究缓存 tar 传入并两端 sha256 校验；依赖与本机逐项一致）。命令：`quant-rl-grid --parallel 8 --stamp-duty-pct 0`（4 算法 × 3 标的 × 3 种子 = 36 run）。**结果 36/36 ok、0 failed，总墙钟 1:44:32**；单 run 实测中位耗时 PPO 6.6 min、DQN 5.4 min、SAC 35.8 min、TD3 34.8 min（合计 12.33 核·小时），故 `--parallel 8` 是本次能压进 1.7 小时的唯一原因（串行估算 > 10 小时）。速度基准更正：本机 vs 云端**同任务**实测比 **2.44×**（893.6 s ÷ 366.2 s）；此前"3.73×"作废（它拿本机 500k×3 折对云端 200k 单窗，口径不同）。
+
+CR059/060 本轮判定（噪声门，全部未过）：三标的 deflated Sharpe 门槛 0.981，实测 510300 = **0.122**、510050 = **0.604**、159922 = **0.346**，**无任何标的清除门槛**；wholeGrid 实测 0.604 对门槛 1.265 同样不透。所需最小样本 `minTrackRecordLength`：510300 = **45,808.4 根 ≈ 182 年**、510050 = 1,871.1 根、159922 = 5,712.6 根——即留给本口径的数据量根本不够证伪零假设。验证窗选优的中位数收益（test 窗 2022-01-01..2024-12-31）：510300 = **−10.75%**、510050 = **−14.43%**、159922 = **−7.36%**。同窗基准：**买入持有 −16.63% / −12.45% / −18.88%**，**最好技术基准（ma_cross 或 momentum_reversal）−1.41% / +4.47% / +14.00%**。故：对买入持有 RL **2 胜 1 负**（510300 +5.88pp、159922 +11.52pp、510050 −1.98pp），**对最好技术基准三标的全输**（−9.34 / −18.90 / −21.36pp）。结论按 CR-059 判定规则写成"**此数据规模下未证明 RL 超额能力**"。
+
+CR059/060 更正（2026-09-29，拉回云端 summary 后复核）：本节初稿把 −1.41% / +4.47% / +14.00% 误标为"买入持有基准"并据此写下"权重全线跑输最简单的持有"——**该句作废**。以上数字均来自拉回的 `cr060-main-summary.{json,csv}`（sha256 `6353a965…`，两端一致），买入持有 −16.63/−12.45/−18.88 另经本地缓存直接计算与 CR-058/CR-059 两份 CSV 三方印证。噪声门（0.122/0.604/0.346 对 0.9808；wholeGrid 0.604 对 1.2652）、`minTrackRecordLength`（45,808.4/1,871.1/5,712.6）、选优指标相关性（Pearson +0.068 / Spearman −0.030；ppo −0.671、td3 +0.749）、费率（−1.58%→+2.11%，¥7,532→¥4,198）复核后**均与初稿一致**。
+
+CR059/060 与上一轮（CR-058，5a21559，200k 步、train..2019-12-31、单窗验证、含 ddpg）对比——**同一 test 窗**，验证窗选优中位数：510300 **−14.77% → −10.75%**、510050 **−16.62% → −14.43%**、159922 **−8.00% → −7.36%**，三标的各"改善" 2–4pp；但同轮种子离散度 **30–46pp**，改善量**远小于噪声**，故只能记"数字略有移动"，**不能称为改善**。**结论方向两轮完全一致：RL 都输给最好技术基准**（上一轮 −2.54/+4.11/+12.86 对 RL 中位数）。另有一处可解释的基准位移：上一轮 ma_cross −2.54/−4.04/+12.86、momentum −13.38/+4.11/−15.49 → 本轮 −1.41/−2.98/+14.00 与 −13.17/+4.47/−15.11，方向一致（去掉印花税后微升），而买入持有两轮**完全相同**（无成交）——与此前 caveat"买入持有不计成本、均线/动量按引擎费率计成本"自洽，即 `--stamp-duty-pct` 确实会改变技术基准、但不改变买入持有。
+
+CR059/060 本轮新发现——选优指标近乎无预测力：对全部 36 run 做 selection score 与 test 表现的秩／线性相关，**Pearson +0.068、Spearman −0.030**，且分算法符号还会翻（ppo −0.671、td3 +0.749）。含义：单次"好"的 run 不可复现，当前选优指标不能用来筛模型。此项属**研究设计问题**，改它等于改选型语义、使既有 run 不可比，需单独授权后再登记（与 CR060 出范围的"折选优抖动"同源）。
+
+CR059/060 费率实测：`--stamp-duty-pct 0` 与默认 0.05 的复评对比——同一权重 test 收益 **−1.58% → +2.11%**、费用 **¥7,532 → ¥4,198**（三年期差 3.69pp）。此处更正一处口径：费率**只写在 summary 的 `config.tradingCosts`**，manifest 里**不记** `stampDutyPct`（只有 `bandPct`），此前"manifest 记 stampDutyPct"的说法作废。该现象触发下述 CR-061。
+
+## 2026-09-29 CR061 费率口径缺陷登记（算法模块，待修，未实施）
+
+CR061 触发：`--stamp-duty-pct` 只改复评/CSV，**不改训练奖励**，故费率网格对比里"两个模型"其实是同一个模型。证据（可复现、非推断）：15bp 探针与 10bp 网格两次运行的 `foldScores` **逐位相同**，说明改费率对训练完全无影响。
+
+CR061 根因（代码出处）：`train.py:360-368` 构造 `TradingEnv` 时**未传任何成本参数**；`env.py:106` 落到 `costs = trading_costs or TradingCosts()`，即训练永远用 `TradingCosts` 默认 **15bp**（含印花税）。而 `cfg.costs` 仅在 `grid.py:289` 用于 scorer 回测。故 (a) 训练奖励里扣的费率与用户配置／回评测费口径**脱节**。
+
+CR061 缺陷 (b)：默认 `TradingCosts` 对 **ETF 也收 0.05% 印花税**。按《印花税法》第三条，证券交易印花税覆盖"股票和以股票为基础的存托凭证"，**基金份额/ETF 不在课税范围**；且股票印花税 2023-08-28 由 0.1% 降为 0.05%，成本模型**无日期变化**（跨该日的历史回评会多扣）。算法模块当前标的（510300/510050/159922）全为 ETF，故本缺陷直接命中全部本轮权重。
+
+CR061 拟修法（待授权，不改则记缺陷）：(1) `train.py` 把 `cfg.costs` 透传进 `TradingEnv`（或经 `transaction_cost` 单值），使训练奖励与配置一致；(2) `TradingCosts` 增加"标的类型/日期"维度的印花税口径（ETF 免、股票按日切换），或由调用方显式传 ETF 口径。验收条件：训练奖励里的费率与配置逐项一致（可用"改 `--stamp-duty-pct` 后 `foldScores` 必须变化"钉住）、ETF 回评不含印花税、跨 2023-08-28 的股票回评分段计税。
+
+CR061 出范围与影响：**本轮不实施**。修它等于改奖励 → 使既有 36 份冻结权重与 CR-058 权重全部失效，须重跑，属研究结论级变更，需用户授权。RL 四策略继续 experimental；缺陷 #5 仍未修。本轮未推送、未部署、未改后端与前端。
+
+CR061 费率口径精确化（2026-09-29，engine 出处核实）：`execution.py:17-51` 的实际计费是**佣金买卖双边各 0.03%、印花税仅卖出 0.05%**，滑点体现在成交价（`next_open*(1±slippage)`）而**不计入 `fees_cny`**。故每往返：默认（含印花税）计入 fees **0.11%** + 滑点 0.04% ≈ 经济成本 **0.15%**；`--stamp-duty-pct 0`（ETF 正确口径）计入 fees **0.06%** + 滑点 0.04% ≈ **0.10%**。实测同一权重（`ppo-510300-s42`，300 笔）15bp→test −1.5814%/fees ¥7,532.46，10bp→test +2.1068%/fees ¥4,198.21，fees 比 0.557 ≈ 0.06/0.11，与上式自洽。**线上口径建议 `--stamp-duty-pct 0`（三标的皆 ETF），并须写明"权重是在含印花税的 0.15% 奖励下学出来的"这一不一致**。完整上线说明见 `docs/cr060-rl-deployment-note-2026-09-29.md`。
+
+## 2026-09-29 CR059/060 通用性实测（跨标的迁移，算法模块，离线）
+
+CR060 通用性实测（T-044e，2026-09-29）：用网格同一套引擎/基准/成本复算，脚本 `data/research_history/_cloud_cr060/xfer_probe.py`（置于 gitignored 研究缓存内，不入包）。**校准已验证**：`ppo-510300-s42` 在自己标的上复现云端 15bp 探针的 −1.5814% / 300 笔。
+
+- **跨标的（2022-01-01..2024-12-31）**：把 4 个 510300 模型分别跑到 510050、159922（8 格）：胜买入持有 **3/8**、胜 ma_cross **1/8**、胜 momentum **2/8**。同模型在自己标的上明显更好（ppo：510300 −1.58% vs 510050 −15.09%、159922 −13.54%；dqn：−19.23% vs −22.54%/−25.67%）。
+- **平台缓存 45 只股票（2025-07-23..2026-09-18，284 根）**：**180/180 格全部跑通**，无异常。该窗买入持有中位 +0.93%（25/45 上涨）、ma_cross 中位 −6.31%。RL 中位与胜率：ppo −5.66%/胜 ma 23/45(51%)、dqn −12.40%/14/45(31%)、sac −5.87%/22/45(49%)、td3 −2.42%/18/45(40%)；相对 ma_cross 超额中位 +0.73 / −6.68 / −1.92 / −1.56 pp。
+
+**判定：胜率 31–51%（等于抛硬币）、四个模型中位收益全为负且全低于同窗买入持有 → 本批模型不具通用性。** 注意该窗仅 284 根（扣 140 根预热后实际决策约 144 根），且距训练窗 7 年，属**弱证据**；但方向与留出窗结论一致。
+
+CR060 产物拉回与校验（2026-09-29，用户授权 SSH）：云端 36 run + `_grid/` + `_trainlogs/` + 三个模型根 + 6 份日志 + `progress.sh` 全部拉回 `data/research_history/_cloud_cr060/`（166M/19M/348K/1.8M）。**模型侧 147 个文件（36 model.zip + 36 best_model.zip + 36 evaluations.npz + 36 manifest + 网格 3 件）sha256 与云端逐位一致；7 个日志文件哈希一致**（校验用 `find|sort|xargs sha256sum` 两端对比，注意本地 `sha256sum` 会多打一个 `*` 标记，须只比哈希列）。4 个上线候选本地实测可加载。RL 继续 experimental；缺陷 #5 未修；本轮未推送、未部署、未改后端与前端。
+
+
+## CR062 新模型发布集成（2026-10-01，登记）
+用户交付cr060-best4并明确要求继续至上线。基线main dd96ea3 + CR058 dc8186c + 算法分支9ae583c（权重训练代码95c9290），合并spec/task追加记录冲突时两侧历史均保留。候选为PPO/DQN/SAC/TD3四个510300权重；不伪装为旧DDPG，不重训、不采集。逐个哈希/元数据/加载推理验证，兼容新版特征140根预热及验证窗，以实际常量为准；候选不合格不切换。
+研究来源保持原manifest，增加显式可信发布配置绑定目标universeVersion及模型哈希，仅对已核验的510300研究模型开放；请求其它资产明确拒绝，新源记录不能借放宽旧闸门混入。兼容保留旧发布schema但不强行运行旧特征权重。发布后四个实验模型继续experimental，披露未证明超额/通用性、训练费率与回评不同；仅对本批ETF研究强制stampDutyPct=0，统一排行/回测口径，不静默改股票税率或重训奖励。API/前端同步来源、范围、动态预热及费用说明，保留CR058区间展示。
+验收：离线全量与反例、四bundle只读实际加载/真实行情推理、候选五模块及四模型异步任务、样本内/错模型/错资产拒绝、任务库备份实际恢复与行情/日更账本保留、云HTTPS/Pages桌面移动验收。GitHub遵循PR和Pages工作流，不能绕过保护。全部只对有证据的步骤标完成。

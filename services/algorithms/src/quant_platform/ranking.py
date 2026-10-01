@@ -8,7 +8,7 @@ from typing import Literal
 import pandas as pd
 
 from quant_platform.backtesting.engine import BacktestEngine, _compute_metrics
-from quant_platform.models import BacktestMetrics, BacktestRequest, RankingItem
+from quant_platform.models import BacktestMetrics, BacktestRequest, RankingItem, TradingCosts
 
 
 class RankingResult(list[RankingItem]):
@@ -51,6 +51,8 @@ class StrategyRankingService:
                         end_date=as_of_date,
                     )
                 )
+                # Every ranking row uses the same 510300 ETF fee convention.
+                request = replace(request, trading_costs=TradingCosts(stamp_duty_pct=0))
                 result = self._engine.run(request)
                 raw = result.metrics
                 metrics = (

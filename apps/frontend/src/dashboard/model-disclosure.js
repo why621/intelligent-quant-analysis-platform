@@ -2,6 +2,11 @@
 export function modelWindowLines(model) {
   if (!model) return []
   return [
+    ...(model.valFolds || []).map((f, i) => `验证折${i + 1}：${f.start} 至 ${f.end}（用于选优，属于样本内）。`),
+    ...(model.trainingConsistency === 'research_backfill_unpublished' ? [
+      '来源：独立研究回填模型；未证明超额能力或跨资产通用性，本批仅开放510300。',
+      '费用口径：训练奖励使用佣金0.03%、卖出印花税0.05%、滑点0.02%；网页ETF回评使用佣金0.03%、印花税0%、滑点0.02%。训练与回评口径不同，结果仅供实验。'
+    ] : []),
     `训练区间：${model.trainStartDate} 至 ${model.trainEndDate}。`,
     model.valStartDate && model.valEndDate
       ? `验证区间：${model.valStartDate} 至 ${model.valEndDate}（属于样本内，不用于样本外回测）。`

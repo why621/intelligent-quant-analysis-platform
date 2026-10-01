@@ -28,7 +28,7 @@ def release(tmp_path, monkeypatch):
             run_id=ref,
             seed=42,
             train_start=date(2025, 9, 9),
-            train_end=date(2026, 6, 30),
+            train_end=date(2025, 12, 31),
             publication_context={
                 "publicationDate": "2026-09-09",
                 "dataVersion": "a" * 64,
@@ -37,6 +37,7 @@ def release(tmp_path, monkeypatch):
             total_timesteps=32,
             code_sha="test",
         )
+        manifest["bandPct"] = 0.02
         store.save(ref, b"synthetic-not-for-inference", manifest)
         entries.append(
             {
@@ -57,10 +58,10 @@ def test_each_algorithm_isolated_and_gated(release, algo):
     path, entries = release
     catalog = StrategyCatalogService(rl_release=path)
     items = catalog.list_strategies()["items"]
-    assert len(items) == 6
+    assert len(items) == 2 + len(RL_POLICIES)
     item = next(x for x in items if x["id"] == algo)
     assert item["status"] == "experimental" and item["backtestEnabled"] is True
-    assert item["modelContext"]["inSampleEndDate"] == "2026-06-30"
+    assert item["modelContext"]["inSampleEndDate"] == "2025-12-31"
     assert "valStartDate" not in item["modelContext"]
     assert "testStartDate" not in item["modelContext"]
     assert item["parameterSchema"]["properties"]["modelRef"]["enum"] == [algo + "-test"]
@@ -71,7 +72,7 @@ def test_each_algorithm_isolated_and_gated(release, algo):
                 strategy.validate_parameters({"modelRef": other + "-test"})
     frame = pd.DataFrame(
         {
-            "date": pd.bdate_range("2026-07-01", periods=30),
+            "date": pd.bdate_range("2026-01-01", periods=160),
             "open": 10.0,
             "high": 11.0,
             "low": 9.0,
@@ -84,14 +85,14 @@ def test_each_algorithm_isolated_and_gated(release, algo):
     payload = {
         "strategyId": algo,
         "symbols": ["512100", "600519"],
-        "startDate": "2026-07-01",
+        "startDate": "2026-01-01",
         "endDate": "2026-09-09",
     }
     assert validate_web_model(catalog, payload, provider)["modelRef"] == algo + "-test"
     with pytest.raises(RLServiceError) as err:
-        validate_web_model(catalog, payload | {"startDate": "2026-06-30"}, provider)
+        validate_web_model(catalog, payload | {"startDate": "2025-12-31"}, provider)
     assert err.value.code == "RL_IN_SAMPLE_REQUEST"
-    provider.history.return_value = frame.iloc[:21]
+    provider.history.return_value = frame.iloc[:141]
     with pytest.raises(RLServiceError) as err:
         validate_web_model(catalog, payload, provider)
     assert err.value.details == {"symbol": "512100"}
@@ -151,26 +152,26 @@ def test_ranking_uses_sample_out_warmup_and_own_model(release, algo):
 
     path, _ = release
     strategy = StrategyCatalogService(rl_release=path).get_strategy(algo)
-    dates = pd.bdate_range("2026-07-01", "2026-09-18")
+    dates = pd.bdate_range("2026-01-01", "2026-09-18")
     frame = pd.DataFrame({"date": dates, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0})
     provider = SimpleNamespace(
         publication_context={"universeVersion": "test"}, history=Mock(return_value=frame)
     )
     req = strategy.ranking_request(date(2026, 9, 18), "30d", provider)
-    assert req.start_date == date(2026, 7, 1)
+    assert req.start_date == date(2026, 1, 1)
     assert req.parameters == {"modelRef": algo + "-test"}
     assert req.initial_capital_cny == 100000
     for call in provider.history.call_args_list:
-        assert call.args[1] >= date(2026, 7, 1)
+        assert call.args[1] >= date(2026, 1, 1)
     with pytest.raises(RLInSampleRequest):
         strategy.ranking_request(date(2026, 9, 18), "1y", provider)
     # Plenty of bars overall, but insufficient pre-window history must not rank.
     with pytest.raises(RLInsufficientHistory):
-        strategy.ranking_request(date(2026, 8, 1), "30d", provider)
-    provider.history.return_value = frame.iloc[-21:]
+        strategy.ranking_request(date(2026, 3, 1), "30d", provider)
+    provider.history.return_value = frame.iloc[-141:]
     with pytest.raises(RLServiceError):
         strategy.ranking_request(date(2026, 9, 18), "1d", provider)
-    provider.history.return_value = frame.iloc[-22:]
+    provider.history.return_value = frame.iloc[-142:]
     assert strategy.ranking_request(date(2026, 9, 18), "1d", provider)
 
 
@@ -235,3 +236,83 @@ def test_long_model_split_metadata_matches_http_contract(release):
         schema["properties"][field]["items"] = {"type": "string", "pattern": "^[0-9]{6}$"}
     validator = jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker())
     validator.validate(context)
+
+
+@pytest.fixture
+def research_release(release):
+    path, entries = release
+    store = ModelStore(path.parent)
+    selected = []
+    for entry in entries:
+        if entry["algo"] == "ddpg":
+            continue
+        manifest = dict(store.load(entry["modelRef"]).manifest)
+        ref = entry["algo"] + "-research"
+        manifest.update(runId=ref, symbol="510300", trainStartDate="2015-01-05",
+                        trainEndDate="2019-12-31", valStartDate="2020-01-02",
+                        valEndDate="2021-12-31", testStartDate="2022-01-04",
+                        testEndDate="2024-12-31", consistency="research_backfill_unpublished",
+                        universeVersion="research-backfill-root")
+        store.save(ref, b"synthetic-research-not-for-inference", manifest)
+        selected.append({**entry, "modelRef": ref,
+                         "bundleHash": store.load(ref).manifest["bundleHash"]})
+    config = {"schemaVersion": 3, "targetUniverseVersion": "b" * 64, "models": selected}
+    path.write_text(json.dumps(config))
+    return path, config
+
+
+@pytest.mark.parametrize("algo", ["ppo", "dqn", "sac", "td3"])
+def test_reviewed_research_release_pins_dates_assets_and_fees(research_release, algo):
+    from app.services.errors import ValidationError
+
+    path, config = research_release
+    catalog = StrategyCatalogService(rl_release=path)
+    frame = pd.DataFrame({"date": pd.bdate_range("2025-01-02", periods=160),
+                          "open": 10., "high": 11., "low": 9., "close": 10.})
+    provider = SimpleNamespace(publication_context={"universeVersion": "b" * 64},
+                               history=Mock(return_value=frame))
+    payload = {"strategyId": algo, "symbols": ["510300"], "startDate": "2025-01-02",
+               "endDate": "2025-09-01"}
+    context = validate_web_model(catalog, payload, provider)
+    assert context["universeVersion"] == "research-backfill-root"
+    assert context["targetUniverseVersion"] == "b" * 64
+    assert context["assetScope"] == "training_symbols"
+    assert context["warmupBars"] == 140 and context["minimumBars"] == 142
+    assert context["requiredTradingCosts"]["stampDutyPct"] == 0
+    assert context["trainingTradingCosts"]["stampDutyPct"] == 0.05
+    with pytest.raises(ValidationError):
+        validate_web_model(catalog, payload | {"symbols": ["510050"]}, provider)
+    with pytest.raises(ValidationError):
+        validate_web_model(catalog, payload | {"tradingCosts": {"stampDutyPct": .05}}, provider)
+    with pytest.raises(RLServiceError) as err:
+        validate_web_model(catalog, payload | {"startDate": "2021-12-31"}, provider)
+    assert err.value.code == "RL_IN_SAMPLE_REQUEST"
+    provider.publication_context["universeVersion"] = "c" * 64
+    with pytest.raises(RLServiceError) as err:
+        validate_web_model(catalog, payload, provider)
+    assert err.value.code == "RL_INCOMPATIBLE_MODEL"
+    provider.publication_context["universeVersion"] = "b" * 64
+    path.write_text(json.dumps({"schemaVersion": 2, "models": config["models"]}))
+    with pytest.raises(RLServiceError):
+        validate_web_model(StrategyCatalogService(rl_release=path), payload, provider)
+
+
+@pytest.mark.parametrize("case", ["bad-target", "extra", "wrong-symbol", "wrong-source"])
+def test_research_release_rejects_unreviewed_metadata(research_release, case):
+    path, config = research_release
+    if case == "bad-target":
+        config["targetUniverseVersion"] = "research-backfill-root"
+    elif case == "extra":
+        config["skipIntegrity"] = True
+    else:
+        store = ModelStore(path.parent)
+        entry = config["models"][0]
+        bundle = store.load(entry["modelRef"])
+        metadata = {**bundle.manifest, "runId": "wrong-provenance"}
+        metadata["symbol" if case == "wrong-symbol" else "consistency"] = "invalid"
+        store.save("wrong-provenance", bundle.model_bytes, metadata)
+        entry.update(modelRef="wrong-provenance",
+                     bundleHash=store.load("wrong-provenance").manifest["bundleHash"])
+    path.write_text(json.dumps(config))
+    with pytest.raises((ValueError, RLIncompatibleModel)):
+        StrategyCatalogService(rl_release=path)

@@ -9,6 +9,7 @@ torch, no real history and no network, so the gate itself is unit-testable.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
@@ -60,11 +61,53 @@ def _as_date(value: object, name: str) -> date | None:
 
 
 @dataclass(frozen=True)
+class ValFold:
+    """One held-out validation window used for checkpoint selection (CR-059).
+
+    CR-059 replaced the single bull-market validation window with several folds,
+    because a checkpoint chosen on a rising window is simply the one that stayed
+    long, and the held-out test window was a decline.
+    """
+
+    start: date | str
+    end: date | str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "start", _as_date(self.start, "foldStart"))
+        object.__setattr__(self, "end", _as_date(self.end, "foldEnd"))
+        if self.end <= self.start:
+            raise RLInvalidSplit(f"验证折终点必须晚于起点：{self.start}..{self.end}")
+
+    @property
+    def span_days(self) -> int:
+        return (self.end - self.start).days
+
+    def manifest_fields(self) -> dict[str, str]:
+        return {"start": self.start.isoformat(), "end": self.end.isoformat()}
+
+
+def _as_fold(value: object) -> ValFold:
+    if isinstance(value, ValFold):
+        return value
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        return ValFold(value[0], value[1])
+    if isinstance(value, Mapping) and {"start", "end"} <= set(value):
+        return ValFold(value["start"], value["end"])
+    raise RLInvalidSplit(
+        f"验证折必须是 ValFold、(start, end) 二元组或 start/end 映射，实际 {value!r}"
+    )
+
+
+@dataclass(frozen=True)
 class Split:
     """Non-overlapping train / validation / test windows in closed date ranges.
 
     Windows are inclusive; ``__post_init__`` normalizes ``date | str`` inputs to
     ``date`` so ``repr`` and equality always describe the accepted windows.
+
+    ``val_folds`` carries the CR-059 multi-fold design. When given it is the single
+    source of truth for the validation span: ``val_start``/``val_end`` are derived
+    from its outer bounds so ``in_sample_end`` and the manifest stay consistent.
     """
 
     train_start: date | str
@@ -73,8 +116,14 @@ class Split:
     val_end: date | str | None = None
     test_start: date | str | None = None
     test_end: date | str | None = None
+    val_folds: tuple[ValFold, ...] = ()
 
     def __post_init__(self) -> None:
+        folds = tuple(_as_fold(item) for item in self.val_folds or ())
+        object.__setattr__(self, "val_folds", folds)
+        if folds:
+            object.__setattr__(self, "val_start", folds[0].start)
+            object.__setattr__(self, "val_end", folds[-1].end)
         for name, key in MANIFEST_KEYS.items():
             object.__setattr__(self, name, _as_date(getattr(self, name), key))
         train_start, train_end = self.train_start, self.train_end
@@ -99,13 +148,17 @@ class Split:
             raise RLInvalidSplit(
                 f"训练区间 {(train_end - train_start).days} 天不足 {MIN_TRAIN_DAYS} 天（三年）"
             )
-        if val_start is not None and val_end is not None:
+        if val_start is not None and val_end is not None and not self.val_folds:
             span = (val_end - val_start).days
             if not MIN_VALIDATION_DAYS <= span <= MAX_VALIDATION_DAYS:
                 raise RLInvalidSplit(
                     f"验证区间 {span} 天不在 1-2 年要求内"
                     f"（{MIN_VALIDATION_DAYS}-{MAX_VALIDATION_DAYS} 天）"
                 )
+        # Fold checks come first on purpose: val_start/val_end are derived from the
+        # fold bounds, so the generic "windows must not overlap" message would
+        # mask the specific cause (a fold inside training, or reaching into test).
+        self._check_folds(train_end, test_start)
         ordered = [train_start, train_end, val_start, val_end, test_start, test_end]
         previous = None
         for value in ordered:
@@ -115,18 +168,50 @@ class Split:
                 raise RLInvalidSplit("训练/验证/测试窗口必须按时间严格不重叠")
             previous = value
 
+    def _check_folds(self, train_end: date, test_start: date) -> None:
+        """Folds tile the validation span: ordered, disjoint, inside the gap.
+
+        The outer span is deliberately not checked against ``MAX_VALIDATION_DAYS``
+        when folds exist — three one-year folds cover about 3.5 years by design;
+        the per-fold bound is what keeps each one a meaningful held-out sample.
+        """
+        previous_end: date | None = None
+        for index, fold in enumerate(self.val_folds, start=1):
+            if not MIN_VALIDATION_DAYS <= fold.span_days <= MAX_VALIDATION_DAYS:
+                raise RLInvalidSplit(
+                    f"验证折 {index}（{fold.start}..{fold.end}）{fold.span_days} 天不在"
+                    f" 1-2 年要求内（{MIN_VALIDATION_DAYS}-{MAX_VALIDATION_DAYS} 天）"
+                )
+            if previous_end is not None and fold.start <= previous_end:
+                raise RLInvalidSplit(
+                    f"验证折 {index} 起点 {fold.start} 与上一折终点 {previous_end} 重叠"
+                )
+            previous_end = fold.end
+        if self.val_folds:
+            if self.val_folds[0].start <= train_end:
+                raise RLInvalidSplit(
+                    f"验证折起点 {self.val_folds[0].start} 必须晚于训练终点 {train_end}"
+                )
+            if test_start is not None and self.val_folds[-1].end >= test_start:
+                raise RLInvalidSplit(
+                    f"验证折终点 {self.val_folds[-1].end} 必须早于测试起点 {test_start}"
+                )
+
     @property
     def in_sample_end(self) -> date:
         """Last date that must never be scored as out-of-sample evidence."""
         return self.val_end or self.train_end
 
-    def manifest_fields(self) -> dict[str, str]:
+    def manifest_fields(self) -> dict[str, object]:
         """Manifest keys for the recorded windows; absent intervals are omitted."""
-        return {
+        fields: dict[str, object] = {
             MANIFEST_KEYS[name]: getattr(self, name).isoformat()
             for name in MANIFEST_KEYS
             if getattr(self, name) is not None
         }
+        if self.val_folds:
+            fields["valFolds"] = [fold.manifest_fields() for fold in self.val_folds]
+        return fields
 
 
 def split_from_manifest(manifest) -> Split:
@@ -138,6 +223,7 @@ def split_from_manifest(manifest) -> Split:
             val_end=manifest.get("valEndDate"),
             test_start=manifest.get("testStartDate"),
             test_end=manifest.get("testEndDate"),
+            val_folds=tuple(manifest.get("valFolds") or ()),
         )
     except KeyError as exc:
         raise RLInvalidSplit(f"manifest 缺少区间字段：{exc}") from exc

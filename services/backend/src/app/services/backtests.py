@@ -201,7 +201,9 @@ class BacktestService:
             date.fromisoformat(str(payload["endDate"])),
         )
         with research_read(self._provider) as context:
-            validate_web_model(self._catalog, payload, self._provider)
+            model_context = validate_web_model(self._catalog, payload, self._provider)
+            if model_context and model_context.get("requiredTradingCosts"):
+                payload = {**payload, "tradingCosts": model_context["requiredTradingCosts"]}
         job_id = self._store.create(payload, context)
         return self.get_job(job_id)
 

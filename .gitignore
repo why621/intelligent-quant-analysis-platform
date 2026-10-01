@@ -48,6 +48,9 @@ pnpm-debug.log*
 # Claude Code
 .claude/
 
+# Agent tooling
+.zcode/
+
 # Editors and operating systems
 .vscode/*
 !.vscode/extensions.json
@@ -62,3 +65,4 @@ Thumbs.db
 
 # Backend runtime artifacts
 services/backend/var/
+services/backend/data/

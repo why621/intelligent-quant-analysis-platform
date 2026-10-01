@@ -113,3 +113,22 @@ test('shortcut cannot write a reversed interval if no sample-out data is publish
   state.applyModelRange()
   assert.equal(state.startDate.value,original)
 })
+
+
+test('reviewed research model sends its canonical ETF fees and locks training asset', async t => {
+  const scope=effectScope();t.after(()=>scope.stop())
+  const model={...ppo(true),id:'td3',name:'TD3',modelContext:{...ppo(true).modelContext,
+    assetScope:'training_symbols',outOfSampleStartDate:'2022-01-01',warmupBars:140,minimumBars:142,
+    requiredTradingCosts:{commissionPct:.03,stampDutyPct:0,slippagePct:.02}}}
+  let sent
+  const jobId='11111111-1111-4111-8111-111111111111'
+  const client={createBacktest:async p=>{sent=p;return {jobId,status:'queued'}},
+    getBacktest:async()=>({jobId,status:'succeeded',request:sent})}
+  const state=scope.run(()=>useBacktest(ref([model]),ref({status:'ready',latestTradeDate:'2026-09-30'}),ref([]),client,null))
+  state.strategyId.value='td3';state.symbols.value=['600519'];state.applyModelRange()
+  assert.deepEqual(state.symbols.value,['510300'])
+  await state.submit()
+  assert.deepEqual(sent.tradingCosts,model.modelContext.requiredTradingCosts)
+  state.symbols.value=['600519']
+  assert.match(state.validationError.value,/仅支持 510300/)
+})
