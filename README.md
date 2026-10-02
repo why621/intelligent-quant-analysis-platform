@@ -10,7 +10,7 @@
 
 平台接入固定300只沪深300成分股及27只ETF，提供五个研究模块。CR062已部署PPO、DQN、SAC、TD3四个实验模型；本批模型仅支持510300，预热140根、至少142根行情。训练为2015–2018年上半年，验证至2021年末，理论样本外下限2022-01-01；实际网页研究仍受已发布行情范围限制。未证明长期超额收益或跨资产通用性，训练/回评费用差异明确披露，不连接实盘。
 
-CR064全页面柔和光影、紧凑布局和适量动效已部署[云端网页](https://43.161.223.91/)。源码及相关文档位于codex/cr063-ui-polish；[GitHub Pages](https://why621.github.io/intelligent-quant-analysis-platform/)仍待该分支PR合并发布，不能把云端更新视为Pages已更新。每天北京时间07:30持续日更保留。
+CR064全页面柔和光影、紧凑布局和适量动效已部署[云端网页](https://43.161.223.91/)。PR45已合并main 2ca1d76，[GitHub Pages](https://why621.github.io/intelligent-quant-analysis-platform/)已发布并通过实际桌面/手机及跨域接口验收。每天北京时间07:30持续日更保留。
 
 [最新交接](docs/session-handoff-2026-10-02.md) · [CR064 UI与部署验收](docs/cr064-ui-density-2026-10-02.md) · [CR062模型上线](docs/cr062-model-deployment-2026-10-01.md)。带日期的旧模型/中期总结仅作为历史记录。
 

@@ -46,7 +46,7 @@ Pages 工作流只发布静态前端，无法运行 Flask、SQLite 或后台任�
 
 ## CR063/CR064 视觉与布局（2026-10-02）
 全页面低亮度青绿/紫灰光影、紧凑表单/结果分组、手机策略网格和有限时长动效。样式集中在src/styles/polish.css；系统prefers-reduced-motion关闭动效，空图表紧凑显示、真实结果更新后resize，ECharts按需注册标题及图例。不修改API、计算或模型披露语义。
-前端95项测试、四种宽度本地浏览器与云端桌面/手机验收通过；云端已部署CR064，Pages待codex/cr063-ui-polish合并。完整结果见[CR064报告](../../docs/cr064-ui-density-2026-10-02.md)。
+前端95项测试、四种宽度本地浏览器与云端桌面/手机验收通过；云端与GitHub Pages均已部署CR064，PR45/2ca1d76合并后实际桌面/手机及跨域接口验收通过。完整结果见[CR064报告](../../docs/cr064-ui-density-2026-10-02.md)。
 
 ```bash
 npm test --workspace @intelligent-quant/frontend

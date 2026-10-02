@@ -934,3 +934,11 @@ GitHub只读API确认本分支尚无open PR；Windows/WSL无gh，未取得API写
 功能提交32ba44c已推送codex/cr063-ui-polish（同时包含CR063），云端 https://43.161.223.91/ 已部署全页面版本，入口index-1pJFxCVB.js，index SHA256 21f6167b4a9804d17deaecd83267073a8ae6555e175f4b7d9fd09902c779f32a。备份 /opt/intelligent-quant-cr064-20261002/backup，旧资源保留、入口原子替换，本次未触发故障回滚。
 实际Edge桌面1440/手机390验证通过，14个请求（9 GET含历史TD3任务、5只读capability）均200，无pageerror/requestfailed；历史结果SVG宽1232与容器一致、高308，模型披露和减少动效正常。后端容器ID/镜像/启动时间前后一致且healthy，07:30 timer active；无训练、采集或新回测任务。
 源码、四份SDD、专项报告、根/前端README和10-02最新交接说明统一同步；README过时DDPG/跨资产/22根说明按CR062当前发布修正，旧专题报告保留历史日期。原未跟踪10-01交接不混入本次提交，真实快照/数据库/密钥不入Git。GitHub只读API确认当前分支无open PR；当前环境无GitHub API写入凭据，Pages仍待创建合并PR及工作流/真实页面验收。入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr063-ui-polish 。证据ignored artifacts/cr064-ui/cloud-browser.json、cloud-desktop.png、cloud-mobile.png和云发布目录deployment.json。
+
+
+### CR064 Pages合并后验收登记（2026-10-02）
+用户确认已合并并要求更新GitHub Pages。已核对PR45合并提交2ca1d7664bef1821892e6727af1c4667e10b1daa；Pages run36980002156已success，Frontend CI36980002086 success，Regression stack36980002127仍进行中。本批核验实际Pages资源、跨域接口、桌面/手机和历史任务只读恢复，不重复云部署或创建新回测；验收结束回写并同步文档，失败据实保留。
+
+
+### CR064 Pages正式验收完成（2026-10-02）
+PR45已合并main 2ca1d7664bef1821892e6727af1c4667e10b1daa；Pages工作流36980002156 success，Frontend CI36980002086 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 加载index-BaNyO3eT.js，CR064分组布局已存在。Edge1440/390、模型日期/140与142门槛、减少动效、历史TD3任务只读恢复通过，SVG/容器宽1232px、高308px；14业务请求全部200，无pageerror/requestfailed。没有重复云部署、训练或新回测提交；日更配置未动。证据ignored artifacts/cr064-ui/pages-browser.json、pages-desktop.png、pages-mobile.png。Pages发布与实际验收完成；Regression stack CI36980002127本次最后查询仍in_progress，不标为通过。本验收文档另推送codex/cr064-pages-evidence，文档分支是否合并不影响已经上线的功能。
