@@ -5,7 +5,7 @@
         <span class="brand-mark">量</span>
         <span><strong>智能量化分析平台</strong><small>A 股与场内 ETF · 次日早晨更新</small></span>
       </a>
-      <nav>
+      <nav aria-label="研究模块导航">
         <a href="#market">市场概况</a>
         <a href="#correlation">资产相关性</a>
         <a href="#backtest">策略回测</a>
@@ -16,7 +16,7 @@
 
     <main id="top" class="content">
       <section class="hero">
-        <div>
+        <div class="hero-copy">
           <p class="eyebrow">QUANT LAB / 收盘后的策略实验室</p>
           <h1>洞察市场信号，<br /><em>构建你的研究策略。</em></h1>
           <p>
@@ -30,6 +30,7 @@
           </div>
         </div>
         <div class="status-card">
+          <div class="status-caption"><span>数据发布状态</span><span>DATA STATUS</span></div>
           <div class="status-line">
             <span :class="['status-dot', dataStatus.status]"></span>
             <strong>{{ connection.loading ? '连接中' : connection.message }}</strong>
