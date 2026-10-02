@@ -1,6 +1,6 @@
 ﻿import { init, use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, TitleComponent, LegendComponent } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 
 let registered = false
@@ -10,6 +10,8 @@ export const getLineEcharts = () => {
     use([
       LineChart,
       TooltipComponent,
+      TitleComponent,
+      LegendComponent,
       GridComponent,
       SVGRenderer
     ])

@@ -105,7 +105,10 @@
           <article class="card form-card">
             <h3>选择 2–10 个资产</h3>
             <AssetPicker v-model="correlationSymbols" :assets="assetCatalog" label="资产组合" :disabled="correlationBusy" />
-            <div class="date-row">
+            </article>
+          <div class="result-stack">
+          <article class="card form-card"><h3>研究区间</h3>
+<div class="date-row">
               <label>开始日期<input v-model="correlationStartDate" type="date" :min="correlation.minDate" :max="correlation.maxDate.value" /></label>
               <label>结束日期<input v-model="correlationEndDate" type="date" :min="correlation.minDate" :max="correlation.maxDate.value" /></label>
             </div>
@@ -130,8 +133,10 @@
               部分资产对无有效相关系数，留空显示；未以 0 代替。
             </p>
             <p v-if="chartErrors.correlation" class="error" role="alert">{{ chartErrors.correlation }}</p>
-            <div ref="correlationChart" class="chart"></div>
+            <div ref="correlationChart" class="chart" :class="{ 'chart-empty': !correlationResult }"></div>
+            <div v-if="!correlationResult" class="empty-guide"><span>01 · 选择资产</span><span>02 · 确认共同区间</span><span>03 · 查看相关程度</span></div>
           </article>
+          </div>
         </div>
       </section>
 
@@ -141,11 +146,16 @@
           <span>收盘出信号 · 下一开盘成交</span>
         </header>
         <DataCapability :request="{ module: 'backtest', symbols: backtestSymbols, startDate: backtestStartDate, endDate: backtestEndDate, benchmark: backtestBenchmark || null }" :version="dataStatus.dataContext?.dataVersion" :assets="assetCatalog" :disabled="backtestBusy" @recover="recoverData('backtest', $event)" @checked="capabilityStates.backtest = $event" />
-        <div class="split">
-          <article class="card form-card">
-            <AssetPicker v-model="backtestSymbols" :assets="assetCatalog" label="回测资产" :disabled="backtestBusy" />
-            <StrategyPicker v-model="backtestStrategyId" :strategies="strategies" :disabled="backtestBusy" />
-            <label v-for="field in backtest.parameterFields.value" :key="field.key">
+        <div class="split backtest-workspace">
+          <article class="card form-card backtest-form">
+            <div class="form-section"><p class="group-kicker">01 / 研究标的</p>
+              <AssetPicker v-model="backtestSymbols" :assets="assetCatalog" label="回测资产" :disabled="backtestBusy" />
+            </div>
+            <div class="form-section"><p class="group-kicker">02 / 策略选择</p>
+              <StrategyPicker v-model="backtestStrategyId" :strategies="strategies" :disabled="backtestBusy" />
+            </div>
+            <div class="form-section parameter-section"><p class="group-kicker">03 / 参数与执行</p>
+              <label v-for="field in backtest.parameterFields.value" :key="field.key">
               {{ field.label }}
               <select v-if="field.type === 'string'" v-model="backtestParameters[field.key]" :name="field.key" :disabled="backtestBusy">
                 <option v-for="choice in field.enum" :key="choice" :value="choice">{{ choice }}</option>
@@ -154,15 +164,7 @@
                 :name="field.key" :min="field.minimum" :max="field.maximum"
                 :step="field.type === 'integer' ? 1 : 'any'" />
             </label>
-            <aside v-if="backtest.modelContext.value" class="hint ppo-notice" role="note">
-              <strong>{{ backtest.selectedStrategy.value?.name }} · 实验性回测</strong>
-              <p>训练资产：{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}（前复权）。</p>
-              <p v-for="line in modelWindowLines(backtest.modelContext.value)" :key="line">{{ line }}</p>
-              <p v-if="backtest.modelContext.value.assetScope === 'published_universe'">可选择资产池内1–10只股票或ETF。使用同一模型逐资产推理，初始资金等分后合并净值；未进行多资产联合训练，跨资产效果尚未验证。</p>
-              <p v-else>当前服务仅支持 {{ backtest.modelContext.value.symbols.join('、') }}。</p>
-              <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，至少{{ backtest.modelContext.value.minimumBars }}根行情，前{{ backtest.modelContext.value.warmupBars }}根预热不交易。训练链路可运行不代表长期绩效有效；存在过拟合与幸存者偏差，不代表未来收益。</p>
-              <button type="button" :disabled="backtestBusy || backtest.activeJob.value || !backtest.canApplyModelRange.value" @click="backtest.applyModelRange">使用当前可用样本外日期区间</button>
-            </aside>
+
             <label>比较基准
               <select v-model="backtestBenchmark">
                 <option value="">无基准（Alpha / Beta 不适用）</option>
@@ -191,6 +193,17 @@
             <p v-if="backtestJob?.dataContext" class="hint">{{ contextLabel(backtestJob.dataContext) }}</p>
             <p v-if="backtestJob" class="hint">任务 {{ backtestJob.jobId }} · {{ backtestJob.status }}</p>
             <p v-if="backtestError" class="error">{{ backtestError }}</p>
+
+            </div>
+            <aside v-if="backtest.modelContext.value" class="hint ppo-notice" role="note">
+              <strong>{{ backtest.selectedStrategy.value?.name }} · 实验性回测</strong>
+              <p>训练资产：{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}（前复权）。</p>
+              <p v-for="line in modelWindowLines(backtest.modelContext.value)" :key="line">{{ line }}</p>
+              <p v-if="backtest.modelContext.value.assetScope === 'published_universe'">可选择资产池内1–10只股票或ETF。使用同一模型逐资产推理，初始资金等分后合并净值；未进行多资产联合训练，跨资产效果尚未验证。</p>
+              <p v-else>当前服务仅支持 {{ backtest.modelContext.value.symbols.join('、') }}。</p>
+              <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，至少{{ backtest.modelContext.value.minimumBars }}根行情，前{{ backtest.modelContext.value.warmupBars }}根预热不交易。训练链路可运行不代表长期绩效有效；存在过拟合与幸存者偏差，不代表未来收益。</p>
+              <button type="button" :disabled="backtestBusy || backtest.activeJob.value || !backtest.canApplyModelRange.value" @click="backtest.applyModelRange">使用当前可用样本外日期区间</button>
+            </aside>
           </article>
           <article class="card">
             <div class="card-head"><h3>{{ backtest.strategyName.value }}结果</h3><span>
@@ -205,7 +218,8 @@
               {{ backtestJob.request.symbols.join('、') }} · 参数 {{ JSON.stringify(backtestJob.request.parameters) }}
             </p>
             <p v-if="chartErrors.equity" class="error" role="alert">{{ chartErrors.equity }}</p>
-            <div ref="equityChart" class="chart"></div>
+            <div ref="equityChart" class="chart" :class="{ 'chart-empty': !backtestResult }"></div>
+            <div v-if="!backtestResult" class="empty-guide"><span>配置研究参数</span><span>提交后等待任务完成</span><span>或恢复已有任务编号</span></div>
             <div class="result-grid">
               <div><span>总收益率</span><b>{{ formatPct(backtestMetrics?.totalReturnPct) }}</b></div>
               <div><span>年化收益率</span><b>{{ formatPct(backtestMetrics?.annualizedReturnPct) }}</b></div>
@@ -219,12 +233,13 @@
       </section>
 
       <section id="ranking" class="panel">
-        <p class="notice">比较范围：沪深300ETF（510300）；该资产数据不足时排行不可用，不代表全300只股票组合表现。</p>
-        <p v-if="rankingContext" class="hint">{{ contextLabel(rankingContext) }} · 510300ETF代表资产 · 默认参数及费用</p>
         <header class="panel-head">
           <div><p>STRATEGY RANKING</p><h2>策略排行榜</h2></div>
           <span>近 30 个自然日 · 收盘后更新</span>
         </header>
+        <p class="notice">比较范围：沪深300ETF（510300）；该资产数据不足时排行不可用，不代表全300只股票组合表现。</p>
+        <p v-if="rankingContext" class="hint">{{ contextLabel(rankingContext) }} · 510300ETF代表资产 · 默认参数及费用</p>
+
         <p class="hint">同一510300资产、默认本金及交易费用；预热期不计入区间收益。AI仅使用已部署模型的样本外区间，实验排行不代表未来收益。</p>
         <p v-for="item in rankingUnavailable" :key="item.strategyId" class="hint">{{ item.strategyName }}：{{ item.message }}</p>
         <DataCapability :request="{ module: 'ranking', period: '30d' }" :version="dataStatus.dataContext?.dataVersion" />
@@ -249,10 +264,13 @@
           <span>非实盘 · 不连接券商</span>
         </header>
         <DataCapability :request="{ module: 'allocation', symbols: allocationSymbols }" :version="dataStatus.dataContext?.dataVersion" :assets="assetCatalog" :disabled="allocationBusy" @recover="recoverData('allocation', $event)" @checked="capabilityStates.allocation = $event" />
-        <div class="split">
+        <div class="split allocation-workspace">
           <article class="card form-card">
-            <AssetPicker v-model="allocationSymbols" :assets="assetCatalog" label="配置资产" :disabled="allocationBusy" />
-            <StrategyPicker v-model="allocationStrategyId" :strategies="allocation.availableStrategies.value" :disabled="allocationBusy" />
+            <div class="form-section"><p class="group-kicker">研究标的</p><AssetPicker v-model="allocationSymbols" :assets="assetCatalog" label="配置资产" :disabled="allocationBusy" />
+            </div></article>
+          <div class="result-stack">
+          <article class="card form-card"><h3>策略与仓位</h3>
+              <StrategyPicker v-model="allocationStrategyId" :strategies="allocation.availableStrategies.value" :disabled="allocationBusy" />
             <label>现金比例（%）<input v-model.number="allocationCashPct" type="number" min="0" max="100" /></label>
             <button
               class="primary full"
@@ -269,7 +287,8 @@
               <small v-if="allocationResult?.dataContext">{{ contextLabel(allocationResult.dataContext) }}</small>
             </span></div>
             <p v-if="chartErrors.allocation" class="error" role="alert">{{ chartErrors.allocation }}</p>
-            <div ref="allocationChart" class="chart small"></div>
+            <div ref="allocationChart" class="chart small" :class="{ 'chart-empty': !allocationResult }"></div>
+            <div v-if="!allocationResult" class="empty-guide"><span>选择资产与策略</span><span>设置现金比例</span><span>生成模拟权重</span></div>
             <div v-if="allocationResult" class="position-list">
               <div>
                 <strong>现金</strong><span>{{ allocationResult.cashPct }}%</span>
@@ -281,6 +300,7 @@
               </div>
             </div>
           </article>
+          </div>
         </div>
       </section>
     </main>
@@ -376,6 +396,12 @@ onMounted(async () => {
 watch(correlationResult, (value) => charts.correlation?.setOption(correlationOption(value), true))
 watch(backtestResult, (value) => charts.equity?.setOption(equityOption(value), true))
 watch(allocationResult, (value) => charts.allocation?.setOption(allocationOption(value), true))
+
+// Empty/result layouts have different heights; resize only after Vue updates the DOM.
+watch([correlationResult, backtestResult, allocationResult], async () => {
+  await nextTick()
+  if (mounted) resizeCharts()
+}, { flush: 'post' })
 
 onBeforeUnmount(() => {
   mounted = false
