@@ -1,15 +1,17 @@
 const colors = {
-  blue: '#2563eb',
-  amber: '#f59e0b',
-  red: '#e11d48',
-  grid: '#e2e8f0',
-  muted: '#64748b'
+  blue: '#69d9c5',
+  amber: '#b4a4ed',
+  red: '#d785a7',
+  grid: '#273951',
+  muted: '#a4b6cf'
 }
 
 export function emptyChartOption(message) {
   return {
+    backgroundColor: 'transparent',
+    animation: false,
     title: {
-      text: message,
+      text: message.replace('后', '后\n'),
       left: 'center',
       top: 'middle',
       textStyle: { color: colors.muted, fontSize: 13, fontWeight: 500 }
@@ -28,6 +30,8 @@ export function correlationOption(result) {
     })
   })
   return {
+    backgroundColor: 'transparent',
+    animation: false,
     tooltip: {
       formatter: ({ data: item }) =>
         `${result.symbols[item[1]]} / ${result.symbols[item[0]]}<br>${item[2]}`
@@ -44,7 +48,7 @@ export function correlationOption(result) {
       orient: 'horizontal',
       left: 'center',
       bottom: 4,
-      inRange: { color: [colors.red, '#ffffff', colors.blue] }
+      inRange: { color: ['#926887', '#23394b', '#589f96'] }
     },
     series: [{
       type: 'heatmap',
@@ -65,6 +69,8 @@ export function equityOption(result) {
   const benchmark = normalised('benchmarkEquity')
   const hasBenchmark = benchmark.some(value => value !== null)
   return {
+    backgroundColor: 'transparent',
+    animation: false,
     tooltip: { trigger: 'axis', valueFormatter: value =>
       typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '—' },
     legend: { top: 4, data: hasBenchmark ? ['策略净值', '基准净值'] : ['策略净值'] },
@@ -77,6 +83,7 @@ export function equityOption(result) {
         type: 'line',
         showSymbol: false,
         data: normalised('equity'),
+        itemStyle: { color: colors.blue },
         lineStyle: { color: colors.blue, width: 2 }
       },
       ...(hasBenchmark ? [{
@@ -84,6 +91,7 @@ export function equityOption(result) {
         type: 'line',
         showSymbol: false,
         data: benchmark,
+        itemStyle: { color: colors.amber },
         lineStyle: { color: colors.amber, width: 2, type: 'dashed' }
       }] : [])
     ]
@@ -99,6 +107,8 @@ export function allocationOption(result) {
   if (result.cashPct > 0) data.push({ name: '现金', value: result.cashPct })
   if (!data.length) return emptyChartOption('没有可展示的持仓或现金权重')
   return {
+    backgroundColor: 'transparent',
+    color: ['#65b9ad', '#998acb', '#699ac0', '#c6a16c', '#8ba7ba'],
     animation: false,
     tooltip: { trigger: 'item', formatter: '{b}: {c}%' },
     legend: { bottom: 0 },

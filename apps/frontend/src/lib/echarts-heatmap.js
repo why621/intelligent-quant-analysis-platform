@@ -1,6 +1,6 @@
 ﻿import { init, use } from 'echarts/core'
 import { HeatmapChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, VisualMapComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, VisualMapComponent, TitleComponent } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 
 let registered = false
@@ -10,6 +10,7 @@ export const getHeatmapEcharts = () => {
     use([
       HeatmapChart,
       TooltipComponent,
+      TitleComponent,
       GridComponent,
       VisualMapComponent,
       SVGRenderer

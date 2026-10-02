@@ -6,11 +6,13 @@
 
 自2026-09-07起，新增需求和变更按 [spec.md](spec.md) 登记，并联动 [PRD.md](PRD.md)、[design.md](design.md) 和 [task.md](task.md)。新基线区分当前实现、历史部署观测、沪深300阶段目标与待验证事项；带日期的旧部署记录仅代表对应批次，当前状态以最新总结及上线实录为准。接口字段仍以OpenAPI为准。
 
-## 最新实现概述（2026-09-20）
+## 最新实现概述（2026-10-02）
 
-平台已接入固定300只沪深300成分股及27只ETF，提供五个研究模块。除均线交叉、动量反转外，PPO、DQN、SAC、DDPG四种强化学习算法均已训练验证并开放网页实验回测，支持1–10资产等分资金独立运行。云后端、Pages前端、日更调度及备份恢复链路已部署。
+平台接入固定300只沪深300成分股及27只ETF，提供五个研究模块。CR062已部署PPO、DQN、SAC、TD3四个实验模型；本批模型仅支持510300，预热140根、至少142根行情。训练为2015–2018年上半年，验证至2021年末，理论样本外下限2022-01-01；实际网页研究仍受已发布行情范围限制。未证明长期超额收益或跨资产通用性，训练/回评费用差异明确披露，不连接实盘。
 
-RL仍为实验性：当前模型基于510300训练，样本外回测从2026-07-01起，至少22根有效行情；跨资产收益效果未验证，已接入510300样本外实验排行，未接入RL配置或实盘。[算法最新总结](docs/rl-algorithms-summary-2026-09-20.md) · [项目集成总结](docs/midterm-integration-summary-2026-09-11.md) · [线上网页](https://why621.github.io/intelligent-quant-analysis-platform/)。
+CR064全页面柔和光影、紧凑布局和适量动效已部署[云端网页](https://43.161.223.91/)。源码及相关文档位于codex/cr063-ui-polish；[GitHub Pages](https://why621.github.io/intelligent-quant-analysis-platform/)仍待该分支PR合并发布，不能把云端更新视为Pages已更新。每天北京时间07:30持续日更保留。
+
+[最新交接](docs/session-handoff-2026-10-02.md) · [CR064 UI与部署验收](docs/cr064-ui-density-2026-10-02.md) · [CR062模型上线](docs/cr062-model-deployment-2026-10-01.md)。带日期的旧模型/中期总结仅作为历史记录。
 
 ## 仓库结构
 
@@ -65,7 +67,7 @@ cp apps/frontend/.env.example apps/frontend/.env.local
 npm run dev:frontend
 ```
 
-开发服务器默认将 `/api` 代理到 `http://localhost:8000`。生产构建使用：
+按 .env.example 设置 VITE_API_PROXY_TARGET 后，开发服务器将 `/api` 代理到 `http://localhost:8000`。生产构建使用：
 
 ```bash
 npm run build:frontend
