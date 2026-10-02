@@ -693,3 +693,9 @@ PR42 main7f20f6f已部署cr062镜像并联合切换四模型，Pages工作流成
 ### CR063 发布登记（2026-10-02）
 用户明确授权“推送部署”。远端 main 已合并 PR43，当前 8afa2fb（CR062 上线文档），本批先基于该版本建立 CR063 发布分支并提交已验证 UI；保留未跟踪交接文档。云端仅更新现有 dist 静态资源，先备份、先发布带哈希 assets、最后原子替换 index，失败恢复旧 index，保留旧 assets 供已打开页面加载；不重启后端、不改变模型/日更/行情/任务。Pages 遵守 main PR 保护及既有工作流。本环境 WSL 无 gh，GitHub API 写入权限尚未取得，若无法创建/合并 PR 则完成分支和云静态发布后交付可操作合并入口，不声称 Pages 已更新。
 验收：检查前端包路径和源码版本；云 HTTPS 实际页面、桌面/手机、模型说明、减少动效、接口状态；读取服务身份与 timer 确认保持。Pages 完成需合并后工作流及真实页面证据，单独记录。
+
+
+### CR063 云前端发布结果（2026-10-02）
+用户授权后，基于 main 8afa2fb 新建 codex/cr063-ui-polish，功能提交 8311a21 已推送。云端静态前端已备份发布 https://43.161.223.91/ ，入口 index-CN_NNz-L.js，index SHA256 2e96decf295f2219d3c148674cdbe0cce2a3d18edf0b9a1490b8eb997b242fe7。先复制资源再原子替换入口，旧资源保留；备份 /opt/intelligent-quant-cr063-20261002/backup。本批未触发故障回滚。
+实际 Edge 1440/390 页面、模型日期/140与142门槛、减少动效通过；13个请求（8 GET、5只读capability）均200，无pageerror/requestfailed，无计算/回测提交。后端容器ID/镜像/启动时间不变且healthy，timer active；未改模型、行情、任务库或日更配置。证据：ignored artifacts/cr063-ui/cloud-browser.json、cloud-desktop.png、cloud-mobile.png 及云发布目录 deployment.json。
+GitHub只读API确认本分支尚无open PR；Windows/WSL无gh，未取得API写入凭据。Pages尚未更新，需用户创建并合并 https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr063-ui-polish 后核验工作流和实际Pages。Pages验收保持未完成，不将云端通过视为历史故障恢复确认。
