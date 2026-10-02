@@ -928,3 +928,9 @@ GitHub只读API确认本分支尚无open PR；Windows/WSL无gh，未取得API写
 ### CR064 发布登记（2026-10-02）
 用户明确授权“推送部署，并更新所有相关文件到GitHub”。本批将CR064全部前端源码、四份SDD、专项验收与最新交接说明同步到既有codex/cr063-ui-polish分支，供一次PR包含CR063/064完整UI改动。远端main仍8afa2fb，CR063尚未合并。真实快照、模型、数据库、凭据及本地验证缓存不入Git；原未跟踪10-01交接保留，不用过时启动语替代最新状态。
 云端仅备份替换静态前端；保留旧哈希资源、最后原子更新index，失败回滚旧入口；后端容器、模型、数据和07:30日更保持。构建根路径云产物与Pages子路径，核验线上桌面/手机、模型披露、历史任务只读恢复和SVG图表。GitHub Pages须PR合并后工作流与真实页面验收，缺API写入权限仍需用户完成合并，不绕过main保护。
+
+
+### CR064 云端部署与GitHub同步（2026-10-02）
+功能提交32ba44c已推送codex/cr063-ui-polish（同时包含CR063），云端 https://43.161.223.91/ 已部署全页面版本，入口index-1pJFxCVB.js，index SHA256 21f6167b4a9804d17deaecd83267073a8ae6555e175f4b7d9fd09902c779f32a。备份 /opt/intelligent-quant-cr064-20261002/backup，旧资源保留、入口原子替换，本次未触发故障回滚。
+实际Edge桌面1440/手机390验证通过，14个请求（9 GET含历史TD3任务、5只读capability）均200，无pageerror/requestfailed；历史结果SVG宽1232与容器一致、高308，模型披露和减少动效正常。后端容器ID/镜像/启动时间前后一致且healthy，07:30 timer active；无训练、采集或新回测任务。
+源码、四份SDD、专项报告、根/前端README和10-02最新交接说明统一同步；README过时DDPG/跨资产/22根说明按CR062当前发布修正，旧专题报告保留历史日期。原未跟踪10-01交接不混入本次提交，真实快照/数据库/密钥不入Git。GitHub只读API确认当前分支无open PR；当前环境无GitHub API写入凭据，Pages仍待创建合并PR及工作流/真实页面验收。入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr063-ui-polish 。证据ignored artifacts/cr064-ui/cloud-browser.json、cloud-desktop.png、cloud-mobile.png和云发布目录deployment.json。
