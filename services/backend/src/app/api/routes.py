@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from datetime import date
 
@@ -10,6 +11,59 @@ from app.services.errors import ServiceError
 api = Blueprint("api", __name__)
 
 _RANKING_PERIODS = ("1d", "7d", "30d", "1y")
+
+
+def _research_config_error(payload):
+    """Shared optional research fields; absence keeps legacy request semantics."""
+    invalid = None
+    for field, options in (("benchmarkMode", {"buy_and_hold", "custom", "none"}),
+                           ("portfolioMode", {"shared_account", "legacy_independent"}),
+                           ("adjust", {"qfq", "hfq", "none"})):
+        if field in payload and (
+            not isinstance(payload[field], str) or payload[field] not in options
+        ):
+            invalid = field
+    if payload.get("benchmarkMode") == "custom" and not payload.get("benchmark"):
+        invalid = "benchmark"
+    if payload.get("benchmarkMode") in ("buy_and_hold", "none") and payload.get("benchmark"):
+        invalid = "benchmark"
+    if (payload.get("portfolioMode") == "legacy_independent"
+            and payload.get("cashPct", 0) != 0):
+        invalid = "cashPct"
+    for field, default, lower, upper in (("initialCapitalCny", 100000, 0, None),
+                                          ("cashPct", 0, 0, 100)):
+        value = payload.get(field, default)
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value < lower
+                or (field == "initialCapitalCny" and value == 0)
+                or (upper is not None and value > upper)):
+            invalid = field
+    if "parameters" in payload and not isinstance(payload["parameters"], dict):
+        invalid = "parameters"
+    if "startDate" in payload:
+        try:
+            date.fromisoformat(payload["startDate"])
+        except (ValueError, TypeError):
+            invalid = "startDate"
+    if "tradingCosts" in payload:
+        costs = payload["tradingCosts"]
+        if not isinstance(costs, dict):
+            invalid = "tradingCosts"
+        else:
+            if set(costs) - {"commissionPct", "stampDutyPct", "slippagePct", "stampDutyMode"}:
+                invalid = "tradingCosts"
+            mode = costs.get("stampDutyMode", "fixed")
+            if not isinstance(mode, str) or mode not in {"fixed", "asset_date"}:
+                invalid = "stampDutyMode"
+            for field in ("commissionPct", "stampDutyPct", "slippagePct"):
+                value = costs.get(field, 0)
+                if (isinstance(value, bool) or not isinstance(value, (int, float))
+                        or not math.isfinite(value) or not 0 <= value < 100):
+                    invalid = field
+    if invalid is not None:
+        return error_response(code="VALIDATION_ERROR", message=f"{invalid} 配置无效",
+                              status=400, details={"field": invalid})
+    return None
 
 
 def error_response(
@@ -76,7 +130,7 @@ def data_capability():
     allowed = {
         "overview": {"module"},
         "ranking": {"module", "period"},
-        "allocation": {"module", "symbols"},
+        "allocation": {"module", "symbols", "startDate"},
         "correlation": {"module", "symbols", "startDate", "endDate"},
         "backtest": {"module", "symbols", "startDate", "endDate", "benchmark"},
     }
@@ -106,6 +160,11 @@ def data_capability():
             valid = False
     if valid and module == "ranking":
         valid = payload.get("period", "30d") in _RANKING_PERIODS
+    if valid and module == "allocation" and "startDate" in payload:
+        try:
+            date.fromisoformat(payload["startDate"])
+        except (ValueError, TypeError):
+            valid = False
     if valid and payload.get("benchmark") is not None:
         benchmark = payload["benchmark"]
         valid = isinstance(benchmark, str) and (
@@ -386,6 +445,9 @@ def create_backtest() -> tuple[dict[str, object], int]:
         "initialCapitalCny",
         "adjust",
         "tradingCosts",
+        "benchmarkMode",
+        "portfolioMode",
+        "cashPct",
     }
     if extra_fields:
         return error_response(
@@ -394,6 +456,10 @@ def create_backtest() -> tuple[dict[str, object], int]:
             status=400,
             details={"field": sorted(extra_fields)[0]},
         )
+
+    config_error = _research_config_error(payload)
+    if config_error is not None:
+        return config_error
 
     symbols = payload.get("symbols")
     if (
@@ -498,7 +564,9 @@ def create_backtest() -> tuple[dict[str, object], int]:
                 status=400,
                 details={"field": "tradingCosts"},
             )
-        extra_cost_fields = set(trading_costs) - {"commissionPct", "stampDutyPct", "slippagePct"}
+        extra_cost_fields = set(trading_costs) - {
+            "commissionPct", "stampDutyPct", "slippagePct", "stampDutyMode"
+        }
         if extra_cost_fields:
             return error_response(
                 code="VALIDATION_ERROR",
@@ -509,7 +577,8 @@ def create_backtest() -> tuple[dict[str, object], int]:
         for field in ("commissionPct", "stampDutyPct", "slippagePct"):
             value = trading_costs.get(field)
             if value is not None and (
-                not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0
+                not isinstance(value, (int, float)) or isinstance(value, bool)
+                or not math.isfinite(value) or value < 0
             ):
                 return error_response(
                     code="VALIDATION_ERROR",
@@ -563,7 +632,10 @@ def allocation_suggestion() -> tuple[dict[str, object], int]:
     if validation_error is not None:
         return validation_error
 
-    extra_fields = set(payload) - {"symbols", "strategyId", "cashPct"}
+    extra_fields = set(payload) - {
+        "symbols", "strategyId", "cashPct", "parameters", "adjust", "tradingCosts",
+        "initialCapitalCny", "startDate"
+    }
     if extra_fields:
         return error_response(
             code="VALIDATION_ERROR",
@@ -571,6 +643,10 @@ def allocation_suggestion() -> tuple[dict[str, object], int]:
             status=400,
             details={"field": sorted(extra_fields)[0]},
         )
+
+    config_error = _research_config_error(payload)
+    if config_error is not None:
+        return config_error
 
     symbols = payload.get("symbols")
     if (
@@ -616,6 +692,9 @@ def allocation_suggestion() -> tuple[dict[str, object], int]:
             symbols=symbols,
             strategy_id=strategy_id,
             cash_pct=cash_pct,
+            **{key: payload[key] for key in (
+                "parameters", "adjust", "tradingCosts", "initialCapitalCny", "startDate"
+            ) if key in payload},
         )
     except ServiceError as exc:
         return error_response(

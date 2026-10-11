@@ -128,7 +128,11 @@ test('reviewed research model sends its canonical ETF fees and locks training as
   state.strategyId.value='td3';state.symbols.value=['600519'];state.applyModelRange()
   assert.deepEqual(state.symbols.value,['510300'])
   await state.submit()
-  assert.deepEqual(sent.tradingCosts,model.modelContext.requiredTradingCosts)
+  assert.deepEqual(sent.tradingCosts,{...model.modelContext.requiredTradingCosts,stampDutyMode:'fixed'})
+  assert.equal(sent.portfolioMode,'legacy_independent')
+  state.cashPct.value=10
+  assert.match(state.validationError.value,/不支持预留现金/)
+  state.cashPct.value=0
   state.symbols.value=['600519']
   assert.match(state.validationError.value,/仅支持 510300/)
 })

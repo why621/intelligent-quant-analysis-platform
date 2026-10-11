@@ -2,26 +2,42 @@ TradingCosts:
   type: object
   additionalProperties: false
   properties:
+    stampDutyMode:
+      type: string
+      enum: [fixed, asset_date]
+      default: fixed
+      description: fixed使用固定卖出税率；asset_date按资产类型及实际成交日期计税，ETF为0。
     commissionPct:
       type: number
       minimum: 0
       default: 0.03
+      exclusiveMaximum: 100
       description: 单边佣金百分点；0.03 表示 0.03%
     stampDutyPct:
       type: number
       minimum: 0
       default: 0.05
+      exclusiveMaximum: 100
       description: 卖出印花税百分点；0.05 表示 0.05%
     slippagePct:
       type: number
       minimum: 0
       default: 0.02
+      exclusiveMaximum: 100
       description: 单边滑点百分点
 BacktestRequest:
   type: object
   additionalProperties: false
   required: [symbols, strategyId, startDate, endDate]
   properties:
+    benchmarkMode:
+      enum: [buy_and_hold, custom, none]
+      description: buy_and_hold为所选资产初始等权价格持有、不再平衡、不计费用；旧请求省略时沿用benchmark字段。
+    portfolioMode:
+      enum: [shared_account, legacy_independent]
+      default: legacy_independent
+      description: shared_account唯一现金账户；legacy_independent保留旧模型与旧请求的独立分账语义。
+    cashPct: {type: number, minimum: 0, maximum: 100, default: 0}
     symbols:
       type: array
       minItems: 1
@@ -81,6 +97,9 @@ Trade:
   type: object
   required: [date, symbol, side, price, quantity, amountCny, feeCny]
   properties:
+    commissionCny: {type: number, minimum: 0}
+    stampDutyCny: {type: number, minimum: 0}
+    slippageCny: {type: number, minimum: 0}
     date: {type: string, format: date}
     symbol: {$ref: "./common.yaml#/Symbol"}
     side: {type: string, enum: [buy, sell]}
@@ -92,6 +111,12 @@ BacktestResult:
   type: object
   required: [metrics, equityCurve, trades, assumptions]
   properties:
+    accountCurve:
+      type: array
+      items: {$ref: '#/AccountPoint'}
+      description: 收盘账户状态；旧任务可缺失，不得解释成零仓位。
+    costSummary: {$ref: '#/CostSummary'}
+    benchmarkContext: {$ref: '#/BenchmarkContext'}
     modelContext: {$ref: "./strategy.yaml#/ModelContext"}
     dataContext: {$ref: "./common.yaml#/ResearchContext"}
     metrics: {$ref: "#/BacktestMetrics"}
@@ -109,6 +134,10 @@ BacktestResult:
         executeAt: {type: string, enum: [next_open, next_tradable_open]}
         nonTradingValuation:
           enum: [none, last_observed_close_or_initial_cash]
+        nonTradingExecution:
+          const: skip_untradable_no_pending_order
+          description: 共享账户在下一统一交易日开盘仅成交可交易资产；停牌不成交且不跨日保留挂单，估值使用最近真实收盘。
+        executionVersion: {type: string}
         calendar: {type: string, const: CN}
         currency: {type: string, const: CNY}
 BacktestJob:
@@ -137,3 +166,45 @@ BacktestJob:
       oneOf:
         - {$ref: "./common.yaml#/ErrorResponse"}
         - {type: "null"}
+AccountPoint:
+  type: object
+  required: [date, cashCny, equity, exposurePct, positions, cumulativeFeesCny, cumulativeSlippageCny, cumulativeTradingCostCny]
+  properties:
+    date: {type: string, format: date}
+    cashCny: {type: number, minimum: 0}
+    equity: {type: number}
+    exposurePct: {type: number, minimum: 0, maximum: 100}
+    cumulativeFeesCny: {type: number, minimum: 0}
+    cumulativeSlippageCny: {type: number, minimum: 0}
+    cumulativeTradingCostCny: {type: number, minimum: 0}
+    positions:
+      type: array
+      items:
+        type: object
+        required: [symbol, quantity, marketValueCny, weightPct]
+        properties:
+          symbol: {$ref: './common.yaml#/Symbol'}
+          quantity: {type: number, minimum: 0}
+          marketValueCny: {type: number, minimum: 0}
+          weightPct: {type: number, minimum: 0, maximum: 100}
+CostSummary:
+  type: object
+  required: [tradeCount, commissionCny, stampDutyCny, feesCny, slippageCny, totalTradingCostCny]
+  properties:
+    tradeCount: {type: integer, minimum: 0}
+    commissionCny: {type: number, minimum: 0}
+    stampDutyCny: {type: number, minimum: 0}
+    feesCny: {type: number, minimum: 0}
+    slippageCny: {type: number, minimum: 0}
+    totalTradingCostCny: {type: number, minimum: 0}
+BenchmarkContext:
+  type: object
+  required: [mode, symbols, startDate, endDate, returnBasis, costsIncluded, label]
+  properties:
+    mode: {enum: [buy_and_hold, custom, none]}
+    symbols: {type: array, items: {type: string}}
+    startDate: {type: [string, 'null'], format: date}
+    endDate: {type: [string, 'null'], format: date}
+    returnBasis: {type: string}
+    costsIncluded: {type: boolean}
+    label: {type: string}

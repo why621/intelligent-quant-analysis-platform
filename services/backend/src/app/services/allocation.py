@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import date
 
 from quant_platform.allocation import AllocationService as AlgorithmAllocationService
 from quant_platform.allocation import PublicationUnavailableError, StalePublicationError
 from quant_platform.data.akshare_provider import (
     UpstreamUnavailableError as ProviderUpstreamError,
 )
-from quant_platform.models import AllocationSuggestion
+from quant_platform.models import AllocationSuggestion, TradingCosts
 
-from app.services.errors import ServiceError, StrategyNotAvailableError, UpstreamUnavailableError
-from app.services.research_dates import DataNotReadyError, research_read
+from app.services.errors import (
+    AssetNotFoundError,
+    ServiceError,
+    StrategyNotAvailableError,
+    UpstreamUnavailableError,
+    ValidationError,
+)
+from app.services.parameters import validate_against_schema
+from app.services.research_dates import DataNotReadyError, ResearchDateGuard, research_read
 from app.services.strategies import StrategyCatalogService
 
 
@@ -45,18 +53,47 @@ class AllocationService:
         symbols: Sequence[str],
         strategy_id: str,
         cash_pct: float,
+        **configuration,
     ) -> Mapping[str, object]:
         """返回契约 AllocationResponse；字段已由路由层校验。"""
         strategy = self._catalog.get_strategy(strategy_id)
         if strategy is None or strategy.info().status != "available":
             raise StrategyNotAvailableError(details={"strategyId": strategy_id})
+        parameters = configuration.get("parameters")
+        if parameters is not None:
+            errors = validate_against_schema(strategy.info().parameter_schema, parameters)
+            if errors:
+                raise ValidationError(message=f"{errors[0][0]} {errors[0][1]}")
+            try:
+                strategy.validate_parameters(parameters)
+            except ValueError as exc:
+                raise ValidationError(message=str(exc)) from exc
+        pool = {asset.symbol for asset in self._algorithm._provider.list_assets(limit=None)}
+        for symbol in symbols:
+            if symbol not in pool:
+                raise AssetNotFoundError(details={"symbol": symbol})
+        costs = configuration.get("tradingCosts", {})
+        kwargs = {}
+        if configuration:
+            kwargs = {"parameters": parameters, "adjust": configuration.get("adjust", "qfq"),
+                      "initial_capital_cny": configuration.get("initialCapitalCny", 100000),
+                      "start_date": (date.fromisoformat(configuration["startDate"])
+                                     if configuration.get("startDate") else None),
+                      "trading_costs": TradingCosts(
+                          costs.get("commissionPct", 0.03), costs.get("stampDutyPct", 0.05),
+                          costs.get("slippagePct", 0.02), costs.get("stampDutyMode", "fixed"))}
 
         try:
             with research_read(self._algorithm._provider) as context:
+                if configuration.get("startDate"):
+                    ResearchDateGuard(self._algorithm._provider).validate(
+                        symbols, date.fromisoformat(configuration["startDate"]),
+                        date.fromisoformat(context["publicationDate"]))
                 result = self._algorithm.suggest(
                     symbols=symbols,
                     strategy_id=strategy_id,
                     cash_pct=cash_pct,
+                    **kwargs,
                 )
         except PublicationUnavailableError as exc:
             raise DataNotReadyError() from exc
@@ -96,4 +133,5 @@ def _serialize_suggestion(result: AllocationSuggestion) -> Mapping[str, object]:
         "cashPct": result.cash_pct,
         "advisoryOnly": result.advisory_only,
         "disclaimer": result.disclaimer,
+        **({"request": dict(result.request)} if result.request is not None else {}),
     }

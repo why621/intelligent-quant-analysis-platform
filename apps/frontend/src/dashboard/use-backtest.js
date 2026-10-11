@@ -4,6 +4,7 @@ import { api, API_BASE_URL } from '../services/api.js'
 import { displayError, SYMBOL_PATTERN } from './common.js'
 import { useResearchDates } from './use-research-dates.js'
 import { useStrategyParameters } from './strategy-parameters.js'
+import { snapshotKey } from './use-research-context.js'
 
 const JOB_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STORAGE_KEY = `quant:last-backtest:${API_BASE_URL}`
@@ -13,6 +14,10 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   const symbols = ref(['510300'])
   const strategyId = ref('ma_cross')
   const benchmark = ref('')
+  const benchmarkMode = ref('buy_and_hold')
+  const initialCapitalCny = ref(100000)
+  const cashPct = ref(0)
+  const tradingCosts = ref({ commissionPct: 0.03, stampDutyPct: 0.05, slippagePct: 0.02, stampDutyMode: 'asset_date' })
   const job = ref(null)
   const busy = ref(false)
   const error = ref('')
@@ -27,6 +32,9 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   const selectedStrategy = computed(() => availableStrategies.value.find(item => item.id === strategyId.value))
   const parameterForm = useStrategyParameters(selectedStrategy)
   const modelContext = computed(() => selectedStrategy.value?.modelContext || null)
+  const effectiveTradingCosts = computed(() => modelContext.value?.requiredTradingCosts
+    ? { ...modelContext.value.requiredTradingCosts, stampDutyMode: 'fixed' } : tradingCosts.value)
+  const portfolioMode = computed(() => modelContext.value ? 'legacy_independent' : 'shared_account')
   const modelRangeStart = computed(() => {
     if (!modelContext.value || !dates.maxDate.value) return ''
     const start = [modelContext.value.outOfSampleStartDate, dates.minDate].sort().at(-1)
@@ -54,6 +62,8 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     return strategies.value.find(item => item.id === id)?.name || '历史任务（策略待确认）'
   })
   const benchmarkLabel = computed(() => {
+    if (job.value?.result?.benchmarkContext) return job.value.result.benchmarkContext.label
+    if (job.value?.request?.benchmarkMode === 'buy_and_hold') return '所选资产初始等权买入持有（价格收益、不再平衡、不计费用）'
     const code = job.value?.request?.benchmark
     if (job.value && !job.value.request) return '历史任务未返回请求快照，基准待确认'
     if (!code) return '无基准；Alpha / Beta 不适用'
@@ -67,7 +77,13 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
       || new Set(symbols.value).size !== symbols.value.length) return '请选择 1–10 个不同的六位资产代码。'
     if (!selectedStrategy.value) return '请选择可用策略。'
     if (parameterForm.parameterError.value) return parameterForm.parameterError.value
-    if (benchmark.value && !benchmarkOptions.value.some(item => item.symbol === benchmark.value)) return '请选择已接入的指数、ETF 或无基准。'
+    if (!['buy_and_hold', 'custom', 'none'].includes(benchmarkMode.value)) return '请选择有效基准模式。'
+    if (benchmarkMode.value === 'custom' && !benchmarkOptions.value.some(item => item.symbol === benchmark.value)) return '请选择已接入的指数或 ETF 基准。'
+    if (typeof initialCapitalCny.value !== 'number' || !Number.isFinite(initialCapitalCny.value) || initialCapitalCny.value <= 0) return '初始资金必须为正数。'
+    if (typeof cashPct.value !== 'number' || !Number.isFinite(cashPct.value) || cashPct.value < 0 || cashPct.value > 100) return '预留现金比例须为 0–100 的有限数值。'
+    if (modelContext.value && cashPct.value !== 0) return '现有单资产 AI 模型不支持预留现金约束，请将预留现金显式设为 0%。'
+    if (!['asset_date', 'fixed'].includes(effectiveTradingCosts.value.stampDutyMode)
+      || ['commissionPct', 'stampDutyPct', 'slippagePct'].some(key => typeof effectiveTradingCosts.value[key] !== 'number' || !Number.isFinite(effectiveTradingCosts.value[key]) || effectiveTradingCosts.value[key] < 0)) return '费用必须为非负有限数值。'
     if (dates.dateError.value) return dates.dateError.value
     if (modelContext.value) {
       const model = modelContext.value
@@ -134,9 +150,10 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
       parameters: Object.fromEntries(Object.entries(parameterForm.parameters.value)
         .filter(([, value]) => value !== '' && value != null)),
       startDate: dates.startDate.value, endDate: dates.endDate.value,
-      ...(benchmark.value ? { benchmark: benchmark.value } : {}),
-      initialCapitalCny: 100000, adjust: 'qfq',
-      tradingCosts: modelContext.value?.requiredTradingCosts || { commissionPct: 0.03, stampDutyPct: 0.05, slippagePct: 0.02 }
+      benchmarkMode: benchmarkMode.value, portfolioMode: portfolioMode.value,
+      ...(benchmarkMode.value === 'custom' ? { benchmark: benchmark.value } : {}),
+      initialCapitalCny: initialCapitalCny.value, cashPct: cashPct.value, adjust: 'qfq',
+      tradingCosts: { ...effectiveTradingCosts.value }
     }
     try {
       const response = await client.createBacktest(payload)
@@ -153,8 +170,20 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
       if (current(token)) { busy.value = false; error.value = displayError(requestError) }
     }
   }
+  const resultStale = computed(() => {
+    const request = job.value?.request
+    if (!request) return false
+    const resultVersion = job.value?.result?.dataContext?.dataVersion || job.value?.dataContext?.dataVersion
+    if (resultVersion && dataStatus.value.dataContext?.dataVersion && resultVersion !== dataStatus.value.dataContext.dataVersion) return true
+    return snapshotKey([request.symbols, request.strategyId, request.parameters || {}, request.startDate, request.endDate,
+      request.benchmarkMode || (request.benchmark ? 'custom' : 'none'), request.benchmark || '', request.initialCapitalCny ?? 100000,
+      request.cashPct ?? 0, request.tradingCosts]) !== snapshotKey([symbols.value, strategyId.value, parameterForm.parameters.value,
+      dates.startDate.value, dates.endDate.value, benchmarkMode.value, benchmarkMode.value === 'custom' ? benchmark.value : '',
+      initialCapitalCny.value, cashPct.value, effectiveTradingCosts.value])
+  })
   if (getCurrentScope()) onScopeDispose(() => { disposed = true; generation += 1; stopTimer() })
-  return { ...dates, ...parameterForm, symbols, strategyId, benchmark, benchmarkOptions,
+  return { ...dates, ...parameterForm, symbols, strategyId, benchmark, benchmarkMode, benchmarkOptions,
+    initialCapitalCny, cashPct, tradingCosts, effectiveTradingCosts, portfolioMode, resultStale,
     benchmarkLabel, job, busy, error, recoveryId, activeJob, availableStrategies, strategyName,
     modelContext, selectedStrategy, modelRangeStart, canApplyModelRange, applyModelRange, validationError, canSubmit, submit, resume }
 }

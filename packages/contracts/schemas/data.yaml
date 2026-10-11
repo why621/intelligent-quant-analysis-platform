@@ -263,6 +263,10 @@ ModuleCapabilityRequest:
       required: [module, symbols]
       properties:
         module: {const: allocation}
+        startDate:
+          type: string
+          format: date
+          description: 与模拟请求相同的账户重放起点；省略沿用365自然日回看。
         symbols: {type: array, minItems: 1, maxItems: 10, uniqueItems: true, items: {$ref: './common.yaml#/Symbol'}}
     - type: object
       additionalProperties: false

@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import pytest
 
 from quant_platform.allocation import AllocationService
 from quant_platform.data.akshare_provider import UpstreamUnavailableError
+from quant_platform.data.calendar import sessions
 from quant_platform.models import (
     AdjustMode,
     DataStatus,
@@ -27,7 +28,8 @@ class FakeProvider:
         end_date: date,
         adjust: AdjustMode = "qfq",
     ) -> pd.DataFrame:
-        dates = pd.date_range(end=end_date, periods=30, freq="B")
+        # A business-day fixture must not create prices on official holidays.
+        dates = pd.to_datetime(sessions(end_date - timedelta(days=75), end_date)[-30:])
         # 不同 symbol 产生不同信号：
         # sym1 持续上涨 → MACross 可能买入
         # sym2 持续下跌 → 可能卖出

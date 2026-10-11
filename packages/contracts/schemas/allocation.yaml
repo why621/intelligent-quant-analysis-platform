@@ -3,6 +3,11 @@ AllocationRequest:
   additionalProperties: false
   required: [symbols, strategyId]
   properties:
+    parameters: {type: object, additionalProperties: true, default: {}}
+    adjust: {$ref: './common.yaml#/AdjustMode'}
+    tradingCosts: {$ref: './backtest.yaml#/TradingCosts'}
+    initialCapitalCny: {type: number, exclusiveMinimum: 0, default: 100000}
+    startDate: {type: string, format: date}
     symbols:
       type: array
       minItems: 1
@@ -33,6 +38,9 @@ AllocationResponse:
   required:
     [basisDate, targetDate, strategyId, positions, cashPct, advisoryOnly, disclaimer]
   properties:
+    request:
+      $ref: '#/AllocationRequest'
+      description: 实际参数及重放起点；从全现金账户重放至basisDate，再计算目标权重，未来费用尚未发生。
     dataContext: {$ref: "./common.yaml#/ResearchContext"}
     basisDate:
       type: string

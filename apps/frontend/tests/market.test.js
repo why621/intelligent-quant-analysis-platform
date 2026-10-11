@@ -116,12 +116,18 @@ test('partial publication exposes per-asset dates and clears them on failed relo
 
 test('ranking keeps experiment metadata and clears obsolete exclusions on reload', async () => {
   const client=makeClient()
-  client.getStrategyRanking=async()=>({items:[{strategyId:'ppo',status:'experimental',returnPct:1.2,modelContext:{modelRef:'reviewed'}}],unavailableStrategies:[{strategyId:'sac',message:'预热不足'}]})
+  client.getStrategyRanking=async()=>({evaluationStartDate:'2026-08-05',evaluationEndDate:'2026-09-04',historyStartDate:'2026-05-01',observationCount:23,
+    tradingCosts:{commissionPct:0.03,stampDutyPct:0,slippagePct:0.02,stampDutyMode:'fixed'},evaluationSymbols:['510300'],
+    items:[{strategyId:'ppo',status:'experimental',returnPct:1.2,parameters:{modelRef:'reviewed'},modelContext:{modelRef:'reviewed'}}],unavailableStrategies:[{strategyId:'sac',message:'预热不足'}]})
   const state=useMarket(client);await state.initialise()
   assert.equal(state.ranking.value[0].modelContext.modelRef,'reviewed')
   assert.equal(state.ranking.value[0].status,'experimental')
   assert.equal(state.rankingUnavailable.value[0].strategyId,'sac')
+  assert.equal(state.rankingMetadata.value.evaluationStartDate,'2026-08-05')
+  assert.equal(state.rankingMetadata.value.historyStartDate,'2026-05-01')
+  assert.deepEqual(state.ranking.value[0].parameters,{modelRef:'reviewed'})
   client.getStrategyRanking=async()=>({items:[]})
   await state.initialise()
   assert.deepEqual(state.rankingUnavailable.value,[])
+  assert.equal(state.rankingMetadata.value.evaluationStartDate,undefined)
 })

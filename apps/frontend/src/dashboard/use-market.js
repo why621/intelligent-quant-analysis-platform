@@ -27,6 +27,7 @@ export function useMarket(client = api) {
   const market = ref({ ...fallbackMarket })
   const strategies = ref(fallbackStrategies)
   const ranking = ref([])
+  const rankingMetadata = ref(null)
   const rankingContext = ref(null)
   const rankingUnavailable = ref([])
   const historyStatusText = computed(() => dataStatus.value.availability
@@ -65,6 +66,7 @@ export function useMarket(client = api) {
     strategies.value = fallbackStrategies
     market.value = { ...fallbackMarket }
     ranking.value = []
+    rankingMetadata.value = null
     rankingContext.value = null
     rankingUnavailable.value = []
     marketError.value = ''
@@ -90,6 +92,7 @@ export function useMarket(client = api) {
       [async () => { await statusRequest; return client.getStrategyRanking('30d') }, value => {
         if (!Array.isArray(value?.items)) throw Error()
         ranking.value = value.items
+        rankingMetadata.value = value
         rankingContext.value = value.dataContext || null
         rankingUnavailable.value = value.unavailableStrategies || []
       }]
@@ -132,6 +135,7 @@ export function useMarket(client = api) {
     market,
     strategies,
     ranking,
+    rankingMetadata,
     rankingContext,
     rankingUnavailable,
     historyStatusText,

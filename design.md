@@ -720,3 +720,41 @@ GitHub只读API确认本分支尚无open PR；Windows/WSL无gh，未取得API写
 功能提交32ba44c已推送codex/cr063-ui-polish（同时包含CR063），云端 https://43.161.223.91/ 已部署全页面版本，入口index-1pJFxCVB.js，index SHA256 21f6167b4a9804d17deaecd83267073a8ae6555e175f4b7d9fd09902c779f32a。备份 /opt/intelligent-quant-cr064-20261002/backup，旧资源保留、入口原子替换，本次未触发故障回滚。
 实际Edge桌面1440/手机390验证通过，14个请求（9 GET含历史TD3任务、5只读capability）均200，无pageerror/requestfailed；历史结果SVG宽1232与容器一致、高308，模型披露和减少动效正常。后端容器ID/镜像/启动时间前后一致且healthy，07:30 timer active；无训练、采集或新回测任务。
 源码、四份SDD、专项报告、根/前端README和10-02最新交接说明统一同步；README过时DDPG/跨资产/22根说明按CR062当前发布修正，旧专题报告保留历史日期。原未跟踪10-01交接不混入本次提交，真实快照/数据库/密钥不入Git。GitHub只读API确认当前分支无open PR；当前环境无GitHub API写入凭据，Pages仍待创建合并PR及工作流/真实页面验收。入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr063-ui-polish 。证据ignored artifacts/cr064-ui/cloud-browser.json、cloud-desktop.png、cloud-mobile.png和云发布目录deployment.json。
+
+
+### CR064 Pages合并后验收登记（2026-10-02）
+用户确认已合并并要求更新GitHub Pages。已核对PR45合并提交2ca1d7664bef1821892e6727af1c4667e10b1daa；Pages run36980002156已success，Frontend CI36980002086 success，Regression stack36980002127仍进行中。本批核验实际Pages资源、跨域接口、桌面/手机和历史任务只读恢复，不重复云部署或创建新回测；验收结束回写并同步文档，失败据实保留。
+
+
+### CR064 Pages正式验收完成（2026-10-02）
+PR45已合并main 2ca1d7664bef1821892e6727af1c4667e10b1daa；Pages工作流36980002156 success，Frontend CI36980002086 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 加载index-BaNyO3eT.js，CR064分组布局已存在。Edge1440/390、模型日期/140与142门槛、减少动效、历史TD3任务只读恢复通过，SVG/容器宽1232px、高308px；14业务请求全部200，无pageerror/requestfailed。没有重复云部署、训练或新回测提交；日更配置未动。证据ignored artifacts/cr064-ui/pages-browser.json、pages-desktop.png、pages-mobile.png。Pages发布与实际验收完成；Regression stack CI36980002127本次最后查询仍in_progress，不标为通过。本验收文档另推送codex/cr064-pages-evidence，文档分支是否合并不影响已经上线的功能。
+
+
+## CR065 组合账户与研究上下文设计（2026-10-11，实施前）
+
+- 新建无ML依赖的组合执行核心：t收盘观察，t+1开盘先卖后买；所有买入按唯一可用现金同比例缩放；长仓权重非负且含现金合计1。实际成交记录佣金、卖出印花税和滑点经济成本，现金只扣实际成交额及显式费用，滑点不再重复扣。
+- 费率显式区分fixed与asset_date；新研究推荐asset_date，ETF免印花税、股票按实际成交日期应用已核实历史档位；旧任务及旧模型费用元数据不改写。训练/验证/回测/模拟共同透传TradingCosts。
+- 传统组合基线沿用参数Schema与close信号，hold表示保持已有状态，不能把全现金hold解释为新建仓。模拟以明确历史起点、同一资金和参数重放共享账户后生成下一交易日目标，披露依据日；未来成交价未知，不冒充真实成交费用。
+- 回测增量字段兼容旧JSON：benchmarkMode、portfolioMode、accountCurve、costSummary、benchmarkContext；交易明细附成本拆分。结果/请求不可随表单联动改变。默认买入持有为同请求窗口价格收益、不计交易费，明确与净收益的区别。
+- 前端单一研究上下文加显式本模块覆盖，避免双向watch回环；相关性资产传递、回测策略参数/成本传递模拟，排行带上下文进入研究；已有任务恢复保持request和dataContext。
+- 联合环境使用固定10资产槽位+现金、特征/当前权重/有效掩码；掩码为0的槽位权重严格0。不同资产集合按回合抽样，时间分区先于采样；拒绝未来信息/缺历史，不伪造行情。新组合模型独立版本/训练产物目录与loader，不开放旧510300权重的多资产限制。
+- 参考EarnMore的随机子池及掩码思路，不照搬官方示例的收盘成交和未扣费用逻辑，不将论文结果视为本项目效果。小规模试训以CPU、单进程、固定seed和明确步数/时间上限运行。
+- 验证：可手算组合执行/现金守恒/跨资产卖出资金再投入、重排等价、费用/掩码/因果性、引擎环境逐笔一致；接口反例、任务快照、前端联动/竞态、桌面手机浏览器；训练保存加载联合推理单列。线上回归与发布不由本地通过替代。
+
+### CR065 实现与审查回写（2026-10-11）
+
+组合核心落于portfolio/execution.py，传统回测/模拟及新RL共用；全hold不调用调仓，避免收盘权重乘下一开盘NAV造成非预期交易。共享估值轴用官方交易日历从实际首日至请求截止日，已核实停牌沿用最近收盘、禁止成交、当日目标失效不挂单。修复独立审查发现的共同停牌跳日和共同尾段截断，未知缺口仍拒绝。初始日要求所有标的实际价格；不合成OHLCV。
+
+前端use-research-context单向传播并允许分组脱离继承，运行中锁定请求，历史结果用request快照解释。API新增可选账户/成本/基准上下文和排行元数据；旧JSON缺诊断显示未记录。模拟重放同一资金/参数/费用/起点，未来开盘执行及费用不被预先伪造。
+
+新RL使用161维状态、11维动作及硬掩码，轻量MLP+随机2–10子池/槽位/窗口；不是完整EarnMore。训练输出独立manifest及哈希，CPU烟测purpose=local_smoke_only/releaseEligible=false，验证日期登记但未用于选优，留出回放另存。未修改旧模型权重/loader兼容闸门或日更。596项算法后端、105项前端、37项本地浏览器及三真实小试训通过，具体命令/跳过项/风险见[CR065验收](docs/cr065-validation-2026-10-11.md)。
+
+### CR065 发布与逐项复核登记（2026-10-11）
+用户本轮明确要求“查看是否实现上述要求，然后部署上线”。先审阅实际代码、契约、既有本地证据与云基线，再完成必要补丁和验证。发布范围为已验证的网站解释/配置联动/排行榜窗口、传统共享账户和配套API；新组合RL环境/试训代码进入源码，但小规模研究权重不发布、不重新训练，正式组合模型网页接入尚未完成，不能标为全部需求已上线。
+云基线backend为quant-mvp-backend:cr062且healthy，旧模型挂载/真实任务库/不可变发布及07:30timer保持。准备源码白名单包及基于现有镜像的离线候选；禁网、只读行情/旧模型、隔离任务库先验收新字段/共享账户及旧四模型，之后维护排空、SQLite备份恢复验证、备份compose/前端/日更镜像引用，成对切换后端与云前端，失败回滚。GitHub按分支/PR保护和既有Pages工作流发布，不绕过main保护；缺权限时据实说明并完成不受阻工作。
+验收分开记录：本地回归、云隔离候选、实际HTTPS/Pages桌面手机、旧模型兼容、行情/任务/日更保持。发布结果与未完成事项后续回写，历史加载反馈不作为当前故障事实。
+
+### CR065 云端发布验收回写（2026-10-11）
+用户本轮已授权推送部署，取代本地完成阶段的未授权状态。功能 d72f8c9、手机图例修正 c7a7e81 已推送 PR #47；云 HTTPS 前后端已部署，镜像 quant-mvp-backend:cr065-r2、前端 index-BWJxIfKd.js。默认基准与账户/费用解释、模块配置联动、排行实际窗口及传统共享账户已上线；联合 RL 环境及小试训代码已入库，正式组合模型和网页接入尚未完成，不将旧单资产模型标为组合模型。
+发布前离线 596 passed / 23 skipped / 16 network deselected，前端 105/105；手机修正相关 31/31。云隔离候选七任务、原四模型及六策略排行通过；公网浏览器 33 项、23 个业务请求通过，最终 1440/390/320 只读视觉通过。切换前后原 137 条任务一致，另保留一个真实验收新任务；行情/旧模型哈希、日更账本及 07:30 timer 保持，未重新训练或采集。
+PR #47 的 c7a7e81 四项 CI（含 Regression stack）全部 success，尚未合并；GitHub Pages 保持待合并、工作流及实际页面验收，不能用云端通过代替。发布备份、准确命令、候选打包失败修复、数据摘要及剩余事项见 docs/cr065-deployment-2026-10-11.md。

@@ -18,8 +18,11 @@ function setup(t) {
   } }
   const scope = effectScope()
   t.after(() => scope.stop())
-  const strategies = ref([{ id: 'momentum_reversal', status: 'available' }])
+  const strategies = ref([{ id: 'momentum_reversal', status: 'available', parameterSchema: {
+    type: 'object', properties: { lookback: { type: 'integer', minimum: 2, default: 10 } }, required: ['lookback']
+  } }])
   const state = scope.run(() => useAllocation(strategies, client))
+  state.startDate.value = '2025-09-07'
   return { state, requests, client, scope, strategies }
 }
 

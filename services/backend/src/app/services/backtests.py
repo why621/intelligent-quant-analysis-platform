@@ -304,6 +304,9 @@ class BacktestService:
             strategy.validate_parameters(parameters)
         except ValueError as exc:
             raise ValidationError(message=str(exc), details={"strategyId": strategy_id}) from exc
+        if (payload.get("portfolioMode") == "shared_account"
+                and strategy.info().requires_trained_model):
+            raise ValidationError("旧单资产模型不能用于共享组合账户")
 
 
 class BacktestWorker:
@@ -356,10 +359,14 @@ def _build_request(payload: Mapping[str, object]) -> BacktestRequest:
         initial_capital_cny=float(payload.get("initialCapitalCny", 100000)),
         adjust=payload.get("adjust", "qfq"),  # type: ignore[arg-type]
         trading_costs=TradingCosts(
-            commission_pct=float(trading_costs["commissionPct"]) if trading_costs else 0.03,
-            stamp_duty_pct=float(trading_costs["stampDutyPct"]) if trading_costs else 0.05,
-            slippage_pct=float(trading_costs["slippagePct"]) if trading_costs else 0.02,
+            commission_pct=float((trading_costs or {}).get("commissionPct", 0.03)),
+            stamp_duty_pct=float((trading_costs or {}).get("stampDutyPct", 0.05)),
+            slippage_pct=float((trading_costs or {}).get("slippagePct", 0.02)),
+            stamp_duty_mode=(trading_costs or {}).get("stampDutyMode", "fixed"),
         ),
+        benchmark_mode=payload.get("benchmarkMode"),
+        portfolio_mode=payload.get("portfolioMode", "legacy_independent"),
+        cash_pct=float(payload.get("cashPct", 0)),
     )
 
 
@@ -411,6 +418,10 @@ def _serialize_result(result: BacktestResult) -> Mapping[str, object]:
             "quantity": float(trade.quantity),
             "amountCny": float(trade.amount_cny),
             "feeCny": float(trade.fee_cny),
+            **({"commissionCny": float(trade.commission_cny),
+                "stampDutyCny": float(trade.stamp_duty_cny),
+                "slippageCny": float(trade.slippage_cny)}
+               if trade.commission_cny is not None else {}),
         }
         for trade in result.trades
     ]
@@ -426,4 +437,8 @@ def _serialize_result(result: BacktestResult) -> Mapping[str, object]:
         "equityCurve": equity_curve,
         "trades": trades,
         "assumptions": dict(result.assumptions),
+        **({"accountCurve": list(result.account_curve)} if result.account_curve else {}),
+        **({"costSummary": dict(result.cost_summary)} if result.cost_summary is not None else {}),
+        **({"benchmarkContext": dict(result.benchmark_context)}
+           if result.benchmark_context is not None else {}),
     }

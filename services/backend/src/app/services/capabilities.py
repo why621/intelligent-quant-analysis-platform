@@ -38,7 +38,8 @@ def check(provider, payload):
             start = _start_date(end, payload.get("period", "30d")) - timedelta(days=90)
             symbols = [StrategyRankingService._BENCHMARK_SYMBOL]
         elif module == "allocation":
-            start = end - timedelta(days=allocation_module.AllocationService._LOOKBACK_DAYS)
+            start = (date.fromisoformat(payload["startDate"]) if payload.get("startDate")
+                     else end - timedelta(days=allocation_module.AllocationService._LOOKBACK_DAYS))
         result = {
             "module": module,
             "state": "ready",
@@ -59,6 +60,8 @@ def check(provider, payload):
                 result.update(state="partial", message="展示有效股票；缺失行情和指数单独标注")
             return result
         if module == "allocation":
+            if start >= end:
+                issue(None, "DATE_OUT_OF_RANGE", "模拟重放起点必须早于依据日")
             try:
                 required = latest_session(allocation_module._today() - timedelta(days=1))
                 allocation_module._next_trading_day(end)
@@ -86,7 +89,9 @@ def check(provider, payload):
             minimum = 10 if module == "allocation" else 3 if module == "correlation" else 2
             if len(frame) < minimum:
                 issue(symbol, "INSUFFICIENT_HISTORY", f"所需区间不足 {minimum} 条实际行情")
-            if module == "allocation" and pd.Timestamp(frame.iloc[-1]["date"]).date() != end:
+            if module == "allocation" and (
+                frame.empty or pd.Timestamp(frame.iloc[-1]["date"]).date() != end
+            ):
                 issue(
                     symbol, "NO_CURRENT_BAR", "所选资产当日无实际行情，停牌资产暂不能生成当前配置"
                 )
