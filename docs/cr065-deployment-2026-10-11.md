@@ -1,6 +1,6 @@
 # CR065 需求复核与云端上线记录（2026-10-11）
 
-当前状态：**云服务器后端与前端已上线并通过真实 HTTPS 浏览器验收；GitHub Pages 等待 PR #47 合并及其工作流/真实页面验收。**本记录不将两处发布状态混为一谈。
+当前状态：**云服务器后端与前端已上线并通过真实 HTTPS 浏览器验收；GitHub Pages 已随 PR #47 合并发布并通过独立真实浏览器验收，详见末尾完成记录。**本记录不将两处发布状态混为一谈。
 
 ## 需求逐项核对
 
@@ -36,7 +36,7 @@
 
 行情发布指针保持 `e2add7c52b7397163c26362a1035e6af6913ad179b38775d2a7a102b4d36128e`，截止2026-10-09；模型发布文件及四套权重/manifest逐文件哈希不变；两份日更state摘要不变。日更镜像引用随代码升级，timer配置原样、active，禁网dry-run为`waiting_new_day`/targetDate=2026-10-09/continuous，下一次计划2026-10-12 07:30 CST。未采集、补跑、修改业务数据或重置账本。
 
-## GitHub Pages 与未完成事项
+## GitHub Pages 合并前状态（历史记录，已由末尾验收更新）
 
 本轮已推送源码和文档；只读GitHub确认main受保护，当前环境可用SSH推送，但没有GitHub API创建/合并PR授权。用户已创建PR #47；截至本记录，PR仍open、可合并，功能头c7a7e81的前端/算法/后端及Regression stack四项检查均success。已请求用户按仓库流程合并，没有绕过保护或直接发布gh-pages分支。
 
@@ -58,3 +58,8 @@
 ```
 
 数次工具自动审批发生网络传输中断，动作未执行，同一动作重试后获准完成；不是安全判定拒绝，未绕过审批。Windows/WSL和云端证据按层次区分，历史网页反馈未被当作当前故障结论。
+
+### CR065 GitHub Pages 正式验收完成（2026-10-11）
+用户确认合并 PR #47，main 提交 ebe760bb2d2991607b458a67a689a062cab395de；Pages 工作流 38122591031 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 入口 index-BR1Ms9tA.js，Edge 1440/390 真实浏览器 33 项通过、21 个业务请求全部成功，无 pageerror、console error、requestfailed 或横向溢出，手机截图已查看。
+验证资产联动/手动覆盖恢复、默认基准和共享账户、费用账本、模拟八项配置一致、排行六策略及实际日期、排行载入、旧 TD3 结果恢复。新增一次真实验收任务 8b706e73-faec-4a2c-93f9-05490f91d5e7，保留记录；不改写旧任务。未重复云部署、训练或行情采集，07:30 日更配置未改。联合 RL 正式模型和网页集成仍未完成，不将网站发布等同正式组合模型发布。
+证据在原仓库 ignored artifacts/cr065-deploy/pages-browser.json、pages-backtest.json、pages-allocation.json、pages-ranking.json 和 pages-backtest-1440/390.png。复现命令：node artifacts/cr065-deploy/online_browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/ 。验收文档推送 codex/cr065-pages-evidence；该文档分支合并与否不影响已完成的 Pages 发布。

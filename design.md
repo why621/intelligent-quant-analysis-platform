@@ -758,3 +758,8 @@ PR45已合并main 2ca1d7664bef1821892e6727af1c4667e10b1daa；Pages工作流36980
 用户本轮已授权推送部署，取代本地完成阶段的未授权状态。功能 d72f8c9、手机图例修正 c7a7e81 已推送 PR #47；云 HTTPS 前后端已部署，镜像 quant-mvp-backend:cr065-r2、前端 index-BWJxIfKd.js。默认基准与账户/费用解释、模块配置联动、排行实际窗口及传统共享账户已上线；联合 RL 环境及小试训代码已入库，正式组合模型和网页接入尚未完成，不将旧单资产模型标为组合模型。
 发布前离线 596 passed / 23 skipped / 16 network deselected，前端 105/105；手机修正相关 31/31。云隔离候选七任务、原四模型及六策略排行通过；公网浏览器 33 项、23 个业务请求通过，最终 1440/390/320 只读视觉通过。切换前后原 137 条任务一致，另保留一个真实验收新任务；行情/旧模型哈希、日更账本及 07:30 timer 保持，未重新训练或采集。
 PR #47 的 c7a7e81 四项 CI（含 Regression stack）全部 success，尚未合并；GitHub Pages 保持待合并、工作流及实际页面验收，不能用云端通过代替。发布备份、准确命令、候选打包失败修复、数据摘要及剩余事项见 docs/cr065-deployment-2026-10-11.md。
+
+### CR065 GitHub Pages 正式验收完成（2026-10-11）
+用户确认合并 PR #47，main 提交 ebe760bb2d2991607b458a67a689a062cab395de；Pages 工作流 38122591031 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 入口 index-BR1Ms9tA.js，Edge 1440/390 真实浏览器 33 项通过、21 个业务请求全部成功，无 pageerror、console error、requestfailed 或横向溢出，手机截图已查看。
+验证资产联动/手动覆盖恢复、默认基准和共享账户、费用账本、模拟八项配置一致、排行六策略及实际日期、排行载入、旧 TD3 结果恢复。新增一次真实验收任务 8b706e73-faec-4a2c-93f9-05490f91d5e7，保留记录；不改写旧任务。未重复云部署、训练或行情采集，07:30 日更配置未改。联合 RL 正式模型和网页集成仍未完成，不将网站发布等同正式组合模型发布。
+证据在原仓库 ignored artifacts/cr065-deploy/pages-browser.json、pages-backtest.json、pages-allocation.json、pages-ranking.json 和 pages-backtest-1440/390.png。复现命令：node artifacts/cr065-deploy/online_browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/ 。验收文档推送 codex/cr065-pages-evidence；该文档分支合并与否不影响已完成的 Pages 发布。
