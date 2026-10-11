@@ -234,3 +234,8 @@ Content-Type: application/json
 新增POST /api/data/capability：按module=overview/correlation/backtest/ranking/allocation预检当前不可变批次。相关性/回测提供symbols、startDate/endDate，回测可附benchmark；配置提供symbols；排行period默认30d，实际依赖510300及90日预热。返回state=ready/partial/unavailable/unknown、dataContext、实际所需起止日和issues（具体symbol/code/message）。沿用X-Research-Version，冲突409；格式错误400。ready只保证数据覆盖，不代替计算时的参数和数值有效性检查；旧提供者返回unknown，不触发采集。
 
 /data/status.availability及/data/coverage.items[].availability增加tradingState和可选update。update含outcome=updated/partial/retained、标准失败reason、retryable、attempted、真实lastTradeDate。retryable不授予额外采集预算。availability.eventMaintenance记录核验日/目标日、源状态、原响应SHA256及冲突；SSE股票源已验证，SZSE/ETF仍pending，不能把它解释为全市场停复牌覆盖。响应Schema以packages/contracts/schemas/data.yaml为准，前端五模块预检与资产提示同步；预检断网/旧接口缺失给可重试提示，实际提交仍保留原校验。
+
+
+## CR065 云部署状态（2026-10-11）
+
+OpenAPI 0.11.0 配套实现和云前端已上线，候选及实际 HTTPS 验收通过；旧请求缺省、旧任务 JSON 和四个单资产模型保持兼容。GitHub Pages 尚待 PR #47 合并及独立验收。联合组合研究模型尚未接入网页接口。详见 [部署报告](cr065-deployment-2026-10-11.md)。
