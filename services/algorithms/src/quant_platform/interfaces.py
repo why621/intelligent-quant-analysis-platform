@@ -18,6 +18,7 @@ from .models import (
     DataStatus,
     RankingItem,
     StrategyInfo,
+    TradingCosts,
 )
 
 if TYPE_CHECKING:
@@ -87,4 +88,9 @@ class AllocationService(Protocol):
         symbols: Sequence[str],
         strategy_id: str,
         cash_pct: float = 0,
+        parameters: Mapping[str, object] | None = None,
+        adjust: AdjustMode = "qfq",
+        trading_costs: TradingCosts | None = None,
+        initial_capital_cny: float = 100000,
+        start_date: date | None = None,
     ) -> AllocationSuggestion: ...

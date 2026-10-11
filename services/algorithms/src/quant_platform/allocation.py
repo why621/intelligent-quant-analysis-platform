@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -13,6 +13,8 @@ from quant_platform.models import (
     AllocationAction,
     AllocationPosition,
     AllocationSuggestion,
+    BacktestRequest,
+    TradingCosts,
 )
 
 
@@ -49,12 +51,24 @@ class AllocationService:
         symbols: Sequence[str],
         strategy_id: str,
         cash_pct: float = 0,
+        parameters: Mapping[str, object] | None = None,
+        adjust: str = "qfq",
+        trading_costs: TradingCosts | None = None,
+        initial_capital_cny: float = 100000,
+        start_date: date | None = None,
     ) -> AllocationSuggestion:
         if strategy_id not in self._strategies:
             raise ValueError(f"未知策略: {strategy_id}")
 
         strategy = self._strategies[strategy_id]
         info = strategy.info()
+        resolved_parameters = dict(parameters) if parameters is not None else {
+            key: schema["default"]
+            for key, schema in info.parameter_schema.get("properties", {}).items()
+            if "default" in schema
+        }
+        strategy.validate_parameters(resolved_parameters)
+        costs = trading_costs or TradingCosts()
         # Allocation consumes discrete {-1,0,1} signals with empty parameters;
         # RL (trained-model) and continuous-target strategies cannot supply them.
         if info.requires_trained_model or info.signal_semantics != "discrete_hold":
@@ -71,11 +85,13 @@ class AllocationService:
             target = _next_trading_day(basis)
         except CalendarUnavailableError as exc:
             raise UpstreamUnavailableError(str(exc)) from exc
-        lookback_start = basis - timedelta(days=self._LOOKBACK_DAYS)
+        lookback_start = start_date or basis - timedelta(days=self._LOOKBACK_DAYS)
+        if lookback_start >= basis:
+            raise ValueError("模拟重放起点必须早于依据日")
 
         signals: dict[str, float] = {}
         for sym in symbols:
-            prices = self._provider.history(sym, lookback_start, basis)
+            prices = self._provider.history(sym, lookback_start, basis, adjust)
             if prices.empty or len(prices) < 10:
                 raise UpstreamUnavailableError(f"{sym}: insufficient allocation history")
             dates = pd.to_datetime(prices["date"], errors="coerce")
@@ -86,7 +102,7 @@ class AllocationService:
                 or dates.iloc[-1].date() != basis
             ):
                 raise UpstreamUnavailableError(f"{sym}: allocation history is stale or invalid")
-            sig = strategy.generate_signals(prices, {})
+            sig = strategy.generate_signals(prices, resolved_parameters)
             if len(sig) != len(prices) or not sig.index.equals(prices.index):
                 raise UpstreamUnavailableError(f"{sym}: missing or misaligned allocation signal")
             value = float(sig.iloc[-1])
@@ -94,27 +110,32 @@ class AllocationService:
                 raise UpstreamUnavailableError(f"{sym}: invalid allocation signal")
             signals[sym] = value
 
-        # 买入/持有信号的资产等权分配
-        buy_symbols = [s for s, v in signals.items() if v == 1.0]
-        hold_symbols = [s for s, v in signals.items() if v == 0.0]
+        from quant_platform.backtesting.engine import BacktestEngine
+        from quant_platform.portfolio.execution import signal_target_weights
 
-        investable_count = len(buy_symbols) + len(hold_symbols)
-        weight_per = (100.0 - cash_pct) / max(investable_count, 1)
+        replay = BacktestEngine(self._provider, self._strategies).run(BacktestRequest(
+            symbols=tuple(symbols), strategy_id=strategy_id, parameters=resolved_parameters,
+            start_date=lookback_start, end_date=basis, adjust=adjust,
+            initial_capital_cny=initial_capital_cny, trading_costs=costs,
+            portfolio_mode="shared_account", cash_pct=cash_pct,
+        ))
+        last = replay.account_curve[-1]
+        current = [p["weightPct"] / 100 for p in last["positions"]]
+        targets = signal_target_weights([signals[s] for s in symbols], current, cash_pct=cash_pct)
 
         positions: list[AllocationPosition] = []
 
-        for sym in symbols:
+        for index, sym in enumerate(symbols):
             sig = signals.get(sym, 0.0)
             action, reason = _signal_to_action(sig)
 
-            if sig == -1.0:
-                w = 0.0
-            elif sig == 1.0:
-                w = weight_per
-            elif investable_count == 0:
-                w = 0.0
-            else:
-                w = weight_per
+            w = float(targets[index]) * 100
+            if sig != -1:
+                difference = w - current[index] * 100
+                action = ("increase" if difference > 1e-8 else
+                          "decrease" if difference < -1e-8 else "hold")
+            if sig == 0:
+                reason = "无新交易信号；沿用历史重放账户，空仓不因中性信号建仓"
 
             positions.append(
                 AllocationPosition(
@@ -130,7 +151,14 @@ class AllocationService:
             target_date=target,
             strategy_id=strategy_id,
             positions=tuple(positions),
-            cash_pct=cash_pct if investable_count else 100.0,
+            cash_pct=max(0.0, 100.0 - float(sum(targets)) * 100),
+            request={"symbols": list(symbols), "strategyId": strategy_id, "cashPct": cash_pct,
+                     "parameters": resolved_parameters, "adjust": adjust,
+                     "initialCapitalCny": initial_capital_cny,
+                     "startDate": lookback_start.isoformat(),
+                     "tradingCosts": {"commissionPct": costs.commission_pct,
+                         "stampDutyPct": costs.stamp_duty_pct, "slippagePct": costs.slippage_pct,
+                         "stampDutyMode": costs.stamp_duty_mode}},
         )
 
 

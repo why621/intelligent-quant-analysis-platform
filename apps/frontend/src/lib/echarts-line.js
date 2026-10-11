@@ -1,5 +1,5 @@
 ﻿import { init, use } from 'echarts/core'
-import { LineChart } from 'echarts/charts'
+import { LineChart, ScatterChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, TitleComponent, LegendComponent } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 
@@ -9,6 +9,7 @@ export const getLineEcharts = () => {
   if (!registered) {
     use([
       LineChart,
+      ScatterChart,
       TooltipComponent,
       TitleComponent,
       LegendComponent,

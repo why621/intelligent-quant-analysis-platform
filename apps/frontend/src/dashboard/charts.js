@@ -68,12 +68,23 @@ export function equityOption(result) {
   }
   const benchmark = normalised('benchmarkEquity')
   const hasBenchmark = benchmark.some(value => value !== null)
+  const equity = normalised('equity')
+  const indexByDate = new Map(points.map((point, index) => [point.date, index]))
+  const markers = ['buy', 'sell'].map(side => ({
+    name: side === 'buy' ? '买入成交' : '卖出成交', type: 'scatter', symbol: 'triangle',
+    symbolRotate: side === 'buy' ? 0 : 180, symbolSize: 10, z: 6,
+    itemStyle: { color: side === 'buy' ? '#69d9c5' : '#ff8daa' },
+    data: (result.trades || []).filter(trade => trade.side === side && indexByDate.has(trade.date))
+      .map(trade => [trade.date, equity[indexByDate.get(trade.date)]])
+      .filter(point => point[1] !== null)
+  })).filter(series => series.data.length)
+  const benchmarkName = result.benchmarkContext?.mode === 'buy_and_hold' ? '买入持有基准' : '基准净值'
   return {
     backgroundColor: 'transparent',
     animation: false,
     tooltip: { trigger: 'axis', valueFormatter: value =>
       typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '—' },
-    legend: { top: 4, data: hasBenchmark ? ['策略净值', '基准净值'] : ['策略净值'] },
+    legend: { top: 4, data: ['策略净值', ...(hasBenchmark ? [benchmarkName] : []), ...markers.map(item => item.name)] },
     grid: { left: 52, right: 18, top: 64, bottom: 38 },
     xAxis: { type: 'category', data: points.map((item) => item.date) },
     yAxis: { name: '净值（首日=1）', type: 'value', scale: true, splitLine: { lineStyle: { color: colors.grid } } },
@@ -82,20 +93,33 @@ export function equityOption(result) {
         name: '策略净值',
         type: 'line',
         showSymbol: false,
-        data: normalised('equity'),
+        data: equity,
         itemStyle: { color: colors.blue },
         lineStyle: { color: colors.blue, width: 2 }
       },
       ...(hasBenchmark ? [{
-        name: '基准净值',
+        name: benchmarkName,
         type: 'line',
         showSymbol: false,
         data: benchmark,
         itemStyle: { color: colors.amber },
         lineStyle: { color: colors.amber, width: 2, type: 'dashed' }
-      }] : [])
+      }] : []), ...markers
     ]
   }
+}
+
+export function exposureOption(result) {
+  const points = result?.accountCurve || []
+  if (!points.length) return emptyChartOption(result ? '该历史任务未记录每日持仓比例' : '回测完成后显示每日持仓比例')
+  return { backgroundColor: 'transparent', animation: false,
+    tooltip: { trigger: 'axis', valueFormatter: value => typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}%` : '未记录' },
+    grid: { left: 52, right: 18, top: 35, bottom: 35 },
+    xAxis: { type: 'category', data: points.map(point => point.date) },
+    yAxis: { type: 'value', name: '持仓比例（%）', min: 0, max: 100, splitLine: { lineStyle: { color: colors.grid } } },
+    series: [{ name: '资产持仓比例', type: 'line', step: 'end', showSymbol: false,
+      data: points.map(point => Number.isFinite(point.exposurePct) ? point.exposurePct : null),
+      itemStyle: { color: colors.blue }, areaStyle: { color: '#69d9c522' } }] }
 }
 
 export function allocationOption(result) {

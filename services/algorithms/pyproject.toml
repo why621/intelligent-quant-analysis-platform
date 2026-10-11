@@ -18,6 +18,7 @@ dependencies = [
 quant-data-update = "quant_platform.cli:main"
 quant-rl-train = "quant_platform.rl.train:main"
 quant-rl-grid = "quant_platform.rl.grid:main"
+quant-portfolio-smoke = "quant_platform.rl.portfolio_train:main"
 quant-deep-history = "quant_platform.data.deep_history:main"
 
 [project.optional-dependencies]

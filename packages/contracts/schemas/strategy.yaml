@@ -27,6 +27,7 @@ RankingItem:
   type: object
   required: [rank, strategyId, strategyName, category, returnPct, maxDrawdownPct, sharpe]
   properties:
+    parameters: {type: object, additionalProperties: true}
     rank: {type: integer, minimum: 1}
     strategyId: {type: string}
     strategyName: {type: string}
@@ -56,6 +57,11 @@ RankingResponse:
   type: object
   required: [asOfDate, period, items]
   properties:
+    evaluationStartDate: {type: string, format: date}
+    evaluationEndDate: {type: string, format: date}
+    historyStartDate: {type: string, format: date}
+    observationCount: {type: integer, minimum: 1}
+    tradingCosts: {$ref: './backtest.yaml#/TradingCosts'}
     unavailableStrategies:
       type: array
       description: 已启用但因训练重叠、预热不足或运行错误未参与的策略；不得以零收益冒充结果。

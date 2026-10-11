@@ -14,9 +14,10 @@ from quant_platform.models import BacktestMetrics, BacktestRequest, RankingItem,
 class RankingResult(list[RankingItem]):
     """List-compatible result with request-local exclusion diagnostics."""
 
-    def __init__(self, items=(), *, unavailable=()):
+    def __init__(self, items=(), *, unavailable=(), metadata=None):
         super().__init__(items)
         self.unavailable = tuple(unavailable)
+        self.metadata = dict(metadata or {})
 
 
 class StrategyRankingService:
@@ -31,6 +32,7 @@ class StrategyRankingService:
         request_start = _start_date(as_of_date, period) - timedelta(days=90)
         results = []
         unavailable = []
+        windows = []
         for sid, strategy in self._engine._strategies.items():
             info = strategy.info()
             deployed = (
@@ -49,6 +51,9 @@ class StrategyRankingService:
                         strategy_id=sid,
                         start_date=request_start,
                         end_date=as_of_date,
+                        parameters={k: v["default"] for k, v in
+                                    info.parameter_schema.get("properties", {}).items()
+                                    if "default" in v},
                     )
                 )
                 # Every ranking row uses the same 510300 ETF fee convention.
@@ -64,6 +69,14 @@ class StrategyRankingService:
                     else raw
                 )
                 context = strategy.model_context() if deployed else None
+                window = _period_window(result.equity_curve, as_of_date, period)
+                if len(window):
+                    windows.append({
+                        "evaluationStartDate": window["date"].iloc[0].date().isoformat(),
+                        "evaluationEndDate": window["date"].iloc[-1].date().isoformat(),
+                        "historyStartDate": pd.Timestamp(
+                            result.equity_curve["date"].min()).date().isoformat(),
+                        "observationCount": len(window)})
                 results.append(
                     RankingItem(
                         rank=0,
@@ -75,6 +88,7 @@ class StrategyRankingService:
                         sharpe=metrics.sharpe,
                         status=info.status,
                         model_context=context,
+                        parameters=dict(request.parameters),
                     )
                 )
             except Exception as exc:
@@ -90,8 +104,15 @@ class StrategyRankingService:
                     {"strategyId": sid, "strategyName": info.name, "code": code, "message": message}
                 )
         results.sort(key=lambda item: item.return_pct, reverse=True)
+        metadata = {}
+        if windows:
+            metadata = {**windows[0],
+                        "historyStartDate": min(w["historyStartDate"] for w in windows),
+                        "tradingCosts": {"commissionPct": 0.03, "stampDutyPct": 0,
+                                         "slippagePct": 0.02, "stampDutyMode": "fixed"}}
         return RankingResult(
-            (replace(item, rank=i + 1) for i, item in enumerate(results)), unavailable=unavailable
+            (replace(item, rank=i + 1) for i, item in enumerate(results)),
+            unavailable=unavailable, metadata=metadata,
         )
 
 
@@ -109,14 +130,23 @@ def _period_metrics(
     as_of_date: date,
     period: Literal["1d", "7d", "30d", "1y"],
 ) -> BacktestMetrics:
-    if curve.empty:
+    window = _period_window(curve, as_of_date, period)
+    if window.empty:
         return _compute_metrics(pd.Series(dtype=float), None, 1.0)
+    equity = pd.Series(window["equity"].to_numpy(dtype=float),
+                       index=pd.DatetimeIndex(window["date"]), dtype=float)
+    return _compute_metrics(equity, None, float(equity.iloc[0]))
+
+
+def _period_window(curve, as_of_date, period):
+    if curve.empty:
+        return pd.DataFrame(columns=["date", "equity"])
 
     prepared = curve[["date", "equity"]].dropna().copy()
     prepared["date"] = pd.to_datetime(prepared["date"])
     prepared = prepared.sort_values("date").drop_duplicates("date", keep="last")
     if prepared.empty:
-        return _compute_metrics(pd.Series(dtype=float), None, 1.0)
+        return prepared
 
     if period == "1d":
         window = prepared.tail(2)
@@ -126,9 +156,4 @@ def _period_metrics(
         if window.empty:
             window = prepared.tail(1)
 
-    equity = pd.Series(
-        window["equity"].to_numpy(dtype=float),
-        index=pd.DatetimeIndex(window["date"]),
-        dtype=float,
-    )
-    return _compute_metrics(equity, None, float(equity.iloc[0]))
+    return window

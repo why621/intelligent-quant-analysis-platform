@@ -74,6 +74,7 @@ class TradingCosts:
     commission_pct: float = 0.03
     stamp_duty_pct: float = 0.05
     slippage_pct: float = 0.02
+    stamp_duty_mode: Literal["fixed", "asset_date"] = "fixed"
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,9 @@ class BacktestRequest:
     initial_capital_cny: float = 100_000.0
     adjust: AdjustMode = "qfq"
     trading_costs: TradingCosts = field(default_factory=TradingCosts)
+    benchmark_mode: Literal["buy_and_hold", "custom", "none"] | None = None
+    portfolio_mode: Literal["shared_account", "legacy_independent"] = "legacy_independent"
+    cash_pct: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,9 @@ class Trade:
     quantity: float
     amount_cny: float
     fee_cny: float
+    commission_cny: float | None = None
+    stamp_duty_cny: float | None = None
+    slippage_cny: float | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +123,9 @@ class BacktestResult:
     equity_curve: pd.DataFrame
     trades: tuple[Trade, ...]
     assumptions: Mapping[str, str]
+    account_curve: tuple[Mapping[str, object], ...] = ()
+    cost_summary: Mapping[str, object] | None = None
+    benchmark_context: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +139,7 @@ class RankingItem:
     sharpe: float
     status: StrategyState = "available"
     model_context: Mapping[str, object] | None = None
+    parameters: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -148,3 +159,4 @@ class AllocationSuggestion:
     cash_pct: float
     advisory_only: Literal[True] = True
     disclaimer: str = "仅用于教学研究，不构成投资建议，不会提交真实订单。"
+    request: Mapping[str, object] | None = None

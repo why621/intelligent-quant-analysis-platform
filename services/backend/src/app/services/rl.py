@@ -192,7 +192,7 @@ class WebRL(RLStrategy):
                 "targetUniverseVersion": self.target_universe,
                 "performanceStatus": "unproven",
                 "requiredTradingCosts": {"commissionPct": 0.03, "stampDutyPct": 0,
-                                         "slippagePct": 0.02},
+                                         "slippagePct": 0.02, "stampDutyMode": "fixed"},
                 "trainingTradingCosts": {"commissionPct": 0.03, "stampDutyPct": 0.05,
                                          "slippagePct": 0.02}} if self.target_universe else {}),
             "portfolioMode": "equal_cash_independent",
@@ -216,6 +216,10 @@ class WebRL(RLStrategy):
 
     def validate_web_request(self, payload, provider):
         self.checked_bundle()
+        if payload.get("portfolioMode", "legacy_independent") != "legacy_independent":
+            raise ValidationError("已发布510300模型为单资产模型，不支持共享组合账户")
+        if payload.get("cashPct", 0) != 0:
+            raise ValidationError("已发布模型不支持额外现金预留参数")
         if payload.get("adjust", "qfq") != "qfq":
             raise ValidationError("RL模型仅支持前复权回测")
         start, end = (date.fromisoformat(str(payload[k])) for k in ("startDate", "endDate"))
@@ -229,7 +233,8 @@ class WebRL(RLStrategy):
             if payload["symbols"] != self.release["symbols"]:
                 raise ValidationError("本批研究模型仅支持训练资产510300，不支持跨资产回测")
             costs = self.model_context()["requiredTradingCosts"]
-            if payload.get("tradingCosts") not in (None, costs):
+            supplied = payload.get("tradingCosts")
+            if supplied is not None and {"stampDutyMode": "fixed", **supplied} != costs:
                 raise ValidationError("本批ETF模型回评固定佣金0.03%、印花税0%、滑点0.02%")
         for symbol in payload["symbols"]:
             try:

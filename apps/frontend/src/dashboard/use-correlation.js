@@ -3,11 +3,17 @@ import { computed, getCurrentScope, onScopeDispose, ref } from 'vue'
 import { api } from '../services/api.js'
 import { displayError, SYMBOL_PATTERN } from './common.js'
 import { useResearchDates } from './use-research-dates.js'
+import { snapshotKey } from './use-research-context.js'
 
 export function useCorrelation(dataStatus, client = api) {
   const dates = useResearchDates(dataStatus)
   const symbols = ref(['510300', '510500', '159915'])
   const result = ref(null)
+  const resultRequest = ref(null)
+  const draft = computed(() => ({ symbols: [...symbols.value], startDate: dates.startDate.value, endDate: dates.endDate.value, adjust: 'qfq', returnType: 'simple' }))
+  const resultStale = computed(() => Boolean(result.value && resultRequest.value && (snapshotKey(draft.value) !== snapshotKey(resultRequest.value)
+    || (result.value.dataContext?.dataVersion && dataStatus.value.dataContext?.dataVersion
+      && result.value.dataContext.dataVersion !== dataStatus.value.dataContext.dataVersion))))
   const busy = ref(false)
   const error = ref('')
   let disposed = false
@@ -29,12 +35,10 @@ export function useCorrelation(dataStatus, client = api) {
     error.value = ''
     result.value = null
     busy.value = true
+    const payload = JSON.parse(JSON.stringify(draft.value))
     try {
-      const response = await client.getCorrelation({
-        symbols: [...symbols.value], startDate: dates.startDate.value, endDate: dates.endDate.value,
-        adjust: 'qfq', returnType: 'simple'
-      })
-      if (!disposed) result.value = response
+      const response = await client.getCorrelation(payload)
+      if (!disposed) { result.value = response; resultRequest.value = payload }
     } catch (requestError) {
       if (!disposed) error.value = displayError(requestError)
     } finally {
@@ -42,6 +46,6 @@ export function useCorrelation(dataStatus, client = api) {
     }
   }
   if (getCurrentScope()) onScopeDispose(() => { disposed = true })
-  return { ...dates, symbols, result, busy, error, validSymbols, validationError,
+  return { ...dates, symbols, result, resultRequest, resultStale, busy, error, validSymbols, validationError,
     canSubmit, addSymbol, removeSymbol, submit }
 }

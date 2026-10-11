@@ -1,5 +1,17 @@
 # 统一 API 契约
 
+## CR065 / OpenAPI 0.11.0（2026-10-11，本地开发）
+
+- `BacktestRequest`增加`portfolioMode=shared_account|legacy_independent`、`benchmarkMode=buy_and_hold|custom|none`与`cashPct`。新页面显式选择共享账户和买入持有；旧请求缺省保持原独立分账及基准省略语义，旧任务JSON不改写。旧510300模型只能使用`legacy_independent`且不支持额外现金预留。
+- `TradingCosts.stampDutyMode=fixed|asset_date`：缺省fixed兼容旧实验；asset_date按实际成交日及资产目录类型处理，ETF印花税为0、股票仅卖出按历史税率。费率字段可以分别省略并使用契约缺省值，拒绝非有限值及100%以上费率。
+- 结果可选`accountCurve`记录收盘现金、净值、逐资产实际仓位和累计费用；`costSummary`分列交易数、佣金、印花税、显性费用、滑点及合计。Trade附三项成本。`feeCny`继续只表示佣金和印花税，滑点已经包含在成交价格中，不再次扣现金。旧任务缺失诊断字段时表示未记录，不等于0。
+- `benchmarkEquity`继续是归一化价格序列，策略`equity`是人民币账户净值。`buy_and_hold`表示请求窗口首个实际收盘初始等权持有，后续不再平衡、不计费；`benchmarkContext`披露模式、实际首末日、标的、口径及名称。不得将该参考曲线称为扣费后可执行账户收益。
+- 排行保留510300研究口径，增加`evaluationStartDate/evaluationEndDate/historyStartDate/observationCount/tradingCosts`及每行`parameters`。日期来自实际净值切片；1d取最后两条记录。策略在评价窗口之前已运行，评价起点可带持仓；将该窗口导入从全现金启动的回测不保证收益数值相同。
+- 模拟请求增加`parameters/adjust/tradingCosts/initialCapitalCny/startDate`，响应`request`记录实际配置。使用同一共享组合引擎从该起点全现金重放至依据日，再形成下一交易日目标；中性信号不会凭空开仓。最新交易日及数据缺口门禁保留，未来成交价/实际费用尚未知。allocation预检支持同一`startDate`，省略时使用365自然日回看。
+- 本节登记本地契约变化，不代表云端和Pages已升级。正式训练与发布另行确认。
+- 共享账户的`executeAt=next_open`表示下一统一交易日开盘，只对当日有真实行情的资产成交。已核实停牌仅沿用最近收盘估值、冻结持仓；未成交目标不自动挂到复牌日，`nonTradingExecution=skip_untradable_no_pending_order`明确这一限制。首日必须具备所有标的真实估值，未知缺口仍拒绝；不合成OHLCV。
+- 共享估值轴从实际首日到请求截止日使用官方交易日历，即使全部所选资产同日或尾段停牌，也保留账户估值并当日失效未成交信号；全资产缺日而无核实事件时拒绝，非官方交易日行情同样拒绝。不能以行情日期并集跨过该日并在复牌日补成交，也不能裁掉共同停牌尾段。
+
 > 契约声明：`packages/contracts/openapi.yaml` 是前端、Flask 后端和 Python
 > 算法模块之间唯一具有约束力的 HTTP 契约。本文件用于解释契约，示例与
 > OpenAPI 冲突时，以 OpenAPI 为准。任何字段、路径或枚举变更都必须在同一个

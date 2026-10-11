@@ -52,7 +52,7 @@ function setup(t, storage = null) {
   return { state, correlation, scope, requests, client, status, strategies, assets }
 }
 
-test('actual submit consumes server defaults and omits implicit benchmark', async t => {
+test('actual submit consumes server defaults and explicitly requests same-assets buy-and-hold', async t => {
   const { state, requests, strategies } = setup(t)
   strategies.value[0].parameterSchema = { ...strategies.value[0].parameterSchema,
     properties: { ...strategies.value[0].parameterSchema.properties,
@@ -61,7 +61,11 @@ test('actual submit consumes server defaults and omits implicit benchmark', asyn
   assert.deepEqual(requests[0].parameters, { shortWindow: 7, longWindow: 20 })
   assert.equal(requests[0].endDate, '2026-09-07')
   assert.equal('benchmark' in requests[0], false)
-  assert.match(state.benchmarkLabel.value, /无基准/)
+  assert.equal(requests[0].benchmarkMode, 'buy_and_hold')
+  assert.equal(requests[0].portfolioMode, 'shared_account')
+  assert.equal(requests[0].tradingCosts.stampDutyMode, 'asset_date')
+  assert.equal(requests[0].cashPct, 0)
+  assert.match(state.benchmarkLabel.value, /买入持有/)
 })
 
 test('switching strategies resets schema parameters and accepts decimal thresholds', async t => {
@@ -158,6 +162,7 @@ test('correlation sends screenshot symbols and does not silently discard bad inp
 
 test('explicit ETF is submitted, unsupported benchmark and unavailable catalog are blocked', async t => {
   const { state, requests, assets } = setup(t)
+  state.benchmarkMode.value = 'custom'
   state.benchmark.value = '000300'
   assert.equal(state.canSubmit.value, false)
   state.benchmark.value = '510300'

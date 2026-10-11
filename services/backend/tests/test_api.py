@@ -881,6 +881,7 @@ def test_ranking_matches_contract() -> None:
             "returnPct",
             "maxDrawdownPct",
             "sharpe",
+            "parameters",
         }
         assert item["category"] in {"traditional", "ai"}
         assert item["maxDrawdownPct"] >= 0
@@ -1200,8 +1201,9 @@ def test_allocation_with_real_algorithm(monkeypatch) -> None:
     assert by_symbol["510500"]["action"] == "hold"
     assert by_symbol["159915"]["action"] == "exit"
     assert by_symbol["159915"]["weightPct"] == 0
-    # 权重守恒：买入/持有等权分剩余，卖出置零，加现金为 100
-    assert by_symbol["510300"]["weightPct"] == by_symbol["510500"]["weightPct"] == 45
+    # 中性信号不凭空开仓；重放一直全现金，只给末日金叉资产建目标。
+    assert by_symbol["510300"]["weightPct"] == 90
+    assert by_symbol["510500"]["weightPct"] == 0
     total = sum(p["weightPct"] for p in body["positions"])
     assert total + body["cashPct"] == 100
 
@@ -1303,11 +1305,16 @@ def test_allocation_concurrency_isolation() -> None:
     import threading
     import time
 
+    from quant_platform.models import Asset
+
     def suggest(*, symbols, strategy_id, cash_pct):
         time.sleep(0.05)
         return fake_allocation_suggestion(symbols=symbols, cash_pct=cash_pct)
 
     client = make_client_with_allocation_suggest(suggest)
+    client.application.extensions["allocation_service"]._algorithm._provider.list_assets = (
+        lambda **kwargs: [Asset(f"51030{i}", f"Fixture {i}", "etf", "SSE") for i in range(5)]
+    )
     barrier = threading.Barrier(5)
     responses: list[tuple[int, int, dict]] = []
     lock = threading.Lock()
@@ -1389,3 +1396,72 @@ def test_second_store_does_not_requeue_running_job(tmp_path) -> None:
 
     second = BacktestJobStore(db_path)
     assert second.get(job_id)["status"] == "running"
+
+
+def test_cr065_partial_cost_fields_execute_with_documented_defaults():
+    seen = []
+    def run(request):
+        seen.append(request)
+        return fake_backtest_result()
+    client, service = make_client_with_backtest(run)
+    payload = dict(BACKTEST_BODY, benchmarkMode="buy_and_hold", portfolioMode="shared_account",
+                   cashPct=10, tradingCosts={"commissionPct": 0.07, "stampDutyMode": "asset_date"})
+    accepted = client.post("/api/backtests", json=payload)
+    assert accepted.status_code == 202
+    service.execute_job(accepted.json["jobId"])
+    assert client.get("/api/backtests/" + accepted.json["jobId"]).json["status"] == "succeeded"
+    assert seen[0].benchmark_mode == "buy_and_hold"
+    assert seen[0].portfolio_mode == "shared_account"
+    assert seen[0].cash_pct == 10
+    assert seen[0].trading_costs.commission_pct == 0.07
+    assert seen[0].trading_costs.slippage_pct == 0.02
+
+
+def test_cr065_research_config_rejects_invalid_modes_and_nonfinite_values():
+    client, _ = make_client_with_backtest(lambda request: fake_backtest_result())
+    invalid = [
+        {"benchmarkMode": []}, {"benchmarkMode": "custom"},
+        {"benchmarkMode": "none", "benchmark": "510300"},
+        {"portfolioMode": "independent"}, {"cashPct": float("nan")},
+        {"initialCapitalCny": float("inf")},
+        {"tradingCosts": {"commissionPct": float("nan")}},
+        {"tradingCosts": {"stampDutyMode": []}},
+        {"tradingCosts": {"slippagePct": 100}},
+    ]
+    for fields in invalid:
+        response = client.post("/api/backtests", json=dict(BACKTEST_BODY, **fields))
+        assert response.status_code == 400, (fields, response.json)
+    assert client.application.extensions["backtest_service"]._store.claim() is None
+
+
+def test_cr065_allocation_passes_custom_replay_context(monkeypatch):
+    monkeypatch.setattr("quant_platform.allocation._today", lambda: date(2026, 8, 24))
+    application = create_app({"TESTING": True})
+    publish_research_fixture(application, date(2026, 8, 21))
+    algorithm = application.extensions["allocation_service"]._algorithm
+    algorithm._provider.history = lambda *args, **kwargs: make_allocation_prices(100.0)
+    payload = {"symbols": ["510300"], "strategyId": "ma_cross", "cashPct": 10,
+               "parameters": {"shortWindow": 3, "longWindow": 12},
+               "startDate": "2026-07-01", "initialCapitalCny": 12345, "adjust": "hfq",
+               "tradingCosts": {"commissionPct": 0.08, "stampDutyMode": "asset_date"}}
+    response = application.test_client().post("/api/allocation/suggestion", json=payload)
+    assert response.status_code == 200, response.json
+    body = response.json
+    assert body["cashPct"] == 100  # Neutral since inception is still all cash.
+    assert body["request"]["parameters"] == payload["parameters"]
+    assert body["request"]["initialCapitalCny"] == 12345
+    assert body["request"]["adjust"] == "hfq"
+    assert body["request"]["tradingCosts"]["commissionPct"] == 0.08
+    assert body["request"]["startDate"] == "2026-07-01"
+
+
+def test_cr065_ranking_returns_observed_window_and_parameters():
+    client = make_client_with_ranking(make_ranking_engine_run({"ma_cross": 5.0}))
+    body = client.get("/api/strategies/ranking?period=1d").json
+    assert body["evaluationEndDate"] == "2026-08-21"
+    assert body["evaluationStartDate"] == "2026-08-20"
+    assert body["observationCount"] == 2
+    assert body["historyStartDate"] <= body["evaluationStartDate"]
+    assert body["tradingCosts"]["stampDutyPct"] == 0
+    assert next(r for r in body["items"] if r["strategyId"] == "ma_cross")["parameters"] == {
+        "shortWindow": 5, "longWindow": 20}

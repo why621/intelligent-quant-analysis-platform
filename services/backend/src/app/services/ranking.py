@@ -53,6 +53,7 @@ class RankingService:
             "period": period,
             "items": [_serialize_item(item) for item in items],
             "unavailableStrategies": list(getattr(items, "unavailable", ())),
+            **getattr(items, "metadata", {}),
         }
 
     def _latest_trade_date(self) -> date:
@@ -151,7 +152,8 @@ class RankingService:
                         "field": non_finite[0],
                     },
                 )
-        return RankingResult(items, unavailable=getattr(items, "unavailable", ()))
+        return RankingResult(items, unavailable=getattr(items, "unavailable", ()),
+                             metadata=getattr(items, "metadata", {}))
 
     def _log_missing(self, items: Sequence[RankingItem]) -> None:
         """对照目录中 available 的策略，补上算法组静默吞异常的可观测性。"""
@@ -176,5 +178,6 @@ def _serialize_item(item: RankingItem) -> dict[str, object]:
         "maxDrawdownPct": item.max_drawdown_pct,
         "sharpe": item.sharpe,
         "status": item.status,
+        "parameters": dict(item.parameters),
         **({"modelContext": item.model_context} if item.model_context else {}),
     }
