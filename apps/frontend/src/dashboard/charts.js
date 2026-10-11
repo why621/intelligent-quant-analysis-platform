@@ -85,7 +85,7 @@ export function equityOption(result) {
     tooltip: { trigger: 'axis', valueFormatter: value =>
       typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '—' },
     legend: { top: 4, data: ['策略净值', ...(hasBenchmark ? [benchmarkName] : []), ...markers.map(item => item.name)] },
-    grid: { left: 52, right: 18, top: 64, bottom: 38 },
+    grid: { left: 52, right: 18, top: 88, bottom: 38 },
     xAxis: { type: 'category', data: points.map((item) => item.date) },
     yAxis: { name: '净值（首日=1）', type: 'value', scale: true, splitLine: { lineStyle: { color: colors.grid } } },
     series: [
