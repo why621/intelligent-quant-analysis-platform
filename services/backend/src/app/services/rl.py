@@ -245,6 +245,12 @@ class WebRL(RLStrategy):
 
 def validate_web_model(catalog, payload, provider):
     strategy = catalog.get_strategy(str(payload["strategyId"]))
+    if getattr(strategy, 'joint_portfolio', False):
+        try:
+            strategy.validate_web_request(payload, provider)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        return strategy.model_context()
     if isinstance(strategy, WebRL):
         try:
             strategy.validate_web_request(payload, provider)

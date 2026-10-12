@@ -17,6 +17,9 @@ Strategy:
     backtestEnabled:
       type: boolean
       description: 仅回测能力；实验策略必须显式true才开放，缺省不开放；不适用于排行或配置。
+    allocationEnabled:
+      type: boolean
+      description: 显式开放实验组合模型的模拟重放；缺省不开放。
     modelContext: {$ref: "#/ModelContext"}
     description: {type: string}
     parameterSchema:
@@ -116,8 +119,14 @@ ModelContext:
       enum: [published_universe, training_symbols]
       description: 可回测当前已发布资产池内1至10只股票或ETF；缺省沿用历史symbols限制。
     portfolioMode:
-      enum: [equal_cash_independent]
-      description: 等分初始资金，各资产独立推理和成交后合并净值，不是多资产联合训练。
+      enum: [equal_cash_independent, joint_portfolio]
+      description: joint_portfolio为同时观察2–10资产、联合权重与共享账户；旧模式为独立分账。
+    minAssets: {type: integer, minimum: 1, maximum: 10}
+    maxAssets: {type: integer, minimum: 1, maximum: 10}
+    evaluation:
+      type: object
+      description: 绑定权重哈希的验证与样本外评估、基线和限制；不代表已证明超额收益。
+      additionalProperties: true
     crossAssetValidated:
       type: boolean
       description: 跨资产效果是否已验证；当前false，可运行不代表收益有效性验证。

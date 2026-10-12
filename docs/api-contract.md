@@ -1,3 +1,6 @@
+## CR066 / OpenAPI 0.12.0（2026-10-12，开发）
+新增独立portfolio_ppo/sac/td3目录，modelContext.portfolioMode=joint_portfolio、minAssets/maxAssets与冻结evaluation；allocationEnabled显式开放实验模拟。请求仍使用shared_account，同一训练池内2–10资产，成本按manifest，现金由模型输出，额外cashPct=0。服务读取请求起点之前历史预热，曲线从请求样本外起点开始；联合模型暂不支持共同交易日缺口，不静默填充或跨日补单。旧四模型及固定510300排行不变。新QUANT_PORTFOLIO_RELEASE独立白名单，验证正式候选/评估/权重哈希，拒绝smoke权重。
+
 # 统一 API 契约
 
 ## CR065 / OpenAPI 0.11.0（2026-10-11，本地开发）

@@ -191,7 +191,7 @@
               </select>
             </label>
             <p class="hint">默认基准将所选资产初始等权买入后持有，不再平衡、不计费用，展示价格收益。ETF 和价格指数均非全收益口径。</p>
-            <p class="hint">{{ backtest.modelContext.value ? '旧单资产模型独立账户，保留已发布执行口径。' : '共享组合账户：所选资产使用同一资金池、现金预留与交易成本。' }}</p>
+            <p class="hint">{{ backtest.modelContext.value?.portfolioMode === 'joint_portfolio' ? '联合组合模型：同时观察所选资产、输出资产与现金权重，使用唯一共享资金账户。' : backtest.modelContext.value ? '旧单资产模型独立账户，保留已发布执行口径。' : '共享组合账户：所选资产使用同一资金池、现金预留与交易成本。' }}</p>
             <div class="config-grid">
               <label>初始资金（元）<input v-model.number="backtest.initialCapitalCny.value" type="number" min="1" :disabled="backtestBusy" /></label>
               <label>预留现金（%）<input v-model.number="backtest.cashPct.value" type="number" min="0" max="100" :disabled="backtestBusy" /></label>
@@ -226,9 +226,16 @@
               <strong>{{ backtest.selectedStrategy.value?.name }} · 实验性回测</strong>
               <p>训练资产：{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}（前复权）。</p>
               <p v-for="line in modelWindowLines(backtest.modelContext.value)" :key="line">{{ line }}</p>
-              <p v-if="backtest.modelContext.value.assetScope === 'published_universe'">可选择资产池内1–10只股票或ETF。使用同一模型逐资产推理，初始资金等分后合并净值；未进行多资产联合训练，跨资产效果尚未验证。</p>
+              <p v-if="backtest.modelContext.value.portfolioMode === 'joint_portfolio'">支持训练池内任选2–10只资产联合决策；现金比例由模型输出。自动读取起点之前的140根以上历史进行预热，仅展示所选样本外区间；共同交易日必须完整，停牌缺口暂不支持。</p>
+              <p v-else-if="backtest.modelContext.value.assetScope === 'published_universe'">可选择资产池内1–10只股票或ETF。使用同一模型逐资产推理，初始资金等分后合并净值；未进行多资产联合训练，跨资产效果尚未验证。</p>
               <p v-else>当前服务仅支持 {{ backtest.modelContext.value.symbols.join('、') }}。</p>
-              <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，至少{{ backtest.modelContext.value.minimumBars }}根行情，前{{ backtest.modelContext.value.warmupBars }}根预热不交易。训练链路可运行不代表长期绩效有效；存在过拟合与幸存者偏差，不代表未来收益。</p>
+              <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，含预热至少{{ backtest.modelContext.value.minimumBars }}根行情。训练链路可运行不代表长期绩效有效；存在过拟合与幸存者偏差，不代表未来收益。</p>
+              <div v-if="backtest.modelContext.value.evaluation" class="joint-evaluation">
+                <p>冻结样本外对照（含成本，{{ backtest.modelContext.value.testStartDate }} 至 {{ backtest.modelContext.value.testEndDate }}）：</p>
+                <p>模型收益 {{ backtest.modelContext.value.evaluation.test.returnPct.toFixed(2) }}% · 最大回撤 {{ backtest.modelContext.value.evaluation.test.maxDrawdownPct.toFixed(2) }}% · 累计双边换手 {{ backtest.modelContext.value.evaluation.test.turnoverMultiple.toFixed(2) }} 倍。</p>
+                <p>等权买入持有收益 {{ backtest.modelContext.value.evaluation.baselines.equal_weight_hold.returnPct.toFixed(2) }}% · 均线目标权重基线收益 {{ backtest.modelContext.value.evaluation.baselines.ma_cross.returnPct.toFixed(2) }}%。</p>
+                <p>仅一年缓存、短验证/测试窗口；该测试区间曾用于早期烟测，不能视为全新盲测。没有证明长期超额收益或池外泛化。</p>
+              </div>
               <button type="button" :disabled="backtestBusy || backtest.activeJob.value || !backtest.canApplyModelRange.value" @click="applyModelRange">使用当前可用样本外日期区间</button>
             </aside>
           </article>
@@ -238,7 +245,7 @@
             </span></div>
             <p v-if="backtest.resultStale.value" class="notice">当前草稿已变化，下方仍显示已提交任务的结果，未自动重新回测。</p>
             <p v-if="backtestJob" class="hint">{{ backtest.benchmarkLabel.value }}</p>
-            <p v-if="backtestJob?.result?.modelContext" class="hint">实验性模型：{{ backtestJob.result.modelContext.modelRef }} · 前{{ backtestJob.result.modelContext.warmupBars }}根预热不交易；不代表未来收益。</p>
+            <p v-if="backtestJob?.result?.modelContext" class="hint">实验性模型：{{ backtestJob.result.modelContext.modelRef }} · {{ backtestJob.result.modelContext.portfolioMode === 'joint_portfolio' ? '已使用区间之前历史预热，当前曲线为样本外回放' : `前${backtestJob.result.modelContext.warmupBars}根预热不交易` }}；不代表未来收益。</p>
             <p v-for="line in modelWindowLines(backtestJob?.result?.modelContext)" :key="line" class="hint">{{ line }}</p>
             <p v-if="backtestJob?.result?.modelContext?.assetScope === 'published_universe'" class="hint">训练资产 {{ backtestJob.result.modelContext.trainingSymbols.join('、') }} · 各资产等分初始资金、独立推理后合并净值；跨资产效果尚未验证。</p>
             <p v-if="backtestJob?.request" class="hint">

@@ -136,3 +136,23 @@ test('reviewed research model sends its canonical ETF fees and locks training as
   state.symbols.value=['600519']
   assert.match(state.validationError.value,/仅支持 510300/)
 })
+
+test('joint model keeps shared mode, pool subsets, canonical tax and simulation access', t => {
+  const {state, strategies, scope} = setup(t)
+  strategies.value = [{...ppo(true), id:'portfolio_ppo', allocationEnabled:true,
+    modelContext:{...ppo(true).modelContext, portfolioMode:'joint_portfolio',
+      assetScope:'training_symbols', symbols:['000001','000002','000063'],
+      requiredTradingCosts:{commissionPct:0.03,stampDutyPct:0.05,slippagePct:0.02,stampDutyMode:'asset_date'}}}]
+  state.strategyId.value='portfolio_ppo'
+  state.applyModelRange()
+  state.symbols.value=['000002','000001']
+  assert.equal(state.canSubmit.value,true)
+  assert.equal(state.portfolioMode.value,'shared_account')
+  assert.equal(state.effectiveTradingCosts.value.stampDutyMode,'asset_date')
+  state.symbols.value=['000001']
+  assert.match(state.validationError.value,/2–10/)
+  state.symbols.value=['000001','510300']
+  assert.match(state.validationError.value,/训练池/)
+  const simulation=scope.run(()=>useAllocation(strategies,{}))
+  assert.equal(simulation.availableStrategies.value[0].id,'portfolio_ppo')
+})

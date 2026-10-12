@@ -15,7 +15,13 @@ class StrategyCatalogService:
     因此后端维护策略注册表；新增策略时在 _strategies 里加一条即可。
     """
 
-    def __init__(self, strategies: Sequence[Strategy] | None = None, *, rl_release=None) -> None:
+    def __init__(
+        self,
+        strategies: Sequence[Strategy] | None = None,
+        *,
+        rl_release=None,
+        portfolio_release=None,
+    ) -> None:
         self._strategies = (
             list(strategies)
             if strategies is not None
@@ -25,6 +31,26 @@ class StrategyCatalogService:
             from app.services.rl import load_web_models
 
             self._strategies.extend(load_web_models(rl_release))
+        if strategies is None and portfolio_release:
+            import json
+            from pathlib import Path
+
+            from quant_platform.rl.portfolio_strategy import JointPortfolioStrategy
+
+            path = Path(portfolio_release)
+            config = json.loads(path.read_text(encoding="utf-8"))
+            if config.get("schemaVersion") != 1 or not 1 <= len(config["models"]) <= 3:
+                raise ValueError("invalid portfolio release")
+            seen = set()
+            for entry in config["models"]:
+                candidate = (path.parent / entry["modelRef"]).resolve()
+                if candidate.parent != path.parent.resolve():
+                    raise ValueError("portfolio model path must stay in release root")
+                strategy = JointPortfolioStrategy(candidate, entry)
+                if strategy.info().strategy_id in seen:
+                    raise ValueError("duplicate portfolio model")
+                seen.add(strategy.info().strategy_id)
+                self._strategies.append(strategy)
         self._by_id = {s.info().strategy_id: s for s in self._strategies}
 
     def list_strategies(self) -> Mapping[str, object]:
@@ -36,6 +62,8 @@ class StrategyCatalogService:
                 item.update(
                     backtestEnabled=strategy.backtest_enabled, modelContext=strategy.model_context()
                 )
+            if getattr(strategy, "allocation_enabled", False):
+                item["allocationEnabled"] = True
             items.append(item)
         return {"items": items}
 

@@ -114,12 +114,16 @@ export function exposureOption(result) {
   if (!points.length) return emptyChartOption(result ? '该历史任务未记录每日持仓比例' : '回测完成后显示每日持仓比例')
   return { backgroundColor: 'transparent', animation: false,
     tooltip: { trigger: 'axis', valueFormatter: value => typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}%` : '未记录' },
-    grid: { left: 52, right: 18, top: 35, bottom: 35 },
+    legend: { type: 'scroll', top: 0, textStyle: { color: colors.muted } },
+    grid: { left: 52, right: 18, top: 62, bottom: 35 },
     xAxis: { type: 'category', data: points.map(point => point.date) },
     yAxis: { type: 'value', name: '持仓比例（%）', min: 0, max: 100, splitLine: { lineStyle: { color: colors.grid } } },
     series: [{ name: '资产持仓比例', type: 'line', step: 'end', showSymbol: false,
       data: points.map(point => Number.isFinite(point.exposurePct) ? point.exposurePct : null),
-      itemStyle: { color: colors.blue }, areaStyle: { color: '#69d9c522' } }] }
+      itemStyle: { color: colors.blue }, areaStyle: { color: '#69d9c522' } },
+      ...(points[0].positions || []).map(position => ({ name: position.symbol, type: 'line',
+        step: 'end', showSymbol: false,
+        data: points.map(p => p.positions?.find(v => v.symbol === position.symbol)?.weightPct ?? null) }))] }
 }
 
 export function allocationOption(result) {
