@@ -305,7 +305,8 @@ class BacktestService:
         except ValueError as exc:
             raise ValidationError(message=str(exc), details={"strategyId": strategy_id}) from exc
         if (payload.get("portfolioMode") == "shared_account"
-                and strategy.info().requires_trained_model):
+                and strategy.info().requires_trained_model
+                and not getattr(strategy, 'joint_portfolio', False)):
             raise ValidationError("旧单资产模型不能用于共享组合账户")
 
 

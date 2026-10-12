@@ -57,7 +57,10 @@ class AllocationService:
     ) -> Mapping[str, object]:
         """返回契约 AllocationResponse；字段已由路由层校验。"""
         strategy = self._catalog.get_strategy(strategy_id)
-        if strategy is None or strategy.info().status != "available":
+        if strategy is None or (
+            strategy.info().status != "available"
+            and not getattr(strategy, "allocation_enabled", False)
+        ):
             raise StrategyNotAvailableError(details={"strategyId": strategy_id})
         parameters = configuration.get("parameters")
         if parameters is not None:
@@ -75,20 +78,44 @@ class AllocationService:
         costs = configuration.get("tradingCosts", {})
         kwargs = {}
         if configuration:
-            kwargs = {"parameters": parameters, "adjust": configuration.get("adjust", "qfq"),
-                      "initial_capital_cny": configuration.get("initialCapitalCny", 100000),
-                      "start_date": (date.fromisoformat(configuration["startDate"])
-                                     if configuration.get("startDate") else None),
-                      "trading_costs": TradingCosts(
-                          costs.get("commissionPct", 0.03), costs.get("stampDutyPct", 0.05),
-                          costs.get("slippagePct", 0.02), costs.get("stampDutyMode", "fixed"))}
+            kwargs = {
+                "parameters": parameters,
+                "adjust": configuration.get("adjust", "qfq"),
+                "initial_capital_cny": configuration.get("initialCapitalCny", 100000),
+                "start_date": (
+                    date.fromisoformat(configuration["startDate"])
+                    if configuration.get("startDate")
+                    else None
+                ),
+                "trading_costs": TradingCosts(
+                    costs.get("commissionPct", 0.03),
+                    costs.get("stampDutyPct", 0.05),
+                    costs.get("slippagePct", 0.02),
+                    costs.get("stampDutyMode", "fixed"),
+                ),
+            }
 
         try:
             with research_read(self._algorithm._provider) as context:
+                if getattr(strategy, "joint_portfolio", False):
+                    strategy.validate_web_request(
+                        {
+                            **configuration,
+                            "symbols": list(symbols),
+                            "portfolioMode": "shared_account",
+                            "cashPct": cash_pct,
+                            "startDate": configuration.get("startDate")
+                            or strategy.model_context()["outOfSampleStartDate"],
+                            "endDate": context["publicationDate"],
+                        },
+                        self._algorithm._provider,
+                    )
                 if configuration.get("startDate"):
                     ResearchDateGuard(self._algorithm._provider).validate(
-                        symbols, date.fromisoformat(configuration["startDate"]),
-                        date.fromisoformat(context["publicationDate"]))
+                        symbols,
+                        date.fromisoformat(configuration["startDate"]),
+                        date.fromisoformat(context["publicationDate"]),
+                    )
                 result = self._algorithm.suggest(
                     symbols=symbols,
                     strategy_id=strategy_id,

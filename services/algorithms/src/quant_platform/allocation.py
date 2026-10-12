@@ -62,16 +62,21 @@ class AllocationService:
 
         strategy = self._strategies[strategy_id]
         info = strategy.info()
-        resolved_parameters = dict(parameters) if parameters is not None else {
-            key: schema["default"]
-            for key, schema in info.parameter_schema.get("properties", {}).items()
-            if "default" in schema
-        }
+        resolved_parameters = (
+            dict(parameters)
+            if parameters is not None
+            else {
+                key: schema["default"]
+                for key, schema in info.parameter_schema.get("properties", {}).items()
+                if "default" in schema
+            }
+        )
         strategy.validate_parameters(resolved_parameters)
         costs = trading_costs or TradingCosts()
         # Allocation consumes discrete {-1,0,1} signals with empty parameters;
         # RL (trained-model) and continuous-target strategies cannot supply them.
-        if info.requires_trained_model or info.signal_semantics != "discrete_hold":
+        joint = getattr(strategy, "joint_portfolio", False)
+        if not joint and (info.requires_trained_model or info.signal_semantics != "discrete_hold"):
             raise ValueError("配置建议仅支持离散持仓策略，强化学习/连续权重策略不适用")
         try:
             required = latest_session(_today() - timedelta(days=1))
@@ -88,6 +93,56 @@ class AllocationService:
         lookback_start = start_date or basis - timedelta(days=self._LOOKBACK_DAYS)
         if lookback_start >= basis:
             raise ValueError("模拟重放起点必须早于依据日")
+
+        if joint:
+            from quant_platform.backtesting.engine import BacktestEngine
+
+            engine = BacktestEngine(self._provider, self._strategies)
+            request = BacktestRequest(
+                symbols=tuple(symbols),
+                strategy_id=strategy_id,
+                parameters=resolved_parameters,
+                start_date=lookback_start,
+                end_date=basis,
+                adjust=adjust,
+                initial_capital_cny=initial_capital_cny,
+                trading_costs=costs,
+                portfolio_mode="shared_account",
+                cash_pct=cash_pct,
+            )
+            engine._validate(request)
+            replay, weights = strategy.run_joint(engine, request, with_target=True)
+            current = {p["symbol"]: p["weightPct"] for p in replay.account_curve[-1]["positions"]}
+            positions = tuple(
+                AllocationPosition(
+                    s,
+                    float(weights[s] * 100),
+                    "increase"
+                    if weights[s] * 100 > current[s] + 1e-8
+                    else "decrease"
+                    if weights[s] * 100 < current[s] - 1e-8
+                    else "hold",
+                    "组合模型联合目标；按同参数共享账户重放，下一开盘实际成交与费用未知",
+                )
+                for s in symbols
+            )
+            return AllocationSuggestion(
+                basis_date=basis,
+                target_date=target,
+                strategy_id=strategy_id,
+                positions=positions,
+                cash_pct=max(0.0, 100 - sum(weights.values()) * 100),
+                request={
+                    "symbols": list(symbols),
+                    "strategyId": strategy_id,
+                    "cashPct": cash_pct,
+                    "parameters": resolved_parameters,
+                    "adjust": adjust,
+                    "initialCapitalCny": initial_capital_cny,
+                    "startDate": lookback_start.isoformat(),
+                    "tradingCosts": strategy.bundle.manifest["tradingCosts"],
+                },
+            )
 
         signals: dict[str, float] = {}
         for sym in symbols:
@@ -113,12 +168,20 @@ class AllocationService:
         from quant_platform.backtesting.engine import BacktestEngine
         from quant_platform.portfolio.execution import signal_target_weights
 
-        replay = BacktestEngine(self._provider, self._strategies).run(BacktestRequest(
-            symbols=tuple(symbols), strategy_id=strategy_id, parameters=resolved_parameters,
-            start_date=lookback_start, end_date=basis, adjust=adjust,
-            initial_capital_cny=initial_capital_cny, trading_costs=costs,
-            portfolio_mode="shared_account", cash_pct=cash_pct,
-        ))
+        replay = BacktestEngine(self._provider, self._strategies).run(
+            BacktestRequest(
+                symbols=tuple(symbols),
+                strategy_id=strategy_id,
+                parameters=resolved_parameters,
+                start_date=lookback_start,
+                end_date=basis,
+                adjust=adjust,
+                initial_capital_cny=initial_capital_cny,
+                trading_costs=costs,
+                portfolio_mode="shared_account",
+                cash_pct=cash_pct,
+            )
+        )
         last = replay.account_curve[-1]
         current = [p["weightPct"] / 100 for p in last["positions"]]
         targets = signal_target_weights([signals[s] for s in symbols], current, cash_pct=cash_pct)
@@ -132,8 +195,13 @@ class AllocationService:
             w = float(targets[index]) * 100
             if sig != -1:
                 difference = w - current[index] * 100
-                action = ("increase" if difference > 1e-8 else
-                          "decrease" if difference < -1e-8 else "hold")
+                action = (
+                    "increase"
+                    if difference > 1e-8
+                    else "decrease"
+                    if difference < -1e-8
+                    else "hold"
+                )
             if sig == 0:
                 reason = "无新交易信号；沿用历史重放账户，空仓不因中性信号建仓"
 
@@ -152,13 +220,21 @@ class AllocationService:
             strategy_id=strategy_id,
             positions=tuple(positions),
             cash_pct=max(0.0, 100.0 - float(sum(targets)) * 100),
-            request={"symbols": list(symbols), "strategyId": strategy_id, "cashPct": cash_pct,
-                     "parameters": resolved_parameters, "adjust": adjust,
-                     "initialCapitalCny": initial_capital_cny,
-                     "startDate": lookback_start.isoformat(),
-                     "tradingCosts": {"commissionPct": costs.commission_pct,
-                         "stampDutyPct": costs.stamp_duty_pct, "slippagePct": costs.slippage_pct,
-                         "stampDutyMode": costs.stamp_duty_mode}},
+            request={
+                "symbols": list(symbols),
+                "strategyId": strategy_id,
+                "cashPct": cash_pct,
+                "parameters": resolved_parameters,
+                "adjust": adjust,
+                "initialCapitalCny": initial_capital_cny,
+                "startDate": lookback_start.isoformat(),
+                "tradingCosts": {
+                    "commissionPct": costs.commission_pct,
+                    "stampDutyPct": costs.stamp_duty_pct,
+                    "slippagePct": costs.slippage_pct,
+                    "stampDutyMode": costs.stamp_duty_mode,
+                },
+            },
         )
 
 

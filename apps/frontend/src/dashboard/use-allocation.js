@@ -21,7 +21,7 @@ export function useAllocation(strategies, client = api, dataStatus) {
   const disposed = ref(false)
 
   const availableStrategies = computed(() =>
-    strategies.value.filter((strategy) => strategy.status === 'available')
+    strategies.value.filter((strategy) => strategy.status === 'available' || strategy.allocationEnabled === true)
   )
   const validationError = computed(() => {
     if (!symbols.value.length || symbols.value.length > 10

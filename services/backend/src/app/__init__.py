@@ -85,7 +85,10 @@ def create_app(
     application.extensions["market_data_service"] = MarketDataService(provider)
 
     strategy_catalog = StrategyCatalogService(
-        rl_release=application.config.get("QUANT_RL_RELEASE", os.environ.get("QUANT_RL_RELEASE"))
+        rl_release=application.config.get("QUANT_RL_RELEASE", os.environ.get("QUANT_RL_RELEASE")),
+        portfolio_release=application.config.get(
+            "QUANT_PORTFOLIO_RELEASE", os.environ.get("QUANT_PORTFOLIO_RELEASE")
+        ),
     )
     application.extensions["strategy_catalog_service"] = strategy_catalog
 

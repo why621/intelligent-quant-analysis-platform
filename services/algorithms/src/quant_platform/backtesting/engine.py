@@ -32,6 +32,9 @@ class BacktestEngine:
 
     def run(self, request: BacktestRequest) -> BacktestResult:
         self._validate(request)
+        joint = self._strategies[request.strategy_id]
+        if getattr(joint, 'joint_portfolio', False):
+            return joint.run_joint(self, request)
         if request.portfolio_mode == "shared_account":
             return self._run_shared(request)
 

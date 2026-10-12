@@ -69,16 +69,17 @@ def train_portfolio(
     initial_capital: float = 100_000.0,
     band_pct: float = 0.0,
     min_trade_cny: float = 0.0,
+    formal_candidate: bool = False,
 ) -> Path:
     if algo not in PORTFOLIO_ALGORITHMS:
         raise ValueError("joint smoke training supports PPO/SAC/TD3, not DQN")
     if (
         not isinstance(total_timesteps, int)
         or isinstance(total_timesteps, bool)
-        or not 64 <= total_timesteps <= 10_000
+        or not 64 <= total_timesteps <= (250_000 if formal_candidate else 10_000)
     ):
         raise ValueError("local smoke training is bounded to 64..10000 requested steps")
-    if not 1 <= max_seconds <= 600:
+    if not 1 <= max_seconds <= (3600 if formal_candidate else 600):
         raise ValueError("local smoke wall-clock budget must be within 1..600 seconds")
     boundaries = validate_splits(splits)
     panel = prepare_panel(training_frames(frames, boundaries))
@@ -108,8 +109,8 @@ def train_portfolio(
         "generalization": "unverified",
         "performanceStatus": "unproven",
         "releaseEligible": False,
-        "purpose": "local_smoke_only",
-        "weightSelection": "final_smoke_checkpoint",
+        "purpose": "formal_candidate" if formal_candidate else "local_smoke_only",
+        "weightSelection": "validation_pending" if formal_candidate else "final_smoke_checkpoint",
         "validationExecuted": False,
         "testExecuted": False,
         "seed": seed,

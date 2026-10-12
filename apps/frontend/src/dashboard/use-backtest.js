@@ -33,8 +33,8 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   const parameterForm = useStrategyParameters(selectedStrategy)
   const modelContext = computed(() => selectedStrategy.value?.modelContext || null)
   const effectiveTradingCosts = computed(() => modelContext.value?.requiredTradingCosts
-    ? { ...modelContext.value.requiredTradingCosts, stampDutyMode: 'fixed' } : tradingCosts.value)
-  const portfolioMode = computed(() => modelContext.value ? 'legacy_independent' : 'shared_account')
+    ? { stampDutyMode: 'fixed', ...modelContext.value.requiredTradingCosts } : tradingCosts.value)
+  const portfolioMode = computed(() => modelContext.value && modelContext.value.portfolioMode !== 'joint_portfolio' ? 'legacy_independent' : 'shared_account')
   const modelRangeStart = computed(() => {
     if (!modelContext.value || !dates.maxDate.value) return ''
     const start = [modelContext.value.outOfSampleStartDate, dates.minDate].sort().at(-1)
@@ -81,13 +81,15 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     if (benchmarkMode.value === 'custom' && !benchmarkOptions.value.some(item => item.symbol === benchmark.value)) return '请选择已接入的指数或 ETF 基准。'
     if (typeof initialCapitalCny.value !== 'number' || !Number.isFinite(initialCapitalCny.value) || initialCapitalCny.value <= 0) return '初始资金必须为正数。'
     if (typeof cashPct.value !== 'number' || !Number.isFinite(cashPct.value) || cashPct.value < 0 || cashPct.value > 100) return '预留现金比例须为 0–100 的有限数值。'
-    if (modelContext.value && cashPct.value !== 0) return '现有单资产 AI 模型不支持预留现金约束，请将预留现金显式设为 0%。'
+    if (modelContext.value && cashPct.value !== 0) return modelContext.value.portfolioMode === 'joint_portfolio' ? '组合模型自行决定现金权重，额外预留现金须显式设为 0%。' : '现有单资产 AI 模型不支持预留现金约束，请将预留现金显式设为 0%。'
     if (!['asset_date', 'fixed'].includes(effectiveTradingCosts.value.stampDutyMode)
       || ['commissionPct', 'stampDutyPct', 'slippagePct'].some(key => typeof effectiveTradingCosts.value[key] !== 'number' || !Number.isFinite(effectiveTradingCosts.value[key]) || effectiveTradingCosts.value[key] < 0)) return '费用必须为非负有限数值。'
     if (dates.dateError.value) return dates.dateError.value
     if (modelContext.value) {
       const model = modelContext.value
-      if (model.assetScope !== 'published_universe' && (symbols.value.length !== model.symbols.length || symbols.value.some((value, i) => value !== model.symbols[i]))) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
+      if (model.portfolioMode === 'joint_portfolio') {
+        if (symbols.value.length < 2 || symbols.value.some(s => !model.symbols.includes(s))) return `组合模型请选择训练池内 2–10 只资产：${model.symbols.join('、')}。`
+      } else if (model.assetScope !== 'published_universe' && (symbols.value.length !== model.symbols.length || symbols.value.some((value, i) => value !== model.symbols[i]))) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
       if (dates.startDate.value < model.outOfSampleStartDate) return `${selectedStrategy.value.name}起始日须从 ${model.outOfSampleStartDate} 起，不能与训练区间或验证区间重叠。`
     }
     return ''

@@ -1,3 +1,6 @@
+## CR066 / OpenAPI 0.12.0（2026-10-12，开发）
+新增独立portfolio_ppo/sac/td3目录，modelContext.portfolioMode=joint_portfolio、minAssets/maxAssets与冻结evaluation；allocationEnabled显式开放实验模拟。请求仍使用shared_account，同一训练池内2–10资产，成本按manifest，现金由模型输出，额外cashPct=0。服务读取请求起点之前历史预热，曲线从请求样本外起点开始；联合模型暂不支持共同交易日缺口，不静默填充或跨日补单。旧四模型及固定510300排行不变。新QUANT_PORTFOLIO_RELEASE独立白名单，验证正式候选/评估/权重哈希，拒绝smoke权重。
+
 # 统一 API 契约
 
 ## CR065 / OpenAPI 0.11.0（2026-10-11，本地开发）
@@ -239,3 +242,8 @@ Content-Type: application/json
 ## CR065 云部署状态（2026-10-11）
 
 OpenAPI 0.11.0 配套实现和云前端已上线，候选及实际 HTTPS 验收通过；旧请求缺省、旧任务 JSON 和四个单资产模型保持兼容。GitHub Pages 尚待 PR #47 合并及独立验收。联合组合研究模型尚未接入网页接口。详见 [部署报告](cr065-deployment-2026-10-11.md)。
+
+### CR065 GitHub Pages 正式验收完成（2026-10-11）
+用户确认合并 PR #47，main 提交 ebe760bb2d2991607b458a67a689a062cab395de；Pages 工作流 38122591031 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 入口 index-BR1Ms9tA.js，Edge 1440/390 真实浏览器 33 项通过、21 个业务请求全部成功，无 pageerror、console error、requestfailed 或横向溢出，手机截图已查看。
+验证资产联动/手动覆盖恢复、默认基准和共享账户、费用账本、模拟八项配置一致、排行六策略及实际日期、排行载入、旧 TD3 结果恢复。新增一次真实验收任务 8b706e73-faec-4a2c-93f9-05490f91d5e7，保留记录；不改写旧任务。未重复云部署、训练或行情采集，07:30 日更配置未改。联合 RL 正式模型和网页集成仍未完成，不将网站发布等同正式组合模型发布。
+证据在原仓库 ignored artifacts/cr065-deploy/pages-browser.json、pages-backtest.json、pages-allocation.json、pages-ranking.json 和 pages-backtest-1440/390.png。复现命令：node artifacts/cr065-deploy/online_browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/ 。验收文档推送 codex/cr065-pages-evidence；该文档分支合并与否不影响已完成的 Pages 发布。
