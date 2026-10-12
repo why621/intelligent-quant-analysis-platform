@@ -66,3 +66,6 @@ npm run build --workspace @intelligent-quant/frontend -- --base=/
 # Pages：按工作流同时提供公开HTTPS VITE_API_BASE_URL
 npm run build --workspace @intelligent-quant/frontend -- --base=/intelligent-quant-analysis-platform/
 ```
+
+## CR066（2026-10-12，云端与Pages已上线）
+新增三个联合组合模型，可从明确十股票训练池选择2–10资产。共享回测与模拟、训练/验证/测试区间和冻结评估、逐资产权重图已接入；旧模型保持。599算法后端、106前端、13云候选任务通过，云站/Pages各19项真实页面检查通过，详见[CR066报告](../../docs/cr066-validation-2026-10-12.md)。

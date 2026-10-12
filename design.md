@@ -773,3 +773,15 @@ PR #47 的 c7a7e81 四项 CI（含 Regression stack）全部 success，尚未合
 
 ### CR066 本地验收完成、发布准备
 正式六候选393216步训练完成，验证选优冻结PPO137/SAC137/TD342；测试表现及限制如实披露。联合服务/契约/前端接入完成，599算法后端+106前端回归、六组真实权重联调和19项本地浏览器通过。云发布未完成，候选和上线证据后续回写。详情见 docs/cr066-validation-2026-10-12.md。
+
+### CR066 云端正式发布与公网验收（2026-10-12）
+功能提交2c44dbcee533ddf08778689cef2f0c7fc56c7917，分支codex/cr066-joint-model-release，PR #48已建立，功能提交四项CI均success。发布包105文件、2168276字节，SHA256 ca0a3bc1934114b1daab5acb651537320df5c921f6c95533606ec23affc14ff1。包含源码/静态前端/三个新模型，不含行情、任务库或凭据；权重未入Git。
+云目录 /opt/intelligent-quant-cr066-20261012；基于CR065运行时禁网构建quant-mvp-backend:cr066，镜像sha256:2367d3bf7a6d34362f46c81fdbf2a33a31bc553a85da230a043883658b495f62。独立QUANT_PORTFOLIO_RELEASE指向镜像内只读使用的/app/portfolio_models/release.json，旧模型挂载保持。候选禁网/只读行情、隔离任务库，13回测任务全部成功（3传统+4旧AI+3新AI各2/10资产），六组新模型同参数模拟及拒绝边界通过；排行仍六项。
+正式切换获取日更锁、维护排空、SQLite备份实际恢复校验，原139条任务切换前后logicalSha256均2d575c6596e89acd77b93fb36a02ce8ed5aa636992b54d9b881cff39a2c84919、integrity ok。旧模型逐文件哈希、行情发布e2add7c52b7397163c26362a1035e6af6913ad179b38775d2a7a102b4d36128e、日更两个账本及timer配置不变。日更dry-run waiting_new_day/2026-10-09，07:30timer active。备份在云目录backup，已准备回滚，本批未触发故障回滚。
+云前端入口index-XTL-_R4R.js，index SHA256 11f20e7660a3cdde8c936449f21bcd4b1f7f70fea223b0df09795e9d38e90e80。真实公网Edge19项、20业务请求成功；十资产PPO共享账户回测、模拟七项配置一致、资产+现金权重和、冻结评估、1440/390/320无横向溢出/运行错误。新增真实验收任务7ae2d012-e1d3-412a-a284-182510bb2f40单独保留；不改写旧任务。
+云站已完成，GitHub Pages仍待PR48合并/工作流与真实页面验收，不以云站替代。完整本地及云证据见docs/cr066-validation-2026-10-12.md和ignored artifacts/cr066-training（cloud-candidate.json、cloud-deployment.json、cloud-browser.json、cloud-job.json及截图）。未新增付费资源、未采集新行情、未重复训练旧模型。
+
+### CR066 Pages 正式验收完成（2026-10-12）
+PR #48合并提交7aa9e9836778bbd871b18ac0f6b62eafa8ea79c7，Pages工作流38230719515 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 入口index-BmC4Uxgy.js；19项真实Edge检查、18个跨域业务请求全部成功，无运行错误，1440/390/320无横向溢出。十资产PPO联合回测及同配置模拟成功，模型范围/评估披露、资金权重和、七项配置深比较通过。
+新增Pages验收任务e7989118-efe5-4e62-bebb-2d3f66290f9c，独立记录；云与Pages合计本轮新增两个真实验收任务，原139条未改写。云端与Pages均完成，不再等待功能合并。未重复训练/云切换，旧模型/日更配置保持。证据ignored artifacts/cr066-training/pages-browser.json、pages-job.json、pages-1440/390/320.png，命令node artifacts/cr066-training/browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/。
+最终SDD/README/部署及交接记录推送codex/cr066-pages-evidence；该文档分支是否合并不影响已上线功能。剩余研究限制：首批训练池内2–10资产，短历史与非全新盲测，未知资产泛化及长期超额收益未证明；停牌缺口暂不支持。扩大池、长期样本和重新训练另行登记。

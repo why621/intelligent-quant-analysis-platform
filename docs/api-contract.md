@@ -247,3 +247,10 @@ OpenAPI 0.11.0 配套实现和云前端已上线，候选及实际 HTTPS 验收�
 用户确认合并 PR #47，main 提交 ebe760bb2d2991607b458a67a689a062cab395de；Pages 工作流 38122591031 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 入口 index-BR1Ms9tA.js，Edge 1440/390 真实浏览器 33 项通过、21 个业务请求全部成功，无 pageerror、console error、requestfailed 或横向溢出，手机截图已查看。
 验证资产联动/手动覆盖恢复、默认基准和共享账户、费用账本、模拟八项配置一致、排行六策略及实际日期、排行载入、旧 TD3 结果恢复。新增一次真实验收任务 8b706e73-faec-4a2c-93f9-05490f91d5e7，保留记录；不改写旧任务。未重复云部署、训练或行情采集，07:30 日更配置未改。联合 RL 正式模型和网页集成仍未完成，不将网站发布等同正式组合模型发布。
 证据在原仓库 ignored artifacts/cr065-deploy/pages-browser.json、pages-backtest.json、pages-allocation.json、pages-ranking.json 和 pages-backtest-1440/390.png。复现命令：node artifacts/cr065-deploy/online_browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/ 。验收文档推送 codex/cr065-pages-evidence；该文档分支合并与否不影响已完成的 Pages 发布。
+
+CR066云端实现已部署并通过13隔离任务及19公网浏览器检查；Pages待PR48合并验收。详细边界见2026-10-12验收记录。
+
+### CR066 Pages 正式验收完成（2026-10-12）
+PR #48合并提交7aa9e9836778bbd871b18ac0f6b62eafa8ea79c7，Pages工作流38230719515 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 入口index-BmC4Uxgy.js；19项真实Edge检查、18个跨域业务请求全部成功，无运行错误，1440/390/320无横向溢出。十资产PPO联合回测及同配置模拟成功，模型范围/评估披露、资金权重和、七项配置深比较通过。
+新增Pages验收任务e7989118-efe5-4e62-bebb-2d3f66290f9c，独立记录；云与Pages合计本轮新增两个真实验收任务，原139条未改写。云端与Pages均完成，不再等待功能合并。未重复训练/云切换，旧模型/日更配置保持。证据ignored artifacts/cr066-training/pages-browser.json、pages-job.json、pages-1440/390/320.png，命令node artifacts/cr066-training/browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/。
+最终SDD/README/部署及交接记录推送codex/cr066-pages-evidence；该文档分支是否合并不影响已上线功能。剩余研究限制：首批训练池内2–10资产，短历史与非全新盲测，未知资产泛化及长期超额收益未证明；停牌缺口暂不支持。扩大池、长期样本和重新训练另行登记。
