@@ -3,10 +3,19 @@
 from app import create_app
 
 
+def publication_app(provider):
+    # The data gate checks traditional strategies, not the serving model release.
+    # Explicit None overrides inherited image environment in create_app.
+    return create_app(
+        {"TESTING": True, "QUANT_RL_RELEASE": None, "QUANT_PORTFOLIO_RELEASE": None},
+        market_data_provider=provider,
+    )
+
+
 def verify(provider):
     if not provider.availability["complete"]:
         return verify_partial(provider)
-    app = create_app({"TESTING": True}, market_data_provider=provider)
+    app = publication_app(provider)
     client = app.test_client()
     context = provider.publication_context
 
@@ -107,7 +116,7 @@ def verify_partial(provider):
     """A partial gate verifies declared capabilities and rejects unknown-gap reads."""
     from quant_platform.data.akshare_provider import UpstreamUnavailableError
 
-    app = create_app({"TESTING": True}, market_data_provider=provider)
+    app = publication_app(provider)
     client = app.test_client()
     context = provider.publication_context
     outcomes = {}

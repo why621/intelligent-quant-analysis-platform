@@ -1031,3 +1031,33 @@ PR #47 的 c7a7e81 四项 CI（含 Regression stack）全部 success，尚未合
 
 ### CR066 本地验收完成、发布准备
 正式六候选393216步训练完成，验证选优冻结PPO137/SAC137/TD342；测试表现及限制如实披露。联合服务/契约/前端接入完成，599算法后端+106前端回归、六组真实权重联调和19项本地浏览器通过。云发布未完成，候选和上线证据后续回写。详情见 docs/cr066-validation-2026-10-12.md。
+
+### CR066 云端正式发布与公网验收（2026-10-12）
+功能提交2c44dbcee533ddf08778689cef2f0c7fc56c7917，分支codex/cr066-joint-model-release，PR #48已建立，功能提交四项CI均success。发布包105文件、2168276字节，SHA256 ca0a3bc1934114b1daab5acb651537320df5c921f6c95533606ec23affc14ff1。包含源码/静态前端/三个新模型，不含行情、任务库或凭据；权重未入Git。
+云目录 /opt/intelligent-quant-cr066-20261012；基于CR065运行时禁网构建quant-mvp-backend:cr066，镜像sha256:2367d3bf7a6d34362f46c81fdbf2a33a31bc553a85da230a043883658b495f62。独立QUANT_PORTFOLIO_RELEASE指向镜像内只读使用的/app/portfolio_models/release.json，旧模型挂载保持。候选禁网/只读行情、隔离任务库，13回测任务全部成功（3传统+4旧AI+3新AI各2/10资产），六组新模型同参数模拟及拒绝边界通过；排行仍六项。
+正式切换获取日更锁、维护排空、SQLite备份实际恢复校验，原139条任务切换前后logicalSha256均2d575c6596e89acd77b93fb36a02ce8ed5aa636992b54d9b881cff39a2c84919、integrity ok。旧模型逐文件哈希、行情发布e2add7c52b7397163c26362a1035e6af6913ad179b38775d2a7a102b4d36128e、日更两个账本及timer配置不变。日更dry-run waiting_new_day/2026-10-09，07:30timer active。备份在云目录backup，已准备回滚，本批未触发故障回滚。
+云前端入口index-XTL-_R4R.js，index SHA256 11f20e7660a3cdde8c936449f21bcd4b1f7f70fea223b0df09795e9d38e90e80。真实公网Edge19项、20业务请求成功；十资产PPO共享账户回测、模拟七项配置一致、资产+现金权重和、冻结评估、1440/390/320无横向溢出/运行错误。新增真实验收任务7ae2d012-e1d3-412a-a284-182510bb2f40单独保留；不改写旧任务。
+云站已完成，GitHub Pages仍待PR48合并/工作流与真实页面验收，不以云站替代。完整本地及云证据见docs/cr066-validation-2026-10-12.md和ignored artifacts/cr066-training（cloud-candidate.json、cloud-deployment.json、cloud-browser.json、cloud-job.json及截图）。未新增付费资源、未采集新行情、未重复训练旧模型。
+
+### CR066 Pages 合并后验收登记
+用户已确认PR48合并，合并提交7aa9e9836778bbd871b18ac0f6b62eafa8ea79c7；Pages工作流38230719515 success。本轮进行实际Pages十资产联合回测/模拟与三视口验收，新增真实测试任务单列；不重复云部署或训练。云与Pages最终证据将推送codex/cr066-pages-evidence。
+
+### CR066 Pages 正式验收完成（2026-10-12）
+PR #48合并提交7aa9e9836778bbd871b18ac0f6b62eafa8ea79c7，Pages工作流38230719515 success。实际 https://why621.github.io/intelligent-quant-analysis-platform/ 入口index-BmC4Uxgy.js；19项真实Edge检查、18个跨域业务请求全部成功，无运行错误，1440/390/320无横向溢出。十资产PPO联合回测及同配置模拟成功，模型范围/评估披露、资金权重和、七项配置深比较通过。
+新增Pages验收任务e7989118-efe5-4e62-bebb-2d3f66290f9c，独立记录；云与Pages合计本轮新增两个真实验收任务，原139条未改写。云端与Pages均完成，不再等待功能合并。未重复训练/云切换，旧模型/日更配置保持。证据ignored artifacts/cr066-training/pages-browser.json、pages-job.json、pages-1440/390/320.png，命令node artifacts/cr066-training/browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/。
+最终SDD/README/部署及交接记录推送codex/cr066-pages-evidence；该文档分支是否合并不影响已上线功能。剩余研究限制：首批训练池内2–10资产，短历史与非全新盲测，未知资产泛化及长期超额收益未证明；停牌缺口暂不支持。扩大池、长期样本和重新训练另行登记。
+
+## CR067 日更模型依赖隔离与离线恢复（2026-10-14，登记）
+用户授权“先修复日更，核查问题原因”。已核实10月13、14日07:30任务在采集后校验阶段失败，账本均记录 RLDependenciesMissing。CR066镜像继承QUANT_PORTFOLIO_RELEASE，日更PYTHONPATH不含推理依赖，verify_published_provider创建应用时误装配组合模型。此前dry-run未覆盖此阶段，不能作为完整日更验收。
+范围：隔离日更数据门禁与服务模型配置；增加回归测试；从已采集且哈希可校验的10月13日原始输出离线重建、验证并发布，保留原失败记录并另记零网络手动恢复，不重置采集预算。恢复限定最新RLDependenciesMissing失败与完整源清单，禁止隐式采集。保持每日07:30、模型权重、原任务和真实缺口提示。不改API契约、前端、训练或资产范围。
+验收：离线模型环境污染回归、恢复拒绝/失败保护；同一云镜像禁网复现和修复后五模块校验；维护锁、备份与可回滚发布；线上日期/可用性、模型目录、任务库及定时器复核。下次07:30自动成功须届时观察，不能用手动恢复冒充。实现/测试/云恢复及结果回写待完成。
+
+### CR067 恢复后缺口核查（2026-10-14）
+第一阶段已禁网恢复至10月13日，326/327可用。剩余601059的10月12日停牌记录存在于失败日事件文件及维护报告，未进入已发布基线，故次日丢失继承。旧维护程序仅保存源响应哈希而未保存原文；不能声称已复核原始响应。继续做一次有界官方停牌历史核验（单次请求、无重试，独立人工审计），与保存事件交叉核对；仅恢复有证据的10月12日事件，全部价格记录必须逐项不变。通过禁网五模块后执行同日元数据修复，备份、排空、原子指针切换及失败回滚；不放宽常规日更只推进交易日的保护。若官方核验失败，保留partial及缺口，不推算停牌日。
+
+### CR067 云端修复完成（2026-10-14）
+已隔离日更与模型发布配置；同镜像禁网复现后，修复候选和完整五模块均通过。已用保存行情恢复10月13日，并经一次官方查询（响应哈希与原记录一致）补回失败日601059的10月12日停牌证据；全部价格未改。线上status=ready、327/327覆盖、299股定价+1停牌，排行区间09-14至10-13；PPO/SAC/TD3十资产模拟均成功。142条任务、模型、旧验收账本和07:30timer保持，原自动失败记录保留，人工恢复与事件核验独立审计。
+65个不同离线测试验证通过（首次64通过/1夹具失败，修正后7项新增测试全通过，原58项已通过）；Ruff、编译和差异检查通过。最终数据版本91566be922b0488cba900a608dd8879e06a8f7d0c5896954639d357af9e636b5。下次10月15日07:30自动成功尚待观察。本轮未推送GitHub、不改API/前端。完整原因、边界、命令、备份及证据见docs/cr067-daily-repair-2026-10-14.md。
+
+### CR067 GitHub 推送（2026-10-14）
+用户本轮明确要求推送相关更新。修复提交94ab5dc及此前CR066最终验收文档c878cf0已推送origin/codex/cr067-daily-repair，远端main为7aa9e98。创建/合并入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr067-daily-repair 。推送不等于已合并；云端修复已生效，无需再次部署。此次仅同步源码、测试和文档，未上传行情、模型、数据库、密钥或ignored恢复材料。

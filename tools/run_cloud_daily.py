@@ -29,7 +29,8 @@ def runtime(dry, mode="acceptance"):
             '--user', '0:0', '--network', 'none' if dry else 'bridge', '--cpus', '1', '--memory', '768m',
             '--pids-limit', '128', '--read-only', '--tmpfs', '/tmp:size=128m',
             '--security-opt', 'no-new-privileges', '--cap-drop', 'ALL',
-            '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', 'PYTHONPATH=/app/code:/work', '-w', '/work']
+            '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', 'PYTHONPATH=/app/code:/work',
+            '-e', 'QUANT_RL_RELEASE=', '-e', 'QUANT_PORTFOLIO_RELEASE=', '-w', '/work']
     mounts = [(DAILY / 'tools', '/work/tools', True), (DAILY / 'config', '/work/config', True),
               (DAILY / 'artifacts', '/work/artifacts', False),
               (LIVE, '/work/artifacts/cr024-publication-20260910', True)]
