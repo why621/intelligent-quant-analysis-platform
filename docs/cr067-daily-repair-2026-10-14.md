@@ -52,5 +52,8 @@ git diff --check
 - 云端 `/opt/intelligent-quant-cr067-20261014`：原异常、隔离候选、部署审计、工具与账本备份；`event-correction` 包含重新取得的官方响应、完整五模块结果、事件修正和第二次任务库备份。
 - 日更审计：`daily-cr028/audit/cr067-offline-recovery.json`、`cr067-event-restoration.json`。
 - 本地 ignored `artifacts/cr067-daily-repair`：恢复脚本、deployment.json、event-deployment.json、public-api.json、portfolio-simulation.json。行情、数据库、响应原文和密钥不入Git。
-- API/OpenAPI和网页无需变化。源码与SDD保留在 `codex/cr067-daily-repair`；本轮未推送GitHub，云端修复已生效。
+- API/OpenAPI和网页无需变化。源码与SDD保留在 `codex/cr067-daily-repair`；已按后续用户授权推送GitHub功能分支，尚未合并main；云端修复已生效。
 - 后续检查下一次07:30真实自动执行及账本/线上日期，不用本次手动运行代替。以后恢复跨多个失败日时，应同时检查失败日事件证据是否继承；不能只看价格截止日。SZSE/ETF官方事件自动源仍为既有pending边界，不等于本次327资产仍有未知缺口。
+
+### CR067 GitHub 推送（2026-10-14）
+用户本轮明确要求推送相关更新。修复提交94ab5dc及此前CR066最终验收文档c878cf0已推送origin/codex/cr067-daily-repair，远端main为7aa9e98。创建/合并入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr067-daily-repair 。推送不等于已合并；云端修复已生效，无需再次部署。此次仅同步源码、测试和文档，未上传行情、模型、数据库、密钥或ignored恢复材料。
