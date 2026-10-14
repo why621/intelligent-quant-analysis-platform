@@ -134,6 +134,7 @@ def test_continuous_runtime_is_explicit_and_dry_is_network_none(monkeypatch,tmp_
     argv=cloud.runtime(True,'continuous')
     assert argv[-3:]==['--mode','continuous','--dry-run']
     assert argv[argv.index('--network')+1]=='none'
+    assert 'QUANT_RL_RELEASE=' in argv and 'QUANT_PORTFOLIO_RELEASE=' in argv
     assert '--mode' not in cloud.runtime(True)
 
 
