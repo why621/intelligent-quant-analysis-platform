@@ -458,25 +458,28 @@ class BacktestEngine:
         if mode == "buy_and_hold":
             normalized = []
             for symbol in request.symbols:
-                frame = self._provider.history(symbol, request.start_date, request.end_date,
-                                               request.adjust).copy()
-                frame["date"] = pd.to_datetime(frame["date"])
-                close = frame.set_index("date")["close"].sort_index()
-                missing = portfolio_dates.difference(close.index)
                 nontrading = getattr(self._provider, "nontrading_sessions", None)
                 allowed = (set(pd.to_datetime(list(nontrading(symbol,
                     portfolio_dates[0].date(), portfolio_dates[-1].date()))))
                     if callable(nontrading) else set())
-                if any(day not in allowed for day in missing):
-                    raise ValueError(f"{symbol}: 买入持有基准日期缺口未经核实")
-                if portfolio_dates[0] in missing:
-                    first = portfolio_dates[0]
+                first = portfolio_dates[0]
+                history_start = request.start_date
+                if first in allowed:
+                    # A whole-window suspension contains no tradable bar. The
+                    # published provider correctly rejects that narrow history
+                    # request, so include real prior history before querying.
+                    # This remains a valuation-only read, conditional on evidence.
                     history_start = max(first.date() - timedelta(days=450),
                                         getattr(self._provider, "start", date.min))
-                    prior = self._provider.history(symbol, history_start,
-                                                   first.date(), request.adjust)
-                    prior_dates = pd.to_datetime(prior["date"])
-                    prior = prior.loc[prior_dates < first]
+                frame = self._provider.history(symbol, history_start, request.end_date,
+                                               request.adjust).copy()
+                frame["date"] = pd.to_datetime(frame["date"])
+                close = frame.set_index("date")["close"].sort_index()
+                missing = portfolio_dates.difference(close.index)
+                if any(day not in allowed for day in missing):
+                    raise ValueError(f"{symbol}: 买入持有基准日期缺口未经核实")
+                if first in missing:
+                    prior = frame.loc[frame["date"] < first]
                     if prior.empty:
                         raise ValueError(f"{symbol}: 基准起点停牌且没有此前真实收盘价")
                     from quant_platform.data.calendar import sessions

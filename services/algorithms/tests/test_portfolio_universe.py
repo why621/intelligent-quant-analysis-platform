@@ -12,6 +12,7 @@ import pytest
 from test_portfolio_rl import ScriptedModel, frames, manifest
 
 from quant_platform.backtesting.engine import BacktestEngine
+from quant_platform.data.akshare_provider import UpstreamUnavailableError
 from quant_platform.data.calendar import sessions
 from quant_platform.models import BacktestRequest, TradingCosts
 from quant_platform.rl.errors import RLInsufficientHistory
@@ -234,6 +235,36 @@ def test_first_day_verified_suspension_uses_real_prior_benchmark_valuation(monke
     ) / 2
     assert result.equity_curve.benchmarkEquity.iloc[-1] == pytest.approx(expected)
     assert all(t.symbol != "A10" or t.trade_date != day.date() for t in result.trades)
+
+
+def test_whole_window_suspension_with_strict_empty_history_still_has_joint_benchmark(
+    monkeypatch,
+    tmp_path,
+):
+    source, _, release, _, provider = released(monkeypatch, tmp_path)
+    strategy = JointPortfolioStrategy(tmp_path, release)
+    missing = source["A10"].date.iloc[-2:].tolist()
+    source["A10"] = source["A10"].iloc[:-2].copy()
+    provider.nontrading_sessions = lambda symbol, *_: set(missing) if symbol == "A10" else set()
+    original_history = provider.history
+
+    def strict_history(symbol, start, end, adjust="qfq"):
+        result = original_history(symbol, start, end, adjust)
+        if result.empty:
+            raise UpstreamUnavailableError(f"{symbol}: no tradable history in requested interval")
+        return result
+
+    provider.history = strict_history
+    current = request(source, start_date=missing[0].date(), benchmark_mode="buy_and_hold")
+    with pytest.raises(UpstreamUnavailableError, match="no tradable history"):
+        provider.history("A10", current.start_date, current.end_date)
+    result = BacktestEngine(provider, {"portfolio_ppo": strategy}).run(current)
+    assert [p["date"] for p in result.account_curve] == [d.date().isoformat() for d in missing]
+    assert all(t.symbol != "A10" for t in result.trades)
+    assert all(p["positions"][0]["quantity"] == 0 for p in result.account_curve)
+    expected = (1 + float(source["A11"].close.iloc[-1]) / float(source["A11"].close.iloc[-2])) / 2
+    assert result.equity_curve.benchmarkEquity.tolist() == pytest.approx([1, expected])
+    assert result.assumptions["nonTradingValuation"] == "last_observed_close"
 
 
 def test_benchmark_never_fills_unknown_first_day_or_missing_prelisting_price(monkeypatch, tmp_path):
