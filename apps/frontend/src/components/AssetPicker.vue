@@ -6,6 +6,7 @@ const emit = defineEmits(['update:modelValue'])
 const query = ref('')
 const kind = ref('all')
 const categories = ref([])
+const filtersOpen = ref(false)
 const hasFilters = computed(() => query.value.trim() || kind.value !== 'all' || categories.value.length)
 function resetFilters() {
   query.value = ''
@@ -41,6 +42,11 @@ const name = symbol => props.assets.find(a => a.symbol === symbol)?.name || symb
     <label class="search-label" :for="uid">搜索名称、代码或分类</label>
     <div class="search-row"><input :id="uid" v-model="query" type="search" placeholder="如：半导体 / 芯片 / 600519" autocomplete="off" /><button type="button" :disabled="!selected.length" @click="emit('update:modelValue', [])">清空已选</button></div>
     <div class="filter-row" aria-label="资产类型筛选"><button v-for="item in [{id:'all',name:'全部'},{id:'stock',name:'股票'},{id:'etf',name:'ETF'}]" :key="item.id" type="button" :aria-pressed="kind === item.id" @click="kind = item.id">{{ item.name }}</button><span role="status">{{ matches.length }} 项</span></div>
+    <button class="filter-disclosure" type="button" :aria-expanded="filtersOpen" :aria-controls="`${uid}-filters`" @click="filtersOpen = !filtersOpen">
+      <span>分类筛选 <small>{{ categories.length ? `已启用 ${categories.length} 项` : '行业 / 主题' }}</small></span><span class="disclosure-icon" aria-hidden="true">＋</span>
+    </button>
+    <div :id="`${uid}-filters`" class="filter-expansion" :class="{'is-open': filtersOpen}" :inert="!filtersOpen">
+    <div class="filter-expansion-inner">
     <div class="category-filter" role="group" aria-label="常用分类筛选（可多选）">
       <div class="category-heading"><span>常用分类 · 可多选</span><button v-if="hasFilters" type="button" @click="resetFilters">重置筛选</button></div>
       <div class="category-options">
@@ -49,6 +55,8 @@ const name = symbol => props.assets.find(a => a.symbol === symbol)?.name || symb
         </label>
       </div>
       <p class="picker-hint">股票按参考指数成分分类，ETF按名称匹配；仅筛选当前资产池，不覆盖全部同行公司。</p>
+    </div>
+    </div>
     </div>
     <p v-if="selected.length >= max" class="picker-hint" role="status">已选满 {{ max }} 个，取消一项后可更换。</p>
     <div class="asset-results">
