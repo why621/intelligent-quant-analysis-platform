@@ -11,14 +11,21 @@
 | GET | `/api/assets` | 资产列表与筛选 |
 | GET | `/api/assets/{symbol}/history` | 历史行情 |
 | GET | `/api/market/overview` | 市场概览 |
-| POST | `/api/analysis/correlation` | 相关性分析 |
+| POST | `/api/analytics/correlation` | 相关性分析 |
 | GET | `/api/strategies` | 策略目录 |
-| GET | `/api/strategies/ranking` | 策略排行 |
+| GET | `/api/strategies/ranking` | 旧代表资产排行（兼容） |
+| POST | `/api/strategies/ranking` | 按当前回测配置计算研究排行 |
 | POST | `/api/backtests` | 创建异步回测 |
 | GET | `/api/backtests/{jobId}` | 查询回测状态和结果 |
-| POST | `/api/allocations` | 生成次日模拟配置 |
+| POST | `/api/allocation/suggestion` | 生成次日模拟配置 |
 
 统一错误结构与状态码见 [API 契约说明](../../docs/api-contract.md)。
+
+## CR069 本地开发完成（2026-10-15，待发布）
+
+新增研究配置排行POST，接收与回测一致的配置，通过相同校验与引擎计算；当前策略失败整体报错，其他不适用策略按原因排除，不缩短评价区间或回退资产。缓存绑定完整配置、候选默认参数、模型及数据版本，设协作计算预算、每进程并发上限和同请求合并。GET旧排行保留兼容。
+
+全目录组合候选通过独立范围证据加载，支持股票/ETF混合、请求费用和现金预留；未知行情缺口及不足的真实预热明确报错，旧模型范围不变。代码及真实本地联调完成，云端仍CR068，尚未发布。验收与命令见[CR069报告](../../docs/cr069-universe-ranking-2026-10-15.md)。
 
 ## 本地运行
 

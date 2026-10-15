@@ -64,3 +64,19 @@ test('research requests pin the loaded version; job recovery stays independent',
   assert.equal(calls[3][1]['X-Research-Version'], 'a'.repeat(64))
   assert.equal(calls[4][1]['X-Research-Version'], undefined)
 })
+
+test('research ranking POST sends the complete draft and pins publication version', async t => {
+  const calls = []
+  stub(t, async (url, options) => {
+    calls.push({ url, ...options })
+    return Response.json(url.endsWith('/data/status') ? { dataContext: { dataVersion: 'b'.repeat(64) } } : { items: [] })
+  })
+  await api.getDataStatus()
+  const payload = { symbols: ['600000', '510300'], strategyId: 'ma_cross', startDate: '2026-08-01', endDate: '2026-10-14',
+    parameters: { shortWindow: 7, longWindow: 30 }, tradingCosts: { stampDutyMode: 'asset_date' }, cashPct: 10 }
+  await api.calculateStrategyRanking(payload)
+  assert.equal(calls[1].url, '/api/strategies/ranking')
+  assert.equal(calls[1].method, 'POST')
+  assert.equal(calls[1].headers['X-Research-Version'], 'b'.repeat(64))
+  assert.deepEqual(JSON.parse(calls[1].body), payload)
+})

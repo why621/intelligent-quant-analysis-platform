@@ -429,12 +429,27 @@ def strategy_ranking() -> tuple[dict[str, object], int]:
     return dict(result), 200
 
 
-@api.post("/backtests")
-def create_backtest() -> tuple[dict[str, object], int]:
-    payload, validation_error = require_json_object()
-    if validation_error is not None:
-        return validation_error
+@api.post("/strategies/ranking")
+def research_strategy_ranking():
+    payload, error = require_json_object()
+    if error is not None:
+        return error
+    error = _backtest_payload_error(payload)
+    if error is not None:
+        return error
+    if (date.fromisoformat(payload["endDate"])
+            - date.fromisoformat(payload["startDate"])).days > 366:
+        return error_response(code="VALIDATION_ERROR", message="排行区间最多366天",
+                              status=400, details={"field": "endDate"})
+    try:
+        result = current_app.extensions["ranking_service"].get_research_ranking(payload)
+        return dict(result), 200
+    except ServiceError as exc:
+        return error_response(code=exc.code, message=exc.message,
+                              status=exc.status, details=exc.details)
 
+
+def _backtest_payload_error(payload):
     extra_fields = set(payload) - {
         "symbols",
         "strategyId",
@@ -496,6 +511,11 @@ def create_backtest() -> tuple[dict[str, object], int]:
         )
 
     try:
+        for key in ("startDate", "endDate"):
+            if not isinstance(payload[key], str) or not re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}", payload[key]
+            ):
+                raise ValueError("invalid date format")
         start_date = date.fromisoformat(payload["startDate"])
         end_date = date.fromisoformat(payload["endDate"])
     except KeyError:
@@ -586,6 +606,19 @@ def create_backtest() -> tuple[dict[str, object], int]:
                     status=400,
                     details={"field": field},
                 )
+
+    return None
+
+
+@api.post("/backtests")
+def create_backtest() -> tuple[dict[str, object], int]:
+    payload, validation_error = require_json_object()
+    if validation_error is not None:
+        return validation_error
+
+    config_error = _backtest_payload_error(payload)
+    if config_error is not None:
+        return config_error
 
     service = current_app.extensions["backtest_service"]
     try:

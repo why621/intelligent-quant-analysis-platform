@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -460,8 +461,35 @@ class BacktestEngine:
                 frame = self._provider.history(symbol, request.start_date, request.end_date,
                                                request.adjust).copy()
                 frame["date"] = pd.to_datetime(frame["date"])
-                close = (frame.set_index("date")["close"].sort_index()
-                         .reindex(portfolio_dates).ffill())
+                close = frame.set_index("date")["close"].sort_index()
+                missing = portfolio_dates.difference(close.index)
+                nontrading = getattr(self._provider, "nontrading_sessions", None)
+                allowed = (set(pd.to_datetime(list(nontrading(symbol,
+                    portfolio_dates[0].date(), portfolio_dates[-1].date()))))
+                    if callable(nontrading) else set())
+                if any(day not in allowed for day in missing):
+                    raise ValueError(f"{symbol}: 买入持有基准日期缺口未经核实")
+                if portfolio_dates[0] in missing:
+                    first = portfolio_dates[0]
+                    history_start = max(first.date() - timedelta(days=450),
+                                        getattr(self._provider, "start", date.min))
+                    prior = self._provider.history(symbol, history_start,
+                                                   first.date(), request.adjust)
+                    prior_dates = pd.to_datetime(prior["date"])
+                    prior = prior.loc[prior_dates < first]
+                    if prior.empty:
+                        raise ValueError(f"{symbol}: 基准起点停牌且没有此前真实收盘价")
+                    from quant_platform.data.calendar import sessions
+
+                    last = pd.Timestamp(prior["date"].iloc[-1])
+                    intervening = sessions(last.date() + timedelta(days=1), first.date())
+                    confirmed = {pd.Timestamp(day).date() for day in
+                                 nontrading(symbol, last.date(), first.date())}
+                    if any(day not in confirmed for day in intervening):
+                        raise ValueError(f"{symbol}: 基准起点之前存在未经核实的日期缺口")
+                    # This is a valuation anchor, never an invented OHLC bar or fill.
+                    close.loc[first] = float(prior["close"].iloc[-1])
+                close = close.sort_index().reindex(portfolio_dates).ffill()
                 if close.empty or close.isna().any() or (close <= 0).any():
                     raise ValueError("买入持有基准缺少有效价格")
                 normalized.append(close / float(close.iloc[0]))

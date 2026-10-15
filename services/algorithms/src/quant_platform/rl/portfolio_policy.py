@@ -28,6 +28,7 @@ from quant_platform.rl.portfolio_features import (
     PortfolioPanel,
     action_weights,
     encode_observation,
+    insufficient_history,
     observation_signature,
     prepare_panel,
 )
@@ -241,22 +242,47 @@ def prepare_portfolio_policy(
     *,
     evaluation_start: date,
     trading_costs: TradingCosts | None = None,
+    serving_scope: Mapping | None = None,
+    nontrading_sessions: Mapping | None = None,
+    evaluation_end: date | None = None,
 ) -> PreparedPortfolioPolicy:
     validate_manifest(bundle.manifest)
     if not 2 <= len(frames) <= MAX_ASSETS:
         raise ValueError("joint inference requires two to ten assets")
-    if not set(frames).issubset(bundle.manifest["trainingUniverse"]):
+    universe = (
+        serving_scope["supportedAssetTypes"]
+        if serving_scope
+        else bundle.manifest["trainingUniverse"]
+    )
+    if not set(frames).issubset(universe):
         raise ValueError("unseen asset outside the training universe; generalization is unverified")
     if evaluation_start <= inference_boundary(bundle.manifest):
         raise ValueError("joint inference cannot overlap training or validation dates")
     expected_costs = bundle.manifest["tradingCosts"]
-    if trading_costs is not None and costs_metadata(trading_costs) != expected_costs:
+    if (
+        trading_costs is not None
+        and costs_metadata(trading_costs) != expected_costs
+        and not (serving_scope and serving_scope.get("costPolicy") == "request_configurable")
+    ):
         raise ValueError("joint inference costs must equal the recorded training costs")
-    panel = prepare_panel(frames)
+    panel = prepare_panel(
+        frames,
+        nontrading_sessions=nontrading_sessions,
+        end_date=evaluation_end,
+    )
     requested_index = int(panel.dates.searchsorted(pd.Timestamp(evaluation_start)))
     # Do not silently advance the requested evaluation window to hide missing warm-up.
     if requested_index < MIN_WARMUP or requested_index >= len(panel.dates) - 1:
+        if serving_scope:
+            raise insufficient_history("组合模型请求区间缺少140根真实预热行情或下一交易日行情")
         raise ValueError("requested evaluation window lacks causal warm-up or next-open history")
+    if panel.observed_bars is not None and np.any(
+        panel.observed_bars[requested_index] <= MIN_WARMUP
+    ):
+        symbol = panel.symbols[int(np.argmin(panel.observed_bars[requested_index]))]
+        raise insufficient_history(
+            "组合资产上市历史或实际行情不足140根预热，停牌日不计入预热", symbol
+        )
     return PreparedPortfolioPolicy(bundle, panel, requested_index)
 
 

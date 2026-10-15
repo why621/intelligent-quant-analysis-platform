@@ -122,6 +122,12 @@ export const api = {
     return request(`/strategies/ranking${toQuery({ period })}`, { research: true })
   },
 
+  calculateStrategyRanking(payload) {
+    return request('/strategies/ranking', {
+      method: 'POST', research: true, timeoutMs: 45000, body: JSON.stringify(payload)
+    })
+  },
+
   createBacktest(payload) {
     return post('/backtests', payload)
   },

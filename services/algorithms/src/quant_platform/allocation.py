@@ -96,6 +96,7 @@ class AllocationService:
 
         if joint:
             from quant_platform.backtesting.engine import BacktestEngine
+            from quant_platform.rl.portfolio_policy import costs_metadata
 
             engine = BacktestEngine(self._provider, self._strategies)
             request = BacktestRequest(
@@ -140,7 +141,7 @@ class AllocationService:
                     "adjust": adjust,
                     "initialCapitalCny": initial_capital_cny,
                     "startDate": lookback_start.isoformat(),
-                    "tradingCosts": strategy.bundle.manifest["tradingCosts"],
+                    "tradingCosts": costs_metadata(costs),
                 },
             )
 

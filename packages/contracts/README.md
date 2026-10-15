@@ -2,6 +2,10 @@
 
 本目录保存前端、Flask 后端与 Python 算法共同遵守的机器可读契约。
 
+## 当前版本：0.13.0（CR069，本地完成，待发布）
+
+新增POST /api/strategies/ranking及研究排行响应，复用完整回测请求；旧GET排行保留兼容。全目录组合模型在modelContext披露适用范围、范围证据、训练费用及请求可配成本。实现、调用方及边界测试已同步；线上发布需另行确认。解释见[API说明](../../docs/api-contract.md)及[CR069验收](../../docs/cr069-universe-ranking-2026-10-15.md)。
+
 ## 权威顺序
 
 1. `openapi.yaml`：HTTP 路径、请求、响应和错误的唯一事实来源；
