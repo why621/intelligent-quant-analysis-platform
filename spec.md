@@ -1024,3 +1024,8 @@ PR #48合并提交7aa9e9836778bbd871b18ac0f6b62eafa8ea79c7，Pages工作流38230
 
 ### CR068 发布登记（2026-10-15）
 用户已明确授权“推送上线”。本轮推送codex/cr068-ui-motion，构建并上传仅含前端静态资源的发布包，云端先备份旧入口、校验逐文件哈希，再原子切换index并保留旧哈希资源；失败恢复旧入口。保持后端容器、模型、任务库、行情指针与07:30日更配置。验收云站实际资源、Edge交互及三视口；Pages依既有main合并流程，分别记录，不能以云站代替。远端main为3fd8c9d（PR49已合并）；只读账本已确认10月15日07:30 scheduled日更succeeded，目标日10月14日。
+
+### CR068 云端前端发布完成（2026-10-15）
+用户授权后已推送codex/cr068-ui-motion，功能ec36718、发布登记0f7848c。仅静态前端包323368字节，包SHA256 c40272e24dc581c04d8492acd84b9281a112fa9bcb46cf42fb4c80cec1bd452b；云目录/opt/intelligent-quant-cr068-20261015，backup/web保留旧入口及资源。先校验清单、备份、复制哈希资源，再原子切换index，保留旧资源并准备回滚。公网12文件逐项哈希通过；入口index-Dhi4Gg-W.js、index-zyShRi34.css，index SHA256 007bff5f8e4216c0ee3877933bf3984ae172e09b1b47209bd7dfe347212cb330。
+真实云站https://43.161.223.91/的Edge验收23项通过，42个API请求全部200，无控制台/页面错误，桌面及390/320截图通过，筛选展开/选择保留/光标/开关持久化/键盘/减少动态/触屏/强制配色正常。后端容器ID、镜像和启动时间不变；142条任务逻辑哈希883f4340aabfcef5fb505f1c3109ed9faeb9ae5e785cb8e39bb2df4edbaa75e3不变；日更镜像、账本、行情指针、timer配置保持。10月15日07:30账本scheduled/succeeded、目标10月14日，下一次10月16日07:30。
+Pages路径与HTTPS API构建通过，候选入口index-kBBHay7A.js；Pages尚待main合并及正式验收，不能当作已上线。现环境有SSH推送权限，无GitHub API令牌或gh，main受保护；请创建并合并https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr068-ui-motion 。实际云端证据在原仓库ignored artifacts/cr068-ui/deployment.json、cloud-browser.json、cloud-desktop.png、cloud-filters.png、cloud-mobile-390/320.png。复现：node artifacts/cr068-ui/online-browser.cjs https://43.161.223.91/ 。未重训、未创建真实回测任务、未上传行情/密钥/任务库。
