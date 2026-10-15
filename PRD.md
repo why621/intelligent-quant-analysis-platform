@@ -809,3 +809,12 @@ Pages需要受保护main合并触发；当前无GitHub API创建/合并权限，
 用户已合并PR #51，main=fbaf82bb069edf2e6e60732dcf22626a88332f8e，已确认包含停牌修复29ac85a；Pages工作流38687898755 completed/success，13:39:15（北京时间）完成。同一合并提交Frontend/Backend/Algorithms/Regression stack四项CI及Pages部署均success。
 正式Pages入口index-CizEqEND.js/index-cd9hp8zk.css，12个实际资源哈希与本地Pages构建逐项相同，index SHA256 d6c438f2067ec4730d4afd24614cb27a6568c0f149a4727f1aa1a12d1309226c。Edge实际Pages79检查/37跨域API全部200，无运行错误，1440/390/320布局及截图通过；全资产组合范围、三AI两传统排行、配置变化过期刷新、真实指标和费用、排行载入及模拟草稿继承通过。
 复用云站既有两条验收任务和模拟响应，不新增回测/模拟，online-mutations.json仍为2任务/1模拟；未重复云部署、训练或采集。云站与Pages的CR069均已上线，此前“Pages待合并/待验”均为过程历史状态。证据在原根ignored artifacts/cr069-universe/online-pages-*、pages-public-files.json、pages-workflow.json、ci-final.json；最终文档同步codex/cr069-pages-evidence，不改变已合并功能。详情docs/cr069-deployment-2026-10-15.md。
+
+### CR069 需求闭环复核登记（2026-10-15）
+
+用户授权回写SDD、推送GitHub并复核此前平台功能要求。本轮仅核对源码、OpenAPI 0.13.0及已有离线/本地/云端/Pages验收证据，整理逐项需求闭环和历史状态替代关系；不新增功能、不重复训练部署、不创建线上任务。验收条件：每项结论可追溯，明确目录/模型/数据/收益边界，文档差异检查通过并推送文档分支。
+
+### CR069 需求闭环复核完成（2026-10-15）
+
+已逐项核对CR065–CR069需求、实现、OpenAPI 0.13.0及既有分层验收，结论与限制统一记录于[功能需求闭环](docs/requirements-closure-2026-10-15.md)。默认基准及诊断、模块联动与成本配置、共享账户联合模型、327目录任选2–10资产、当前配置排行榜、UI交互及日更修复均有完成证据。旧固定510300主榜/十股池限制由CR069替代；DQN旧单资产范围保留，长期超额收益未证明，下一次07:30日更待发生后观察。
+本轮只修改文档，不重跑训练、部署或线上任务；代码验证引用既有674后端/算法/工具测试、116前端测试及云站81/Pages79项浏览器验收，不冒充本轮重新执行。文档检查git diff --check及差异审阅，推送codex/cr069-pages-evidence；功能main已合并，文档分支合并状态单独记录。
