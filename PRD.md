@@ -794,3 +794,18 @@ PR #50已合并，main提交52b74981a6fe313e671dd41595cc5aab5917590f；[Pages工
 
 ### CR069 停牌边界补丁本地验证完成（2026-10-15）
 修复限定在买入持有基准的读取顺序：先核验首日停牌，才有界读取前史中的真实收盘。生产provider行为回归覆盖整个区间确认停牌、一天未知缺口、上市前无价格；联合模型测试确认停牌不成交。44项定向及整合674 passed / 23 skipped / 16 network deselected通过。未修改provider或模型权重，原21项云隔离检查保持，候选r1日志保留，准备r2重验后切换。
+
+### CR069 云端切换完成（2026-10-15，Pages待合并）
+已推送实现b47b228、发布登记fce28c9及停牌修复29ac85a至codex/cr069-universe-ranking。r2发布包111文件/2258614字节，SHA256 d7c718833377e58ef50e9cda60e566dd719aba3636ac25f5e80254a9a5fb12a9；禁网构建quant-mvp-backend:cr069-r2，image sha256:be5f196f07555df8e7b78c84e5109ffe66080d18c4104d861e1018468292fae1。云隔离21回测、6模拟、25拒绝边界、9策略目录及双模型依赖污染下的数据五模块验证全部通过；新排行5行与逐策略同配置回测严格一致，停牌失败r1日志保留。
+正式切换先获取日更锁、维护排空，任务库备份并实际恢复校验，备份compose/源码/CR068前端，校验候选镜像/源码/清单身份后切换。旧142任务逻辑SHA256 883f4340aabfcef5fb505f1c3109ed9faeb9ae5e785cb8e39bb2df4edbaa75e3保持，integrity=ok；行情发布589c7eadaec10b680607c3e7b177428137106c80791c1671a80677d8c0dc5dd9（10月14日）、旧模型、日更CR066镜像、CR067工具与两个账本保持，timer仍active/07:30。生产POST排行5项与候选精确一致，耗时1.385秒；未触发回滚。备份目录/opt/intelligent-quant-cr069-20261015-r2/backup。网页入口index-CF2H6Oqx.js，公网浏览器验收正在进行，不能提前标记完成。
+Pages需要受保护main合并触发；当前无GitHub API创建/合并权限，已请用户合并PR入口 https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr069-universe-ranking 。云站已切换不代表Pages已更新。详细证据见docs/cr069-deployment-2026-10-15.md及原根ignored artifacts/cr069-universe。
+
+### CR069 公网验收与收尾（2026-10-15）
+云站实际Edge81项检查通过，40个业务API响应全部2xx，无控制台/运行错误；1440/390/320无页面溢出，截图已查看。原十股池外5股票+5ETF联合回测、三AI+两传统同配置排行、四项配置变更/过期/刷新、载入回测及模拟七参数一致均通过。12个公网静态文件逐项哈希与本地构建一致。
+公网只新增两条成功验收任务：PPO 0cfeb365-0685-4408-b9ca-d8e43322f470、传统47a6557b-8a43-4963-a3c7-eb4b5086d77f；模拟一次。最终审计确认原142条任务逐条未改，现144条只增加上述两条；行情、旧模型、日更镜像/工具/账本及07:30调度保持。两个并发十资产只读排行分别3.017/3.102秒，期间health200耗时2.816秒；采样内存385.7MiB/1GiB，仅是有界抽样，不作并发容量保证。无新增付费资源、训练、行情采集或任务清理。
+云端已完成，Pages仍等待用户创建并合并功能PR；未把云站或本地Pages构建冒充Pages正式更新。下一次发布后的07:30自动运行尚待实际观察。详细命令、初次候选失败与修复、备份和证据见docs/cr069-deployment-2026-10-15.md。
+
+### CR069 GitHub Pages正式验收完成（2026-10-15）
+用户已合并PR #51，main=fbaf82bb069edf2e6e60732dcf22626a88332f8e，已确认包含停牌修复29ac85a；Pages工作流38687898755 completed/success，13:39:15（北京时间）完成。同一合并提交Frontend/Backend/Algorithms/Regression stack四项CI及Pages部署均success。
+正式Pages入口index-CizEqEND.js/index-cd9hp8zk.css，12个实际资源哈希与本地Pages构建逐项相同，index SHA256 d6c438f2067ec4730d4afd24614cb27a6568c0f149a4727f1aa1a12d1309226c。Edge实际Pages79检查/37跨域API全部200，无运行错误，1440/390/320布局及截图通过；全资产组合范围、三AI两传统排行、配置变化过期刷新、真实指标和费用、排行载入及模拟草稿继承通过。
+复用云站既有两条验收任务和模拟响应，不新增回测/模拟，online-mutations.json仍为2任务/1模拟；未重复云部署、训练或采集。云站与Pages的CR069均已上线，此前“Pages待合并/待验”均为过程历史状态。证据在原根ignored artifacts/cr069-universe/online-pages-*、pages-public-files.json、pages-workflow.json、ci-final.json；最终文档同步codex/cr069-pages-evidence，不改变已合并功能。详情docs/cr069-deployment-2026-10-15.md。
