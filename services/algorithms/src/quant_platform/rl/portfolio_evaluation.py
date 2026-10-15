@@ -10,23 +10,35 @@ from quant_platform.rl.portfolio_features import prepare_panel
 from quant_platform.rl.portfolio_policy import costs_from_metadata
 
 
-def evaluate_portfolio(bundle, frames, *, start, end, baseline=None):
+def evaluate_portfolio(
+    bundle,
+    frames,
+    *,
+    start,
+    end,
+    baseline=None,
+    asset_types=None,
+    nontrading_sessions=None,
+    trading_costs=None,
+    cash_pct=0.0,
+):
     """Validation/test replay. Caller freezes selection before requesting test data."""
     clipped = {
         s: f[pd.to_datetime(f.date) <= pd.Timestamp(end)].reset_index(drop=True)
         for s, f in frames.items()
     }
-    panel = prepare_panel(clipped)
+    panel = prepare_panel(clipped, nontrading_sessions=nontrading_sessions, end_date=end)
     first = int(panel.dates.searchsorted(pd.Timestamp(start)))
     episode = PortfolioEpisode(
         panel,
-        asset_types=bundle.manifest["assetTypes"],
-        trading_costs=costs_from_metadata(bundle.manifest["tradingCosts"]),
+        asset_types=asset_types if asset_types is not None else bundle.manifest["assetTypes"],
+        trading_costs=trading_costs or costs_from_metadata(bundle.manifest["tradingCosts"]),
         random_subsets=False,
         random_start=False,
         episode_bars=len(panel.dates) - first - 1,
         band_pct=bundle.manifest.get("rebalanceBandPct", 0),
         min_trade_cny=bundle.manifest.get("minTradeCny", 0),
+        cash_pct=cash_pct,
     )
     obs, info = episode.reset(options={"start_index": first})
     points = [info]

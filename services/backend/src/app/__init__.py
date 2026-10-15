@@ -116,6 +116,7 @@ def create_app(
         StrategyRankingService(engine),
         provider,
         strategy_catalog,
+        backtests=backtest_service,
     )
     # 配置建议：算法组服务只依赖 provider（只读共享）与策略注册表，无状态
     # 日期锚点使用发布截止，并验证是否覆盖当前所需交易日。

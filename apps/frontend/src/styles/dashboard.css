@@ -359,3 +359,16 @@ footer { padding: 26px 18px; color: var(--muted); text-align: center; font-size:
 .trade-details summary { cursor:pointer; color:#84ddd2; font-size:13px; }
 .trade-details .table-card { max-height:350px; margin-top:12px; overflow:auto; }
 @media(max-width:600px){.config-grid { grid-template-columns:1fr; } .research-flow { padding:12px; } .flow-controls { align-items:flex-start; } .explanation-panel .result-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }}
+
+.ranking-config { display:grid; gap:10px; min-width:0; }
+.ranking-config p,.ranking-snapshot p { margin:0; overflow-wrap:anywhere; line-height:1.7; }
+.ranking-config a { color:#8ce7df; font-size:12px; }
+.ranking-snapshot { display:grid; gap:7px; padding:14px 16px; margin:14px 0; border-left:2px solid #67d8cc; background:#10253b88; font-size:13px; }
+.ranking-outdated { opacity:.72; }
+.ranking-table { margin-top:14px; }
+.ranking-table td small { display:block; margin-top:5px; color:var(--muted); font-weight:400; font-size:11px; }
+.ranking-table .ranking-strategy { min-width:190px; max-width:300px; white-space:normal; overflow-wrap:anywhere; }
+.ranking-exclusions { margin-top:12px; padding:12px 14px; border:1px solid #3b4b62; border-radius:6px; }
+.ranking-exclusions summary { color:#becce0; cursor:pointer; font-size:13px; }
+.ranking-exclusions p { margin-top:8px; overflow-wrap:anywhere; }
+@media(max-width:600px){ .ranking-config .flow-controls button { width:100%; } .ranking-snapshot { padding:12px; } .ranking-table { padding:0; } }

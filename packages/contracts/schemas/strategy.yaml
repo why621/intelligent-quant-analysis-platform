@@ -31,6 +31,9 @@ RankingItem:
   required: [rank, strategyId, strategyName, category, returnPct, maxDrawdownPct, sharpe]
   properties:
     parameters: {type: object, additionalProperties: true}
+    metrics: {$ref: './backtest.yaml#/BacktestMetrics'}
+    costSummary: {$ref: './backtest.yaml#/CostSummary'}
+    benchmarkContext: {$ref: './backtest.yaml#/BenchmarkContext'}
     rank: {type: integer, minimum: 1}
     strategyId: {type: string}
     strategyName: {type: string}
@@ -106,7 +109,7 @@ ModelContext:
       format: date
       description: 样本内截止次日，属于理论日期下限；实际回测仍受已发布行情范围和预热门禁约束。验证或测试字段缺省表示模型未记录，不得编造。
     symbols:
-      description: 历史兼容字段；assetScope缺省时是允许资产列表，published_universe时保留已验证训练资产，不再限制请求资产。
+      description: 历史兼容字段；assetScope缺省时是允许资产列表。published_universe的joint_portfolio模型返回独立证据覆盖的完整适用目录；旧equal_cash_independent模型保留训练资产。训练来源以trainingSymbols为准。
       type: array
       minItems: 1
       items: {$ref: "./common.yaml#/Symbol"}
@@ -117,7 +120,7 @@ ModelContext:
       description: 模型训练资产；不是允许回测的资产列表。
     assetScope:
       enum: [published_universe, training_symbols]
-      description: 可回测当前已发布资产池内1至10只股票或ETF；缺省沿用历史symbols限制。
+      description: published_universe允许当前发布目录中的股票或ETF，joint_portfolio为2至10只、旧equal_cash_independent为1至10只，另须通过模型证据及行情门禁；training_symbols或缺省沿用训练池限制。
     portfolioMode:
       enum: [equal_cash_independent, joint_portfolio]
       description: joint_portfolio为同时观察2–10资产、联合权重与共享账户；旧模式为独立分账。
@@ -127,9 +130,19 @@ ModelContext:
       type: object
       description: 绑定权重哈希的验证与样本外评估、基线和限制；不代表已证明超额收益。
       additionalProperties: true
+    supportedAssetTypes:
+      type: object
+      additionalProperties: {type: string, enum: [stock, etf]}
+      description: 独立范围证据覆盖的目录资产类型；与当前数据目录核对。
+    scopeDataVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
+    costPolicy: {type: string, enum: [request_configurable]}
+    crossAssetValidationStatus:
+      type: string
+      enum: [execution_validated]
+      description: 已验证跨资产执行和共享账本，不代表收益有效性或全部组合已枚举。
     crossAssetValidated:
       type: boolean
-      description: 跨资产效果是否已验证；当前false，可运行不代表收益有效性验证。
+      description: 跨资产效果是否已验证；需结合crossAssetValidationStatus解释；执行验证通过不代表收益有效性已证明。
     trainingConsistency: {const: research_backfill_unpublished}
     targetUniverseVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
     performanceStatus: {const: unproven}
@@ -149,3 +162,43 @@ ModelContext:
     trainingDataVersion: {type: string, pattern: '^[a-f0-9]{64}$'}
     universeVersion: {type: string}
     executionVersion: {type: string}
+
+ResearchRankingItem:
+  allOf:
+    - {$ref: '#/RankingItem'}
+    - type: object
+      required: [parameters, metrics, costSummary, benchmarkContext]
+  description: 参数是该行实际执行参数；metrics及费用/基准摘要直接来自同配置正式回测引擎，不另行重算或截取。
+ResearchRankingRequest:
+  allOf:
+    - {$ref: './backtest.yaml#/BacktestRequest'}
+  description: 沿用回测配置，最多366天；当前strategyId采用parameters，其他候选采用目录默认参数。绝不替换资产、日期或费用。
+ResearchRankingResponse:
+  type: object
+  required: [request, configHash, dataContext, asOfDate, evaluationSymbols, evaluationStartDate, evaluationEndDate, observationCount, tradingCosts, items, unavailableStrategies]
+  properties:
+    request: {$ref: './backtest.yaml#/BacktestRequest'}
+    configHash:
+      type: string
+      pattern: '^[a-f0-9]{64}$'
+      description: 完整配置、候选参数元数据、模型身份及行情版本的摘要；不可用作策略绩效证明。
+    dataContext: {$ref: './common.yaml#/ResearchContext'}
+    asOfDate: {type: string, format: date}
+    evaluationSymbols:
+      type: array
+      minItems: 1
+      maxItems: 10
+      uniqueItems: true
+      items: {$ref: './common.yaml#/Symbol'}
+    evaluationStartDate: {type: string, format: date}
+    evaluationEndDate: {type: string, format: date}
+    observationCount: {type: integer, minimum: 2}
+    tradingCosts: {$ref: './backtest.yaml#/TradingCosts'}
+    items:
+      type: array
+      minItems: 1
+      items: {$ref: '#/ResearchRankingItem'}
+    unavailableStrategies:
+      type: array
+      items: {$ref: '#/RankingUnavailable'}
+      description: 非当前候选若范围、成本、样本外或数据不适用则明确列出原因；当前策略不可用时整单报错。

@@ -69,6 +69,25 @@ export function useResearchContext(correlation, backtest, allocation, dataStatus
   }
   function loadRanking(item, metadata) {
     if (backtestLocked.value) { notice.value = '请等待当前回测结束后再载入排行配置。'; return false }
+    if (metadata?.request) {
+      const request = metadata.request
+      if (!request.symbols?.length || !request.startDate || !request.endDate || !request.tradingCosts || !item.parameters) {
+        notice.value = '该排行缺少完整研究配置，不能载入。'; return false
+      }
+      backtestAssetsLinked.value = false; backtestDatesLinked.value = false
+      backtest.symbols.value = [...request.symbols]
+      backtest.strategyId.value = item.strategyId
+      backtest.parameters.value = copy(item.parameters)
+      backtest.startDate.value = request.startDate
+      backtest.endDate.value = request.endDate
+      backtest.initialCapitalCny.value = request.initialCapitalCny
+      backtest.cashPct.value = request.cashPct
+      backtest.tradingCosts.value = copy(request.tradingCosts)
+      backtest.benchmarkMode.value = request.benchmarkMode
+      backtest.benchmark.value = request.benchmark || ''
+      notice.value = `已载入该策略在排行榜中的完整配置：${request.startDate} 至 ${request.endDate}；资金、费用、现金与基准保持一致。请手动提交回测。`
+      return true
+    }
     if (!metadata?.evaluationStartDate || !metadata?.evaluationEndDate || !metadata?.historyStartDate || !item.parameters || !metadata.tradingCosts) {
       notice.value = '该排行未提供完整评价区间、预热起点或配置，不能猜测后载入。'; return false
     }

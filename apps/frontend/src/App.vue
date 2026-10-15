@@ -54,8 +54,8 @@
       </div>
 
       <aside class="research-flow" aria-label="研究流程联动">
-        <strong>研究工作流</strong><span>市场日期 → 相关性选池 → 共享资金回测 → 配置重放</span>
-        <p>相关性默认同步回测资产与区间，回测默认同步模拟参数和费用。下游手动改选后可恢复跟随；联动只更新草稿，计算需手动提交。</p>
+        <strong>研究工作流</strong><span>市场日期 → 相关性选池 → 回测与组合排行 → 配置重放</span>
+        <p>相关性默认同步回测资产与区间，回测同步排行榜全部配置，并默认同步模拟参数和费用。下游手动改选后可恢复跟随；联动只更新草稿，计算需手动提交。</p>
         <p v-if="workflowNotice" role="status">{{ workflowNotice }}</p>
       </aside>
 
@@ -197,12 +197,12 @@
             <div class="config-grid">
               <label>初始资金（元）<input v-model.number="backtest.initialCapitalCny.value" type="number" min="1" :disabled="backtestBusy" /></label>
               <label>预留现金（%）<input v-model.number="backtest.cashPct.value" type="number" min="0" max="100" :disabled="backtestBusy" /></label>
-              <label>佣金（% / 单边）<input v-model.number="backtest.tradingCosts.value.commissionPct" type="number" min="0" step="0.01" :disabled="backtestBusy || !!backtest.modelContext.value" /></label>
-              <label>滑点（% / 单边）<input v-model.number="backtest.tradingCosts.value.slippagePct" type="number" min="0" step="0.01" :disabled="backtestBusy || !!backtest.modelContext.value" /></label>
-              <label>印花税口径<select v-model="backtest.tradingCosts.value.stampDutyMode" :disabled="backtestBusy || !!backtest.modelContext.value"><option value="asset_date">按资产类型及成交日期</option><option value="fixed">固定卖出费率</option></select></label>
-              <label v-if="backtest.tradingCosts.value.stampDutyMode === 'fixed'">卖出印花税（%）<input v-model.number="backtest.tradingCosts.value.stampDutyPct" type="number" min="0" step="0.01" :disabled="backtestBusy || !!backtest.modelContext.value" /></label>
+              <label>佣金（% / 单边）<input v-model.number="backtest.tradingCosts.value.commissionPct" type="number" min="0" step="0.01" :disabled="backtestBusy || !!backtest.modelContext.value?.requiredTradingCosts" /></label>
+              <label>滑点（% / 单边）<input v-model.number="backtest.tradingCosts.value.slippagePct" type="number" min="0" step="0.01" :disabled="backtestBusy || !!backtest.modelContext.value?.requiredTradingCosts" /></label>
+              <label>印花税口径<select v-model="backtest.tradingCosts.value.stampDutyMode" :disabled="backtestBusy || !!backtest.modelContext.value?.requiredTradingCosts"><option value="asset_date">按资产类型及成交日期</option><option value="fixed">固定卖出费率</option></select></label>
+              <label v-if="backtest.tradingCosts.value.stampDutyMode === 'fixed'">卖出印花税（%）<input v-model.number="backtest.tradingCosts.value.stampDutyPct" type="number" min="0" step="0.01" :disabled="backtestBusy || !!backtest.modelContext.value?.requiredTradingCosts" /></label>
             </div>
-            <p class="hint">实际提交费用：{{ costsLabel(backtest.effectiveTradingCosts.value) }}。滑点体现在成交价，费用统计另列；现有 AI 模型使用其固定评估费用且预留现金须为 0%。</p>
+            <p class="hint">实际提交费用：{{ costsLabel(backtest.effectiveTradingCosts.value) }}。滑点体现在成交价，费用统计另列。<span v-if="backtest.modelContext.value?.requiredTradingCosts">此模型使用固定评估费用且额外预留现金须为 0%。</span><span v-else>费用及预留现金将同步用于组合排行和模拟配置。</span></p>
             <div class="date-row">
               <label>开始日期<input v-model="backtestStartDate" type="date" :min="backtest.minDate" :max="backtest.maxDate.value" /></label>
               <label>结束日期<input v-model="backtestEndDate" type="date" :min="backtest.minDate" :max="backtest.maxDate.value" /></label>
@@ -226,17 +226,17 @@
             </div>
             <aside v-if="backtest.modelContext.value" class="hint ppo-notice" role="note">
               <strong>{{ backtest.selectedStrategy.value?.name }} · 实验性回测</strong>
-              <p>训练资产：{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}（前复权）。</p>
+              <details class="model-training-assets"><summary>查看训练资产（{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).length }} 只 · 前复权）</summary><p>{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}</p></details>
               <p v-for="line in modelWindowLines(backtest.modelContext.value)" :key="line">{{ line }}</p>
-              <p v-if="backtest.modelContext.value.portfolioMode === 'joint_portfolio'">支持训练池内任选2–10只资产联合决策；现金比例由模型输出。自动读取起点之前的140根以上历史进行预热，仅展示所选样本外区间；共同交易日必须完整，停牌缺口暂不支持。</p>
-              <p v-else-if="backtest.modelContext.value.assetScope === 'published_universe'">可选择资产池内1–10只股票或ETF。使用同一模型逐资产推理，初始资金等分后合并净值；未进行多资产联合训练，跨资产效果尚未验证。</p>
-              <p v-else>当前服务仅支持 {{ backtest.modelContext.value.symbols.join('、') }}。</p>
+              <p v-if="backtest.modelContext.value.trainingTradingCosts">训练时成本：{{ costsLabel(backtest.modelContext.value.trainingTradingCosts) }}。</p>
+              <p v-for="line in modelScopeLines(backtest.modelContext.value)" :key="line">{{ line }}</p>
               <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，含预热至少{{ backtest.modelContext.value.minimumBars }}根行情。训练链路可运行不代表长期绩效有效；存在过拟合与幸存者偏差，不代表未来收益。</p>
               <div v-if="backtest.modelContext.value.evaluation" class="joint-evaluation">
                 <p>冻结样本外对照（含成本，{{ backtest.modelContext.value.testStartDate }} 至 {{ backtest.modelContext.value.testEndDate }}）：</p>
+                <p v-if="backtest.modelContext.value.evaluation.aggregation === 'mean_of_three_independent_10_asset_reference_portfolios'">以下为三组独立十资产参考组合的指标均值；不是当前所选组合的结果。当前组合表现请以实际回测为准。</p>
                 <p>模型收益 {{ backtest.modelContext.value.evaluation.test.returnPct.toFixed(2) }}% · 最大回撤 {{ backtest.modelContext.value.evaluation.test.maxDrawdownPct.toFixed(2) }}% · 累计双边换手 {{ backtest.modelContext.value.evaluation.test.turnoverMultiple.toFixed(2) }} 倍。</p>
                 <p>等权买入持有收益 {{ backtest.modelContext.value.evaluation.baselines.equal_weight_hold.returnPct.toFixed(2) }}% · 均线目标权重基线收益 {{ backtest.modelContext.value.evaluation.baselines.ma_cross.returnPct.toFixed(2) }}%。</p>
-                <p>仅一年缓存、短验证/测试窗口；该测试区间曾用于早期烟测，不能视为全新盲测。没有证明长期超额收益或池外泛化。</p>
+                <p>评估仅覆盖记录的资产样本及历史窗口，不能替代所有组合或长期实盘验证。没有证明长期超额收益。</p>
               </div>
               <button type="button" :disabled="backtestBusy || backtest.activeJob.value || !backtest.canApplyModelRange.value" @click="applyModelRange">使用当前可用样本外日期区间</button>
             </aside>
@@ -249,7 +249,7 @@
             <p v-if="backtestJob" class="hint">{{ backtest.benchmarkLabel.value }}</p>
             <p v-if="backtestJob?.result?.modelContext" class="hint">实验性模型：{{ backtestJob.result.modelContext.modelRef }} · {{ backtestJob.result.modelContext.portfolioMode === 'joint_portfolio' ? '已使用区间之前历史预热，当前曲线为样本外回放' : `前${backtestJob.result.modelContext.warmupBars}根预热不交易` }}；不代表未来收益。</p>
             <p v-for="line in modelWindowLines(backtestJob?.result?.modelContext)" :key="line" class="hint">{{ line }}</p>
-            <p v-if="backtestJob?.result?.modelContext?.assetScope === 'published_universe'" class="hint">训练资产 {{ backtestJob.result.modelContext.trainingSymbols.join('、') }} · 各资产等分初始资金、独立推理后合并净值；跨资产效果尚未验证。</p>
+            <p v-for="line in modelScopeLines(backtestJob?.result?.modelContext)" :key="line" class="hint">{{ line }}</p>
             <p v-if="backtestJob?.request" class="hint">
               {{ backtestJob.request.startDate }} 至 {{ backtestJob.request.endDate }} ·
               {{ backtestJob.request.symbols.join('、') }} · 参数 {{ JSON.stringify(backtestJob.request.parameters) }}
@@ -288,31 +288,45 @@
 
       <section id="ranking" class="panel">
         <header class="panel-head">
-          <div><p>STRATEGY RANKING</p><h2>策略排行榜</h2></div>
-          <span>{{ rankingMetadata?.evaluationStartDate && rankingMetadata?.evaluationEndDate ? `${rankingMetadata.evaluationStartDate} 至 ${rankingMetadata.evaluationEndDate}` : '近 30 个自然日 · 实际起止待服务端返回' }}</span>
+          <div><p>RESEARCH RANKING</p><h2>组合策略排行榜</h2></div>
+          <span>跟随当前回测配置 · 手动计算</span>
         </header>
-        <p class="notice">比较范围：沪深300ETF（510300）；该资产数据不足时排行不可用，不代表全300只股票组合表现。</p>
-        <p v-if="rankingContext" class="hint">{{ contextLabel(rankingContext) }} · 510300ETF代表资产 · 默认参数及费用</p>
-
-        <p class="hint">同一510300资产、默认本金及交易费用；预热期不计入区间收益。AI仅使用已部署模型的样本外区间，实验排行不代表未来收益。</p>
-        <p v-if="rankingMetadata" class="hint">实际评价：{{ rankingMetadata.evaluationStartDate || '未记录' }} 至 {{ rankingMetadata.evaluationEndDate || '未记录' }} · {{ rankingMetadata.observationCount ?? '未记录' }} 个净值观察点 · 历史/预热起点 {{ rankingMetadata.historyStartDate || '未记录' }} · {{ costsLabel(rankingMetadata.tradingCosts) }}</p>
-        <p class="hint">排行含前置运行，评价起点可能已有仓位，按评价窗口首日净值归一化。排行固定代表资产及窗口，不会自动随回测改动；载入预热历史用于继续研究，完整回测指标与排行窗口指标应分开解读。</p>
-        <p v-for="item in rankingUnavailable" :key="item.strategyId" class="hint">{{ item.strategyName }}：{{ item.message }}</p>
-        <DataCapability :request="{ module: 'ranking', period: '30d' }" :version="dataStatus.dataContext?.dataVersion" />
-        <article class="card table-card">
+        <div class="ranking-config card">
+          <div class="card-head"><h3>当前比较配置</h3><a href="#backtest">调整回测配置 ↑</a></div>
+          <p>{{ rankingState.draft.value.symbols.join('、') }} · {{ rankingState.draft.value.startDate }} 至 {{ rankingState.draft.value.endDate }} · 前复权</p>
+          <p class="hint">资金 {{ money(rankingState.draft.value.initialCapitalCny) }} · 预留现金 {{ rankingState.draft.value.cashPct }}% · {{ costsLabel(rankingState.draft.value.tradingCosts) }} · {{ rankingBenchmarkLabel(rankingState.draft.value) }}</p>
+          <p class="hint">{{ backtest.selectedStrategy.value?.name || rankingState.draft.value.strategyId }}使用当前参数 {{ JSON.stringify(rankingState.draft.value.parameters) }}；其他候选使用各自默认参数，逐项展示。所有入榜策略使用同一资产、日期、资金、费用与基准；不适用策略列出原因。</p>
+          <div class="flow-controls"><button class="primary" type="button" :disabled="!rankingState.canSubmit.value" @click="rankingState.submit">{{ rankingBusy ? '正在按配置计算…' : rankingMetadata ? '按当前配置刷新排行' : '按当前配置计算排行' }}</button><span>修改配置不会自动运行回测或重新计算排行。</span></div>
+          <p v-if="rankingState.validationError.value" class="hint">{{ rankingState.validationError.value }}</p>
+          <p v-if="rankingState.notice.value" class="notice" role="status">{{ rankingState.notice.value }}</p>
+          <p v-if="rankingState.error.value" class="error" role="alert">{{ rankingState.error.value }}</p>
+        </div>
+        <p v-if="rankingState.stale.value" class="notice ranking-stale" role="status">已过期：回测配置、数据批次或模型目录已变化。下方保留上一次结果，请按当前配置刷新后再载入回测。</p>
+        <div v-if="rankingMetadata" class="ranking-snapshot">
+          <strong>本次结果快照{{ rankingState.stale.value ? '（历史配置）' : '' }}</strong>
+          <p>{{ rankingMetadata.request.symbols.join('、') }} · 请求区间 {{ rankingMetadata.request.startDate }} 至 {{ rankingMetadata.request.endDate }} · {{ rankingBenchmarkLabel(rankingMetadata.request) }}</p>
+          <p class="hint">实际评价：{{ rankingMetadata.evaluationStartDate }} 至 {{ rankingMetadata.evaluationEndDate }} · {{ rankingMetadata.observationCount }} 个净值观察点</p>
+          <p class="hint">资金 {{ money(rankingMetadata.request.initialCapitalCny) }} · 预留现金 {{ rankingMetadata.request.cashPct }}% · {{ costsLabel(rankingMetadata.tradingCosts) }} · 前复权</p>
+          <p v-if="rankingMetadata.dataContext" class="hint">{{ contextLabel(rankingMetadata.dataContext) }}</p>
+        </div>
+        <article class="card table-card ranking-table" :class="{ 'ranking-outdated': rankingState.stale.value }" :aria-busy="rankingBusy">
           <table>
-            <thead><tr><th>排名</th><th>策略</th><th>类型</th><th>区间收益</th><th>最大回撤</th><th>夏普</th><th>联动研究</th></tr></thead>
+            <thead><tr><th>排名</th><th>策略与参数</th><th>类型</th><th>区间收益</th><th>最大回撤</th><th>夏普</th><th>交易成本</th><th>联动研究</th></tr></thead>
             <tbody>
               <tr v-for="item in ranking" :key="item.strategyId">
-                <td>{{ item.rank }}</td><td>{{ item.strategyName }}</td><td>{{ item.category === 'ai' ? 'AI · 实验' : '传统' }}</td>
+                <td>{{ item.rank }}</td><td class="ranking-strategy"><strong>{{ item.strategyName }}</strong><small>参数 {{ JSON.stringify(item.parameters) }}</small><small v-if="item.benchmarkContext">基准：{{ item.benchmarkContext.label }}</small><small v-if="item.modelContext">模型 {{ item.modelContext.modelRef }}</small></td>
+                <td>{{ item.category === 'ai' ? 'AI · 实验' : '传统' }}</td>
                 <td :class="tone(item.returnPct)">{{ formatPct(item.returnPct) }}</td>
                 <td>{{ plainPct(item.maxDrawdownPct) }}</td><td>{{ formatNumber(item.sharpe) }}</td>
-                <td><button class="secondary" type="button" :disabled="workflow.backtestLocked.value" @click="workflow.loadRanking(item, rankingMetadata)">载入回测</button></td>
+                <td>{{ money(item.costSummary?.totalTradingCostCny) }}<small>{{ item.costSummary?.tradeCount ?? '未记录' }} 笔成交</small></td>
+                <td><button class="secondary" type="button" :disabled="workflow.backtestLocked.value || rankingState.stale.value || rankingBusy" @click="workflow.loadRanking(item, rankingMetadata)">载入回测</button></td>
               </tr>
-              <tr v-if="!ranking.length"><td colspan="7" class="empty">510300 ETF 所需行情未齐或排行请求失败；这不影响其他股票的相关性、回测和配置。</td></tr>
+              <tr v-if="!ranking.length"><td colspan="8" class="empty">{{ rankingBusy ? '正在计算当前组合的可比结果…' : rankingMetadata ? '当前配置暂无可入榜策略，请查看下方排除原因或调整配置。' : '先确认上方回测配置，再点击“按当前配置计算排行”。' }}</td></tr>
             </tbody>
           </table>
         </article>
+        <details v-if="rankingUnavailable.length" class="ranking-exclusions" open><summary>未参与比较的策略（{{ rankingUnavailable.length }}）</summary><p v-for="item in rankingUnavailable" :key="item.strategyId" class="hint"><strong>{{ item.strategyName }}</strong>：{{ item.message }}</p></details>
+        <p class="hint">按本区间净收益排序，历史表现不代表未来收益。策略训练范围、预热或执行口径不匹配时会排除，绝不换成其他资产或日期凑榜。</p>
       </section>
 
       <section id="allocation" class="panel">
@@ -382,7 +396,7 @@
 </template>
 
 <script setup>
-import { modelWindowLines } from './dashboard/model-disclosure.js'
+import { modelWindowLines, modelScopeLines } from './dashboard/model-disclosure.js'
 const contextLabel = context => `发布截止 ${context.publicationDate} · 数据 ${context.dataVersion.slice(0, 12)} · 名单 ${context.universeVersion.slice(0, 12)}（${context.consistency === 'published_snapshot' ? '不可变研究批次' : '旧池修订'}）`
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -398,14 +412,17 @@ import { useAllocation } from './dashboard/use-allocation'
 import { useBacktest } from './dashboard/use-backtest'
 import { useCorrelation } from './dashboard/use-correlation'
 import { useMarket } from './dashboard/use-market'
+import { useRanking } from './dashboard/use-ranking'
 import { initialiseDashboard } from './dashboard/startup'
 import { useResearchContext } from './dashboard/use-research-context'
 
-const { connection, dataStatus, assetCatalog, market, strategies, ranking, rankingContext, rankingUnavailable, rankingMetadata,
+const { connection, dataStatus, assetCatalog, market, strategies,
   historyStatusText, overviewStatusText, marketNotice, assetCatalogError, initialise } = useMarket()
 const correlation = useCorrelation(dataStatus)
 const backtest = useBacktest(strategies, dataStatus, assetCatalog)
-const allocation = useAllocation(strategies, undefined, dataStatus)
+const allocation = useAllocation(strategies, undefined, dataStatus, assetCatalog)
+const rankingState = useRanking(backtest, dataStatus, strategies)
+const { result: rankingMetadata, items: ranking, unavailable: rankingUnavailable, busy: rankingBusy } = rankingState
 const workflow = useResearchContext(correlation, backtest, allocation, dataStatus)
 const { backtestSymbols, backtestStartDate, backtestEndDate, allocationSymbols, allocationStrategyId,
   backtestAssetsLinked, backtestDatesLinked, allocationAssetsLinked, allocationConfigLinked, notice: workflowNotice } = workflow
@@ -458,6 +475,7 @@ const plainPct = (value) => value == null ? '—' : `${Number(value).toFixed(2)}
 const tone = (value) => value > 0 ? 'positive' : value < 0 ? 'negative' : ''
 const actionLabel = (action) => ({ increase: '增加', hold: '持有', decrease: '降低', exit: '退出' }[action] || action)
 const money = value => typeof value === 'number' && Number.isFinite(value) ? `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '未记录'
+const rankingBenchmarkLabel = request => request.benchmarkMode === 'buy_and_hold' ? '所选组合初始等权买入持有基准（不计费用）' : request.benchmarkMode === 'custom' ? `自定义基准 ${request.benchmark}` : '无基准'
 const costsLabel = costs => costs ? `佣金 ${costs.commissionPct}% / 滑点 ${costs.slippagePct}% / ${costs.stampDutyMode === 'asset_date' ? '印花税按资产及日期（ETF 免税）' : `固定卖出印花税 ${costs.stampDutyPct}%`}` : '费用口径未记录'
 
 const resizeCharts = () => Object.values(charts).forEach((chart) => chart?.resize())

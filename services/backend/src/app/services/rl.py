@@ -29,6 +29,11 @@ class RLServiceError(ServiceError):
     status = 422
 
     def __init__(self, error, *, details=None):
+        details = dict(details or {})
+        if getattr(error, "symbol", None):
+            details.setdefault("symbol", error.symbol)
+        if getattr(error, "research_reason", None):
+            details.setdefault("reason", error.research_reason)
         messages = {
             "RL_DEPENDENCIES_MISSING": "RL运行环境尚未就绪，请稍后重试",
             "RL_MODEL_NOT_FOUND": "已部署的RL模型不可用，请联系维护人员",
@@ -248,6 +253,8 @@ def validate_web_model(catalog, payload, provider):
     if getattr(strategy, 'joint_portfolio', False):
         try:
             strategy.validate_web_request(payload, provider)
+        except RLError as exc:
+            raise RLServiceError(exc) from exc
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
         return strategy.model_context()

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from quant_platform.rl.errors import RLInsufficientHistory
 from quant_platform.rl.features import (
     FEATURE_COLUMNS,
     build_observations,
@@ -28,6 +29,14 @@ ACTION_SIZE = MAX_ASSETS + 1
 SLOT_SIZE = len(FEATURE_COLUMNS) + 2  # market features, actual weight, active mask
 OBSERVATION_SIZE = MAX_ASSETS * SLOT_SIZE + 1  # last element is actual cash weight
 ENVIRONMENT_VERSION = "joint-portfolio-v1"
+
+
+def insufficient_history(message, symbol=None):
+    error = RLInsufficientHistory(message)
+    error.research_reason = message
+    if symbol is not None:
+        error.symbol = symbol
+    return error
 
 
 def observation_signature() -> str:
@@ -50,6 +59,8 @@ class PortfolioPanel:
     closes: np.ndarray
     features: np.ndarray
     data_hashes: Mapping[str, str]
+    tradable: np.ndarray | None = None
+    observed_bars: np.ndarray | None = None
 
     def indices(self, symbols: Sequence[str]) -> np.ndarray:
         positions = {symbol: index for index, symbol in enumerate(self.symbols)}
@@ -59,13 +70,20 @@ class PortfolioPanel:
             raise ValueError(f"unknown portfolio symbol: {exc.args[0]}") from exc
 
 
-def prepare_panel(frames: Mapping[str, pd.DataFrame]) -> PortfolioPanel:
+def prepare_panel(
+    frames: Mapping[str, pd.DataFrame],
+    *,
+    nontrading_sessions: Mapping[str, Sequence] | None = None,
+    end_date=None,
+) -> PortfolioPanel:
     """Validate a pool without silently dropping dates, assets or filling OHLCV.
 
     The training universe may be larger than ten; an episode samples at most ten.
     Callers must explicitly select a common covered window before calling this
     function. A missing bar is rejected rather than compressing the time axis.
     """
+    if nontrading_sessions is not None:
+        return _prepare_verified_panel(frames, nontrading_sessions, end_date=end_date)
     if len(frames) < MIN_ASSETS:
         raise ValueError("joint portfolio requires at least two simultaneous assets")
     symbols = tuple(sorted(frames))
@@ -76,7 +94,10 @@ def prepare_panel(frames: Mapping[str, pd.DataFrame]) -> PortfolioPanel:
     hashes = {}
     for symbol in symbols:
         frame = frames[symbol].copy().reset_index(drop=True)
-        validate_history(frame)
+        try:
+            validate_history(frame)
+        except RLInsufficientHistory as exc:
+            raise insufficient_history(str(exc), symbol) from exc
         current_dates = pd.DatetimeIndex(pd.to_datetime(frame["date"]))
         if current_dates.tz is not None or not current_dates.equals(current_dates.normalize()):
             raise ValueError(f"{symbol}: expected timezone-naive daily dates")
@@ -109,6 +130,74 @@ def prepare_panel(frames: Mapping[str, pd.DataFrame]) -> PortfolioPanel:
         np.stack(closes, axis=1),
         np.stack(observations, axis=1),
         hashes,
+    )
+
+
+def _prepare_verified_panel(frames, nontrading_sessions, *, end_date):
+    """Keep confirmed nontrading sessions on the shared clock, without inventing bars.
+
+    Features are calculated only from actual OHLC observations. On a verified
+    suspension the last observed feature vector and valuation are carried, while
+    the broker receives tradable=False. Pre-listing days precede the common
+    observed start and never count toward an asset's real warm-up bars.
+    """
+    from quant_platform.data.calendar import sessions
+
+    if len(frames) < MIN_ASSETS:
+        raise ValueError("joint portfolio requires at least two simultaneous assets")
+    symbols = tuple(sorted(frames))
+    actual = {}
+    for symbol in symbols:
+        frame = frames[symbol].copy().reset_index(drop=True)
+        try:
+            validate_history(frame)
+        except RLInsufficientHistory as exc:
+            raise insufficient_history(str(exc), symbol) from exc
+        dates = pd.DatetimeIndex(pd.to_datetime(frame["date"]))
+        if dates.tz is not None or not dates.equals(dates.normalize()):
+            raise ValueError(f"{symbol}: expected timezone-naive daily dates")
+        if (frame["high"] < frame[["open", "close", "low"]].max(axis=1)).any() or (
+            frame["low"] > frame[["open", "close", "high"]].min(axis=1)
+        ).any():
+            raise ValueError(f"{symbol}: inconsistent OHLC values")
+        actual[symbol] = frame, dates
+    start = max(dates[0] for _, dates in actual.values())
+    end = pd.Timestamp(end_date) if end_date else max(dates[-1] for _, dates in actual.values())
+    grid = pd.DatetimeIndex(pd.to_datetime(sessions(start.date(), end.date())))
+    if grid.empty:
+        raise ValueError("joint assets have no common observed history")
+    opens, closes, features, tradable, observed, hashes = [], [], [], [], [], {}
+    for symbol, (frame, dates) in actual.items():
+        full_grid = pd.DatetimeIndex(pd.to_datetime(sessions(dates[0].date(), end.date())))
+        allowed = set(pd.to_datetime(list(nontrading_sessions.get(symbol, ()))))
+        if not dates.difference(full_grid).empty or any(
+            day not in allowed for day in full_grid.difference(dates)
+        ):
+            raise ValueError(f"{symbol}: 联合模型日期缺口未经核实")
+        index = dates.searchsorted(grid, side="right") - 1
+        available = grid.isin(dates)
+        last_close = frame["close"].to_numpy(dtype=float)[index]
+        opens.append(np.where(available, frame["open"].to_numpy(dtype=float)[index], last_close))
+        closes.append(last_close)
+        features.append(np.nan_to_num(build_observations(frame), nan=0, posinf=0, neginf=0)[index])
+        tradable.append(available)
+        observed.append(index + 1)
+        raw = frame[["date", "open", "high", "low", "close"]].copy()
+        raw["date"] = dates.strftime("%Y-%m-%d")
+        for column in ("open", "high", "low", "close"):
+            raw[column] = raw[column].astype(float)
+        hashes[symbol] = hashlib.sha256(
+            raw.to_csv(index=False, float_format="%.17g", lineterminator="\n").encode()
+        ).hexdigest()
+    return PortfolioPanel(
+        symbols,
+        grid,
+        np.stack(opens, axis=1),
+        np.stack(closes, axis=1),
+        np.stack(features, axis=1),
+        hashes,
+        np.stack(tradable, axis=1),
+        np.stack(observed, axis=1),
     )
 
 

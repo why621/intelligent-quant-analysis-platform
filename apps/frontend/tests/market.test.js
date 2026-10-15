@@ -54,19 +54,15 @@ test('recovery clears unavailable notice', async () => {
   assert.equal(state.connection.message, '接口数据')
   assert.equal(state.market.value.advancing, 42)
 })
-test('pending ranking does not block independently resolved data', async () => {
+test('startup does not compute a legacy or research ranking implicitly', async () => {
   const client = makeClient()
-  let finish
-  client.getStrategyRanking = () => new Promise(resolve => { finish = resolve })
+  client.getStrategyRanking = () => { throw Error('legacy ranking must not run at startup') }
+  client.calculateStrategyRanking = () => { throw Error('research ranking requires an explicit action') }
   const state = useMarket(client)
-  const pending = state.initialise()
-  await new Promise(resolve => setImmediate(resolve))
+  await state.initialise()
+  assert.equal(state.connection.loading, false)
   assert.equal(state.historyStatusText.value, '更新完成')
   assert.match(state.marketNotice.value, /暂不可用/)
-  assert.equal(state.connection.loading, true)
-  finish({ items: [] })
-  await pending
-  assert.equal(state.connection.loading, false)
 })
 
 test('late responses from an earlier reload never overwrite current state', async () => {
@@ -111,23 +107,4 @@ test('partial publication exposes per-asset dates and clears them on failed relo
   client.getDataStatus = async () => { throw Error('503') }
   await state.initialise()
   assert.equal(state.assetCatalog.value[0].availability, undefined)
-})
-
-
-test('ranking keeps experiment metadata and clears obsolete exclusions on reload', async () => {
-  const client=makeClient()
-  client.getStrategyRanking=async()=>({evaluationStartDate:'2026-08-05',evaluationEndDate:'2026-09-04',historyStartDate:'2026-05-01',observationCount:23,
-    tradingCosts:{commissionPct:0.03,stampDutyPct:0,slippagePct:0.02,stampDutyMode:'fixed'},evaluationSymbols:['510300'],
-    items:[{strategyId:'ppo',status:'experimental',returnPct:1.2,parameters:{modelRef:'reviewed'},modelContext:{modelRef:'reviewed'}}],unavailableStrategies:[{strategyId:'sac',message:'预热不足'}]})
-  const state=useMarket(client);await state.initialise()
-  assert.equal(state.ranking.value[0].modelContext.modelRef,'reviewed')
-  assert.equal(state.ranking.value[0].status,'experimental')
-  assert.equal(state.rankingUnavailable.value[0].strategyId,'sac')
-  assert.equal(state.rankingMetadata.value.evaluationStartDate,'2026-08-05')
-  assert.equal(state.rankingMetadata.value.historyStartDate,'2026-05-01')
-  assert.deepEqual(state.ranking.value[0].parameters,{modelRef:'reviewed'})
-  client.getStrategyRanking=async()=>({items:[]})
-  await state.initialise()
-  assert.deepEqual(state.rankingUnavailable.value,[])
-  assert.equal(state.rankingMetadata.value.evaluationStartDate,undefined)
 })

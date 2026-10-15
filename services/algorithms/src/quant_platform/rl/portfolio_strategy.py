@@ -18,6 +18,7 @@ from quant_platform.rl.portfolio_policy import (
     load_portfolio_bundle,
     prepare_portfolio_policy,
 )
+from quant_platform.rl.portfolio_release import validated_serving_scope
 
 
 class JointPortfolioStrategy:
@@ -45,6 +46,9 @@ class JointPortfolioStrategy:
         ):
             raise ValueError("joint release lacks matching formal training/evaluation evidence")
         self.evidence = evidence
+        self.serving_scope, self.cross_asset_evidence = validated_serving_scope(
+            self.path, m, release
+        )
 
     def info(self):
         m = self.bundle.manifest
@@ -77,7 +81,7 @@ class JointPortfolioStrategy:
 
     def model_context(self):
         m = self.bundle.manifest
-        return {
+        context = {
             "modelRef": m["runId"],
             "bundleHash": m["bundleHash"],
             **m["splits"],
@@ -102,22 +106,42 @@ class JointPortfolioStrategy:
             "requiredTradingCosts": m["tradingCosts"],
             "evaluation": self.evidence,
         }
+        if self.serving_scope:
+            context.update(
+                symbols=sorted(self.serving_scope["supportedAssetTypes"]),
+                assetScope="published_universe",
+                supportedAssetTypes=self.serving_scope["supportedAssetTypes"],
+                scopeDataVersion=self.serving_scope["scopeDataVersion"],
+                costPolicy="request_configurable",
+                trainingTradingCosts=m["tradingCosts"],
+                crossAssetValidated=True,
+                crossAssetValidationStatus="execution_validated",
+            )
+            del context["requiredTradingCosts"]
+        return context
 
     def validate_web_request(self, payload, provider):
         if payload.get("portfolioMode") != "shared_account":
             raise ValueError("联合模型必须使用共享组合账户")
-        if payload.get("cashPct", 0) != 0:
+        if not self.serving_scope and payload.get("cashPct", 0) != 0:
             raise ValueError("组合模型自行输出现金权重，额外预留现金须为0")
         if payload.get("adjust", "qfq") != "qfq":
             raise ValueError("组合模型仅支持前复权")
         symbols = payload["symbols"]
-        if not 2 <= len(symbols) <= 10 or not set(symbols).issubset(
-            self.bundle.manifest["trainingUniverse"]
+        applicable = (
+            self.serving_scope["supportedAssetTypes"]
+            if self.serving_scope
+            else self.bundle.manifest["trainingUniverse"]
+        )
+        if (
+            not 2 <= len(symbols) <= 10
+            or len(set(symbols)) != len(symbols)
+            or not set(symbols).issubset(applicable)
         ):
-            raise ValueError("请选择模型训练池内2–10只不同资产")
+            raise ValueError("请选择模型适用目录内2–10只不同资产")
         if date.fromisoformat(payload["startDate"]) <= inference_boundary(self.bundle.manifest):
             raise ValueError("组合回测/模拟起点必须晚于训练和验证区间")
-        if (
+        if not self.serving_scope and (
             payload.get("tradingCosts", self.bundle.manifest["tradingCosts"])
             != self.bundle.manifest["tradingCosts"]
         ):
@@ -127,6 +151,10 @@ class JointPortfolioStrategy:
             != self.release["targetUniverseVersion"]
         ):
             raise ValueError("组合模型发布资产目录版本不匹配")
+        if self.serving_scope:
+            actual = {a.symbol: a.asset_type for a in provider.list_assets(limit=None)}
+            if actual != self.serving_scope["supportedAssetTypes"]:
+                raise ValueError("组合模型适用目录或资产类型与当前发布不匹配")
 
     def run_joint(self, engine, request, *, with_target=False):
         from quant_platform.backtesting.engine import _compute_metrics
@@ -134,11 +162,14 @@ class JointPortfolioStrategy:
         self.validate_parameters(request.parameters)
         if (
             request.portfolio_mode != "shared_account"
-            or request.cash_pct
+            or (request.cash_pct and not self.serving_scope)
             or request.adjust != "qfq"
         ):
             raise ValueError("组合模型需要共享账户、前复权且额外现金预留为0")
-        if costs_metadata(request.trading_costs) != self.bundle.manifest["tradingCosts"]:
+        if (
+            not self.serving_scope
+            and costs_metadata(request.trading_costs) != self.bundle.manifest["tradingCosts"]
+        ):
             raise ValueError("组合执行成本与模型不一致")
         history_start = max(
             request.start_date - timedelta(days=450), getattr(engine._provider, "start", date.min)
@@ -147,11 +178,30 @@ class JointPortfolioStrategy:
             s: engine._provider.history(s, history_start, request.end_date, request.adjust)
             for s in request.symbols
         }
+        nontrading = None
+        asset_types = self.bundle.manifest["assetTypes"]
+        if self.serving_scope:
+            if (
+                getattr(engine._provider, "publication_context", {}).get("universeVersion")
+                != self.release["targetUniverseVersion"]
+            ):
+                raise ValueError("组合模型发布资产目录版本不匹配")
+            asset_types = engine._asset_types(request.symbols)
+            if asset_types != self.serving_scope["supportedAssetTypes"]:
+                raise ValueError("组合模型适用目录或资产类型与当前发布不匹配")
+            lookup = getattr(engine._provider, "nontrading_sessions", None)
+            nontrading = {
+                s: (lookup(s, history_start, request.end_date) if callable(lookup) else ())
+                for s in frames
+            }
         prepared = prepare_portfolio_policy(
             self.bundle,
             frames,
             evaluation_start=request.start_date,
             trading_costs=request.trading_costs,
+            serving_scope=self.serving_scope,
+            nontrading_sessions=nontrading,
+            evaluation_end=request.end_date,
         )
         panel = prepared.panel
         # Unknown gaps must not turn next-session execution into next-available-bar execution.
@@ -164,7 +214,7 @@ class JointPortfolioStrategy:
             raise ValueError("联合模型要求完整共同交易日行情，缺口/停牌暂不支持")
         episode = PortfolioEpisode(
             panel,
-            asset_types=self.bundle.manifest["assetTypes"],
+            asset_types=asset_types,
             trading_costs=request.trading_costs,
             initial_capital=request.initial_capital_cny,
             random_subsets=False,
@@ -172,6 +222,7 @@ class JointPortfolioStrategy:
             episode_bars=len(panel.dates) - prepared.first_decision_index - 1,
             band_pct=self.bundle.manifest.get("rebalanceBandPct", 0),
             min_trade_cny=self.bundle.manifest.get("minTradeCny", 0),
+            cash_pct=request.cash_pct,
         )
         obs, state = episode.reset(options={"start_index": prepared.first_decision_index})
         records, trades = [], []
@@ -231,6 +282,14 @@ class JointPortfolioStrategy:
                 "portfolioMode": "shared_account",
                 "signalSemantics": "joint_target_weights",
                 "executionVersion": self.bundle.manifest["executionVersion"],
+                "costPolicy": "request_configurable" if self.serving_scope else "training_fixed",
+                "costsDifferFromTraining": str(
+                    costs_metadata(request.trading_costs) != self.bundle.manifest["tradingCosts"]
+                ).lower(),
+                "nonTradingExecution": "skip_untradable_no_pending_order",
+                "nonTradingValuation": "last_observed_close"
+                if panel.tradable is not None and not panel.tradable.all()
+                else "none",
             },
             tuple(records),
             engine._cost_summary(trades),
@@ -243,4 +302,5 @@ class JointPortfolioStrategy:
         )
         action, _ = self.bundle.model.predict(obs, deterministic=True)
         weights = action_weights(action, len(panel.symbols))
+        weights[: len(panel.symbols)] *= 1 - request.cash_pct / 100
         return result, dict(zip(panel.symbols, weights[: len(panel.symbols)], strict=True))

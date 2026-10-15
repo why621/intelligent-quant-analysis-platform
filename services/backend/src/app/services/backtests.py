@@ -176,8 +176,12 @@ class BacktestService:
         self._provider = provider
         self._engine = engine
 
-    def submit(self, payload: Mapping[str, object]) -> Mapping[str, object]:
-        """业务校验后接受任务，返回 queued 的 BacktestJob（契约 BacktestJob 字段）。"""
+    def validate_request(self, payload: Mapping[str, object]):
+        """Validate a read-only execution; caller pins the research data context.
+
+        Ranking and submitted backtests share every business/model/date rule.
+        This method never creates or executes a persisted job.
+        """
         self._validate_business(payload)
         symbols = list(payload["symbols"])
         benchmark = payload.get("benchmark")
@@ -200,10 +204,15 @@ class BacktestService:
             date.fromisoformat(str(payload["startDate"])),
             date.fromisoformat(str(payload["endDate"])),
         )
+        model_context = validate_web_model(self._catalog, payload, self._provider)
+        if model_context and model_context.get("requiredTradingCosts"):
+            payload = {**payload, "tradingCosts": model_context["requiredTradingCosts"]}
+        return dict(payload), model_context
+
+    def submit(self, payload: Mapping[str, object]) -> Mapping[str, object]:
+        """Validate then persist a request against the same pinned publication."""
         with research_read(self._provider) as context:
-            model_context = validate_web_model(self._catalog, payload, self._provider)
-            if model_context and model_context.get("requiredTradingCosts"):
-                payload = {**payload, "tradingCosts": model_context["requiredTradingCosts"]}
+            payload, _ = self.validate_request(payload)
         job_id = self._store.create(payload, context)
         return self.get_job(job_id)
 

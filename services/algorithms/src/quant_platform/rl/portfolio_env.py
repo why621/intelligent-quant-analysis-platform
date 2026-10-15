@@ -23,6 +23,7 @@ from quant_platform.rl.portfolio_features import (
     PortfolioPanel,
     action_weights,
     encode_observation,
+    insufficient_history,
     prepare_panel,
 )
 
@@ -44,6 +45,7 @@ class PortfolioEpisode:
         max_assets: int = MAX_ASSETS,
         band_pct: float = 0.0,
         min_trade_cny: float = 0.0,
+        cash_pct: float = 0.0,
     ) -> None:
         self.panel = frames if isinstance(frames, PortfolioPanel) else prepare_panel(frames)
         if not np.isfinite(initial_capital) or initial_capital <= 0:
@@ -71,6 +73,9 @@ class PortfolioEpisode:
         self.max_assets = min(max_assets, len(self.panel.symbols))
         self.band_pct = band_pct
         self.min_trade_cny = min_trade_cny
+        if not np.isfinite(cash_pct) or not 0 <= cash_pct <= 100:
+            raise ValueError("cash reserve must be between zero and one hundred percent")
+        self.cash_pct = float(cash_pct)
         self.rng = np.random.default_rng()
         self.episode_count = 0
         self.sample_log: list[dict] = []
@@ -110,6 +115,13 @@ class PortfolioEpisode:
             or not MIN_WARMUP <= start <= last_start
         ):
             raise ValueError("episode start must leave full warm-up and requested future bars")
+        if self.panel.observed_bars is not None and np.any(
+            self.panel.observed_bars[int(start), self.indices] <= MIN_WARMUP
+        ):
+            symbol = symbols[int(np.argmin(self.panel.observed_bars[int(start), self.indices]))]
+            raise insufficient_history(
+                "组合资产上市历史或实际行情不足140根预热，停牌日不计入预热", symbol
+            )
         self.symbols = symbols
         self.bar = int(start)
         self.end_bar = self.bar + self.episode_bars
@@ -160,6 +172,8 @@ class PortfolioEpisode:
         if not self._ready or self.bar >= self.end_bar:
             raise RuntimeError("reset required before stepping a new or finished episode")
         weights = action_weights(action, len(self.symbols))
+        weights[: len(self.symbols)] *= 1 - self.cash_pct / 100
+        weights[-1] = 1 - weights[: len(self.symbols)].sum()
         before = self.account()["equity"]
         next_bar = self.bar + 1
         result = rebalance_portfolio(
@@ -173,6 +187,11 @@ class PortfolioEpisode:
             costs=self.costs,
             band_pct=self.band_pct,
             min_trade_cny=self.min_trade_cny,
+            tradable=(
+                self.panel.tradable[next_bar, self.indices]
+                if self.panel.tradable is not None
+                else None
+            ),
         )
         self.cash, self.quantities = result.cash, result.quantities.copy()
         self.bar = next_bar

@@ -9,6 +9,7 @@ from quant_platform.data.akshare_provider import (
     UpstreamUnavailableError as ProviderUpstreamError,
 )
 from quant_platform.models import AllocationSuggestion, TradingCosts
+from quant_platform.rl.errors import RLError
 
 from app.services.errors import (
     AssetNotFoundError,
@@ -19,6 +20,7 @@ from app.services.errors import (
 )
 from app.services.parameters import validate_against_schema
 from app.services.research_dates import DataNotReadyError, ResearchDateGuard, research_read
+from app.services.rl import RLServiceError
 from app.services.strategies import StrategyCatalogService
 
 
@@ -133,6 +135,8 @@ class AllocationService:
             ) from exc
         except ProviderUpstreamError as exc:
             raise UpstreamUnavailableError(details={"capability": "allocation-suggestion"}) from exc
+        except RLError as exc:
+            raise RLServiceError(exc) from exc
         except ValueError as exc:
             # 算法组对未知策略抛 ValueError；目录外策略已被前置校验拦截，
             # 此处兜底统一转为契约错误码

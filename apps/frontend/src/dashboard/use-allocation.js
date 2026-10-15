@@ -4,8 +4,9 @@ import { api } from '../services/api.js'
 import { displayError, SYMBOL_PATTERN } from './common.js'
 import { useStrategyParameters } from './strategy-parameters.js'
 import { snapshotKey } from './use-research-context.js'
+import { modelAssetError } from './model-disclosure.js'
 
-export function useAllocation(strategies, client = api, dataStatus) {
+export function useAllocation(strategies, client = api, dataStatus, assetCatalog) {
   const symbols = ref(['510300', '510500'])
   const strategyId = ref('momentum_reversal')
   const cashPct = ref(10)
@@ -37,6 +38,13 @@ export function useAllocation(strategies, client = api, dataStatus) {
       || ['commissionPct', 'stampDutyPct', 'slippagePct'].some(key => typeof tradingCosts.value[key] !== 'number' || !Number.isFinite(tradingCosts.value[key]) || tradingCosts.value[key] < 0)) return '费用必须为非负有限数值。'
     if (typeof cashPct.value !== 'number' || !Number.isFinite(cashPct.value)
       || cashPct.value < 0 || cashPct.value > 100) return '现金比例必须填写 0–100 之间的有限数值。'
+    const model = selectedStrategy.value?.modelContext
+    if (model?.portfolioMode === 'joint_portfolio') {
+      const scopeError = modelAssetError(model, symbols.value, assetCatalog?.value || [])
+      if (scopeError) return scopeError
+      if (model.costPolicy !== 'request_configurable' && cashPct.value !== 0) return '组合模型自行决定现金权重，额外预留现金须显式设为 0%。'
+      if (startDate.value < model.outOfSampleStartDate) return `组合模拟起始日须从 ${model.outOfSampleStartDate} 起，不能与训练或验证区间重叠。`
+    }
     return ''
   })
   const canSubmit = computed(() => !disposed.value && !busy.value && !validationError.value)
