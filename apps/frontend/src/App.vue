@@ -15,7 +15,9 @@
     </header>
 
     <main id="top" class="content">
+      <InterfaceEffects />
       <section class="hero">
+        <div class="signal-sweep" aria-hidden="true"><span></span></div>
         <div class="hero-copy">
           <p class="eyebrow">QUANT LAB / 收盘后的策略实验室</p>
           <h1>洞察市场信号，<br /><em>构建你的研究策略。</em></h1>
@@ -386,6 +388,7 @@ const contextLabel = context => `发布截止 ${context.publicationDate} · 数�
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import AssetPicker from './components/AssetPicker.vue'
+import InterfaceEffects from './components/InterfaceEffects.vue'
 import DataCapability from './components/DataCapability.vue'
 import StrategyPicker from './components/StrategyPicker.vue'
 

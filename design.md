@@ -800,3 +800,21 @@ PR #48合并提交7aa9e9836778bbd871b18ac0f6b62eafa8ea79c7，Pages工作流38230
 
 ### CR067 GitHub 推送（2026-10-14）
 用户本轮明确要求推送相关更新。修复提交94ab5dc及此前CR066最终验收文档c878cf0已推送origin/codex/cr067-daily-repair，远端main为7aa9e98。创建/合并入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr067-daily-repair 。推送不等于已合并；云端修复已生效，无需再次部署。此次仅同步源码、测试和文档，未上传行情、模型、数据库、密钥或ignored恢复材料。
+
+## CR068 赛博朋克交互与动态视觉（2026-10-15，登记）
+用户确认范围：参考Cyberpunk 2077主菜单，在现有UI增加克制的闪烁、霓虹光影、基础点击/滚动平滑、筛选动态展开、亮色圆环鼠标。采用黄/青色主强调和局部红色菜单装饰；正文、行情和图表数值不闪烁，不复用游戏Logo或素材。筛选开合不丢选择，保留原有表单和研究联动。API契约无变化。
+实现：独立交互效果组件和样式层；原生锚点平滑滚动，不劫持滚轮；分类面板高度/透明度过渡与aria-expanded/inert；精细鼠标使用事件驱动RAF更新圆环，悬停/按下反馈，文字输入和窗口失焦恢复原生光标；触屏、强制配色和系统减少动态自动降级；持久化动态/光标开关，键盘焦点始终可见。连续装饰低频低对比，禁止全屏频闪和长期JS动画循环。
+验收：前端现有测试与生产构建；真实Edge本地浏览器检查筛选开合/搜索/选择保留、光标/输入/触屏/减少动态/开关持久化、1440/390/320宽度、控制台错误和截图。保持模型、后端、日更和数据不变；本轮仅本地开发验收，未授权推送或上线。完成后回写证据与未完成事项。
+
+### CR068 本地实现与验收完成（2026-10-15）
+已实现InterfaceEffects组件与motion.css：黄青强调/局部红色菜单细线、切角卡片、4.5秒柔和信号闪烁与12秒局部扫描；鼠标圆环、可点击悬停放大/点击收缩、文本输入原生光标；动态与光标独立持久化开关。三处AssetPicker分类折叠支持300ms展开、aria-expanded/inert、已启用数量，收起保留筛选与选择。原生平滑锚点、按钮/表单反馈和一次性模块进入动画完成；系统减少动态/触屏/强制配色降级，失焦/键盘导航隐藏圆环，监听与RAF卸载清理。
+验证：106项现有前端测试通过，WSL Vite生产构建通过；本地生产包+只读公网API的Edge检查22项通过（筛选/搜索/选择保留/光标/键盘/持久化/减少动态/强制配色/触屏/390与320宽度），无浏览器运行错误；桌面、筛选展开、手机截图已人工查看。未使用演示行情，未提交回测或订单。截图/API读数不代替云端部署验收。Windows构建因已有Linux原生依赖不可用，切换WSL同一依赖构建成功；工具部分写入导致的一次重复声明构建失败已修复并重建验收。
+证据见docs/cr068-ui-motion-2026-10-15.md及原仓库ignored artifacts/cr068-ui。实现位于codex/cr068-ui-motion，尚未推送/部署；无API、后端、模型或日更变化。
+
+### CR068 发布登记（2026-10-15）
+用户已明确授权“推送上线”。本轮推送codex/cr068-ui-motion，构建并上传仅含前端静态资源的发布包，云端先备份旧入口、校验逐文件哈希，再原子切换index并保留旧哈希资源；失败恢复旧入口。保持后端容器、模型、任务库、行情指针与07:30日更配置。验收云站实际资源、Edge交互及三视口；Pages依既有main合并流程，分别记录，不能以云站代替。远端main为3fd8c9d（PR49已合并）；只读账本已确认10月15日07:30 scheduled日更succeeded，目标日10月14日。
+
+### CR068 云端前端发布完成（2026-10-15）
+用户授权后已推送codex/cr068-ui-motion，功能ec36718、发布登记0f7848c。仅静态前端包323368字节，包SHA256 c40272e24dc581c04d8492acd84b9281a112fa9bcb46cf42fb4c80cec1bd452b；云目录/opt/intelligent-quant-cr068-20261015，backup/web保留旧入口及资源。先校验清单、备份、复制哈希资源，再原子切换index，保留旧资源并准备回滚。公网12文件逐项哈希通过；入口index-Dhi4Gg-W.js、index-zyShRi34.css，index SHA256 007bff5f8e4216c0ee3877933bf3984ae172e09b1b47209bd7dfe347212cb330。
+真实云站https://43.161.223.91/的Edge验收23项通过，42个API请求全部200，无控制台/页面错误，桌面及390/320截图通过，筛选展开/选择保留/光标/开关持久化/键盘/减少动态/触屏/强制配色正常。后端容器ID、镜像和启动时间不变；142条任务逻辑哈希883f4340aabfcef5fb505f1c3109ed9faeb9ae5e785cb8e39bb2df4edbaa75e3不变；日更镜像、账本、行情指针、timer配置保持。10月15日07:30账本scheduled/succeeded、目标10月14日，下一次10月16日07:30。
+Pages路径与HTTPS API构建通过，候选入口index-kBBHay7A.js；Pages尚待main合并及正式验收，不能当作已上线。现环境有SSH推送权限，无GitHub API令牌或gh，main受保护；请创建并合并https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr068-ui-motion 。实际云端证据在原仓库ignored artifacts/cr068-ui/deployment.json、cloud-browser.json、cloud-desktop.png、cloud-filters.png、cloud-mobile-390/320.png。复现：node artifacts/cr068-ui/online-browser.cjs https://43.161.223.91/ 。未重训、未创建真实回测任务、未上传行情/密钥/任务库。
