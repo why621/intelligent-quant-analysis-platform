@@ -13,7 +13,7 @@ from pathlib import Path
 
 from deploy_cloud_preview import OPTIONS, SCP, SSH, TARGET
 
-STAGE = "/opt/intelligent-quant-cr070-20261020"
+STAGE = "/opt/intelligent-quant-cr070-20261020-r2"
 UPLOAD = "/home/ubuntu/cr070-upload-20261020"
 ROOT = "/opt/intelligent-quant-cr026-20260910"
 
@@ -166,8 +166,8 @@ with tarfile.open(archive) as tar:
     image=subprocess.check_output(['docker','image','inspect','--format','{{{{.Id}}}}','quant-mvp-backend:cr069-r2'],text=True).strip()
     assert image==baseline['backend']['Image']
     stage.mkdir(mode=0o755);tar.extractall(stage,filter='data')
-subprocess.run(['docker','build','--network','none','--pull=false','-t','quant-mvp-backend:cr070',str(stage)],check=True)
-image=subprocess.check_output(['docker','image','inspect','--format','{{{{.Id}}}}','quant-mvp-backend:cr070'],text=True).strip()
+subprocess.run(['docker','build','--network','none','--pull=false','-t','quant-mvp-backend:cr070-r2',str(stage)],check=True)
+image=subprocess.check_output(['docker','image','inspect','--format','{{{{.Id}}}}','quant-mvp-backend:cr070-r2'],text=True).strip()
 (stage/'image-id').write_text(image)
 print(json.dumps({{'image':image,'revision':manifest['revision']}}))
 """)

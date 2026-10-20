@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 root = Path("/opt/intelligent-quant-cr026-20260910")
-stage = Path("/opt/intelligent-quant-cr070-20261020")
+stage = Path("/opt/intelligent-quant-cr070-20261020-r2")
 daily = root / "daily-cr028"
 live = root / "deploy/mvp/publication"
 models = Path("/opt/intelligent-quant-cr062-20261001/models")
@@ -48,7 +48,7 @@ new_image = (stage / "image-id").read_text().strip()
 assert (
     new_image
     == cloud.command(
-        ["docker", "image", "inspect", "--format", "{{.Id}}", "quant-mvp-backend:cr070"]
+        ["docker", "image", "inspect", "--format", "{{.Id}}", "quant-mvp-backend:cr070-r2"]
     ).strip()
 )
 assert v["candidate"] == {
@@ -178,7 +178,7 @@ try:
     recovered = False
     compose.write_text(
         text.replace(
-            "image: quant-mvp-backend:cr069-r2", "image: quant-mvp-backend:cr070"
+            "image: quant-mvp-backend:cr069-r2", "image: quant-mvp-backend:cr070-r2"
         )
     )
     cloud.command(["docker", "compose", "-f", str(compose), "config", "--quiet"])

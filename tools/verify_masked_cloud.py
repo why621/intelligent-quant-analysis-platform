@@ -105,6 +105,7 @@ def main():
     client = app.test_client()
     headers = {"X-Research-Version": provider.publication_context["dataVersion"]}
     responses, failures, jobs, allocation_results, complete_jobs = [], [], [], {}, {}
+    expected_failed_jobs = set()
 
     def call(method, path, payload=None, expected=200):
         response = client.open(path, method=method, json=payload, headers=headers)
@@ -415,10 +416,28 @@ def main():
             {**payload, "parameters": {"modelRef": "unreviewed"}},
         )
         for missing in incomplete:
-            reject(
-                sid + "_declared_incomplete_" + missing,
+            rejected = call(
+                "POST",
+                "/api/backtests",
                 {**payload, "symbols": [missing, "510300"]},
-                allowed=(422,),
+                202,
+            )
+            service.execute_job(rejected["jobId"])
+            rejected = call("GET", "/api/backtests/" + rejected["jobId"])
+            assert rejected["status"] == "failed" and rejected["result"] is None, (
+                rejected
+            )
+            assert rejected["error"]["error"]["code"] == "UPSTREAM_UNAVAILABLE", (
+                rejected
+            )
+            expected_failed_jobs.add(rejected["jobId"])
+            failures.append(
+                {
+                    "name": sid + "_declared_incomplete_" + missing,
+                    "kind": "async_unknown_gap_rejected",
+                    "jobId": rejected["jobId"],
+                    "error": rejected["error"],
+                }
             )
 
     ranking_payload = {
@@ -548,10 +567,7 @@ def main():
         if event.reason == "suspension" and event.asset_id.split(":")[-1] in kinds:
             day = max(event.start, start)
             verified_end = min(event.end, provider.end)
-            if (
-                day <= verified_end
-                and len(sessions(day, verified_end)) >= 2
-            ):
+            if day <= verified_end and len(sessions(day, verified_end)) >= 2:
                 suspension = event, day, verified_end
     assert suspension is not None, (
         "expected a verified suspension in the frozen publication"
@@ -625,9 +641,16 @@ print(json.dumps({'passed':True, 'servingModelsDisabled':True, 'mlImportsBlocked
     assert {str(p): digest(p) for p in sorted(readonly_files)} == before_hashes
     with sqlite3.connect(job_db) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        actual_failures = {
+            row[0]
+            for row in connection.execute(
+                "SELECT job_id FROM backtest_jobs WHERE status='failed'"
+            )
+        }
+        assert actual_failures == expected_failed_jobs
         assert (
             connection.execute(
-                "SELECT count(*) FROM backtest_jobs WHERE status != 'succeeded'"
+                "SELECT count(*) FROM backtest_jobs WHERE status NOT IN ('succeeded','failed')"
             ).fetchone()[0]
             == 0
         )
