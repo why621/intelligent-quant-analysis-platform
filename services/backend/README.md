@@ -4,6 +4,8 @@
 
 ## 接口状态
 
+CR070 / OpenAPI0.14.0新增实验策略portfolio_masked_sac和可选modelContext.representationLearning，使用已有共享账户回测、研究排行及模拟路径；组合发布目录可容纳四个不同策略。新Torch模型仅加载白名单架构及匹配正式训练/哈希/评估证据，研究小试训不能直接发布。现有缺行情回测采用异步失败契约（提交202、任务failed及明确error），不能把受理成功当作计算成功。部署状态见[CR070记录](../../docs/cr070-deployment-2026-10-20.md)。
+
 | 方法 | 路径 | 实现 |
 | --- | --- | --- |
 | GET | `/api/health` | 服务健康检查 |
