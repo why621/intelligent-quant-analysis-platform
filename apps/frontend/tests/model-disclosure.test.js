@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { modelWindowLines, strategyDescription } from '../src/dashboard/model-disclosure.js'
+import { modelScopeLines, modelWindowLines, strategyDescription } from '../src/dashboard/model-disclosure.js'
+
+test('picker distinguishes deployed single-asset and joint models before selection', () => {
+  const common = {status:'experimental', backtestEnabled:true}
+  assert.match(strategyDescription({...common, modelContext:{symbols:['510300']}}),
+    /旧单资产模型.*仅支持 510300.*多资产组合/)
+  assert.match(strategyDescription({...common, modelContext:{portfolioMode:'joint_portfolio'}}),
+    /2–10只联合决策.*共享资金/)
+})
 
 test('long model discloses validation as in-sample and reserved test without performance claims', () => {
   const text=modelWindowLines({trainStartDate:'2015-01-05',trainEndDate:'2019-12-31',
@@ -24,6 +32,14 @@ for (const algo of ['PPO','DQN','SAC','TD3','DDPG']) test(`${algo} uses its actu
 })
 test('unavailable experimental strategy does not claim a deployed model', () => {
   assert.equal(strategyDescription({name:'DQN',status:'experimental',backtestEnabled:false}),'暂未开放')
+})
+
+test('masked representation discloses training switches without promising web switches or alpha', () => {
+  const text = modelScopeLines({portfolioMode:'joint_portfolio',assetScope:'published_universe',
+    representationLearning:{method:'earnmore_inspired_masked_features'}}).join(' ')
+  assert.match(text, /并非完整复刻/)
+  assert.match(text, /固定资产组合/)
+  assert.match(text, /尚未证明收益提升/)
 })
 
 

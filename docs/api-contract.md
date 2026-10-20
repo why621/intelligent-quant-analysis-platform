@@ -1,3 +1,13 @@
+## CR070 / OpenAPI 0.14.0（2026-10-20，生产接入与发布验收中）
+
+用户已授权正式候选训练、生产接入及发布。新增`portfolio_masked_sac`实验组合策略，复用共享账户回测、POST当前配置排行榜及模拟配置接口，参数仍为明确的`modelRef`。服务目录允许四个互不重复的组合模型，保留CR069三模型及旧四单资产模型。
+
+`modelContext.representationLearning`可选字段披露architecture、method、poolChanges和performanceImprovement：当前为掩码特征重建/共享注意力、训练内换池、收益改进未证明。网页请求仍是固定的用户所选2–10资产，不接受未经定义的池切换时间表。换池Python返回信息不是HTTP接口。
+
+新权重必须走独立架构白名单、安全Tensor加载、正式训练至少65536步、bundle/evaluation哈希匹配、全目录跨资产执行证据的原有发布门禁。小试训研究包仍拒绝注册生产；新模型未通过发布验收前不视为已上线。接口声明与生产实际发布状态以部署记录为准。
+
+本地机制完成记录见[实用交付](cr070-practical-delivery-2026-10-20.md)，后续发布见[CR070部署记录](cr070-deployment-2026-10-20.md)。
+
 ## CR069 / OpenAPI 0.13.0（2026-10-15，云端已部署）
 
 - 新增POST /api/strategies/ranking，复用BacktestRequest。资产、起止、策略参数、资金、成本、复权、现金、组合模式与基准均参与计算与配置快照。当前策略使用用户参数，其他候选使用明确的目录默认参数；不把不同策略的参数名称强行复用。

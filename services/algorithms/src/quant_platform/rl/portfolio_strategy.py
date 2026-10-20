@@ -54,10 +54,13 @@ class JointPortfolioStrategy:
         m = self.bundle.manifest
         return StrategyInfo(
             "portfolio_" + m["algo"],
-            m["algo"].upper() + " 多资产组合",
+            ("掩码注意力 SAC 多资产组合" if m["algo"] == "masked_sac"
+             else m["algo"].upper() + " 多资产组合"),
             "ai",
             "experimental",
-            "联合观察2–10资产并输出共享账户权重；实验模型，收益与池外泛化未获证实。",
+            ("借鉴EarnMore共享注意力、掩码重建与可变资产池训练；非完整复刻，未证明收益提升。"
+             if m["algo"] == "masked_sac" else
+             "联合观察2–10资产并输出共享账户权重；实验模型，收益与池外泛化未获证实。"),
             {
                 "type": "object",
                 "additionalProperties": False,
@@ -118,6 +121,13 @@ class JointPortfolioStrategy:
                 crossAssetValidationStatus="execution_validated",
             )
             del context["requiredTradingCosts"]
+        if m["algo"] == "masked_sac":
+            context["representationLearning"] = {
+                "architecture": m["architecture"],
+                "method": "earnmore_inspired_masked_features",
+                "poolChanges": "training_in_episode",
+                "performanceImprovement": "unproven",
+            }
         return context
 
     def validate_web_request(self, payload, provider):
