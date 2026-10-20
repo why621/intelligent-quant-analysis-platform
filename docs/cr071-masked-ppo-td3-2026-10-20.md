@@ -76,3 +76,6 @@ TD3独立训练65536决策步、65505次critic优化、32752次策略头优化�
 - 联调模型合并与证据：ignored artifacts/cr071-local-03/models/release.json、report.json。原三个联合模型取../cr069-universe/experiment/models，原掩码SAC取artifacts/cr070-production-01/models；旧单资产使用../cr062-release/models/rl-release.json。
 - 浏览器证据：ignored artifacts/cr071-browser-01/report.json、各模型完整请求/结果JSON及三视口截图；服务配置与stop标记在cr071-browser-server-02。
 - Windows Torch使用既有原生依赖及../cr062-python-deps、../cr066-python-deps；WSL离线测试使用根目录.venv。没有新增依赖安装或付费资源。
+
+## 后续已授权云发布
+用户后续明确要求推送上线，已完成云候选隔离回归与备份切换；本文件上文未发布描述为本地验收时点。当前云站、静态修复、GitHub及Pages状态以[发布记录](cr071-deployment-2026-10-20.md)为准。
