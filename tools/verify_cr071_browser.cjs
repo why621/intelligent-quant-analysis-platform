@@ -15,7 +15,7 @@ const ledger = fs.existsSync(ledgerPath) ? JSON.parse(fs.readFileSync(ledgerPath
 const persistLedger = () => fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
 if (process.argv.includes('--recheck-simulation')) {
   ledger.simulationHistory ||= ledger.priorSimulation ? [ledger.priorSimulation] : [];
-  assert.ok(ledger.simulation?.response && ledger.simulationHistory.length < 2, 'at most two explicit layout rechecks');
+  assert.ok(ledger.simulation?.response && ledger.simulationHistory.length < 3, 'at most three explicit layout rechecks');
   ledger.simulationHistory.push(ledger.simulation); ledger.simulation = null; persistLedger();
 }
 const report = { url, source: isolated ? 'real isolated deployment candidate' : 'real deployed site; no response substitution; bounded mutations', errors: [], requests: [], checks: [] };

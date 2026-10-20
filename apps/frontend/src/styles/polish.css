@@ -515,3 +515,6 @@
 /* Long model identifiers in allocation explanations must wrap on small screens. */
 .dashboard .position-list > div { min-width: 0; }
 .dashboard .position-list small { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 680px) {
+  .dashboard .position-list > div { grid-template-columns: minmax(0, 1fr) auto; }
+}
