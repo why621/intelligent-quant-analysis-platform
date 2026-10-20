@@ -54,3 +54,12 @@ r2源码为`2dd6cd6e5883a3fbd60a5679e2b5521d84ce6531`，镜像`sha256:b62a4203f2
 备份路径`/opt/intelligent-quant-cr070-20261020-r2/backup`。本次rollbackTriggered=false，回滚保护已准备但没有执行生产回滚演练。首轮失败候选保存在`/opt/intelligent-quant-cr070-20261020`，没有覆盖失败证据。
 
 代码推送分支为`codex/cr070-maskable-portfolio`。当前环境有Git推送权限，没有GitHub API创建/合并授权，main受保护；Pages需用户创建并合并PR后由既有工作流发布，再单独核验。当前不能声称Pages新前端已完成。
+
+### CR070 GitHub Pages 验收回写（2026-10-20）
+PR #54已合并，main提交500f8ada8ed78e2f88ba9a908683b26bd187aba5；Pages工作流39382070892 completed/success。真实Pages Edge验收81项通过、37个API响应成功、0页面运行错误；增强模型十资产结果恢复、同配置六项排行及费用/现金/日期/资产变化失效重算、排行载入与模拟表单联动、1440/390/320布局及动态偏好通过。复用云端两条验收任务和已有模拟证据，不新建回测、不重复模拟计算；模拟实际计算证据来自云站验收，不能冒称本次Pages重新执行。
+命令：`node tools/verify_masked_browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/ artifacts/cr070-production-01/browser`。原始证据ignored artifacts/cr070-production-01/browser/online-pages-browser.json；入口assets/index-DtqmY0dM.js。无代码/契约变更、不重复训练或云切换。最终验收文档推送codex/cr070-pages-evidence，该文档分支是否合并不影响已上线功能。收益未证明改善、601059未知行情缺口限制保持。
+
+合并后main的Frontend CI、Backend CI、Algorithms CI、Regression stack CI全部completed/success，与Pages发布均对应500f8ad；未重跑训练或云端切换。
+
+最终Pages文件及保留审计完成：12个公网静态文件SHA256全部匹配本地dist-pages；原149任务逐行保持，总151条，仅原云站两条验收任务，无本次新增。服务healthy，旧模型、行情指针及日更脚本/镜像/账本与07:30 timer保持。
+原`python tools/verify_masked_deployment.py --output artifacts/cr070-production-01 --pages`在Python公网直连下载阶段长时间等待，未冒称该完整命令通过；改为单独执行原脚本全部服务器保留断言，并用真实Edge页面fetch（cache=reload）及Web Crypto SHA256逐一校验原12文件，标准不变。证据为ignored artifacts/cr070-production-01/pages-preservation-audit.json、pages-browser-file-hashes.json；复现文件核查为`node artifacts/cr070-production-01/verify-pages-hashes.cjs`。原等待进程已结束。无生产故障证据，不能把本机Python网络等待认作网站故障。云站与Pages均完成本轮上线验收，长期超额收益仍未证明。
