@@ -19,6 +19,12 @@ export function modelWindowLines(model) {
 }
 
 export function strategyDescription(strategy) {
+  if (strategy.status === 'experimental' && strategy.backtestEnabled) {
+    if (strategy.modelContext?.portfolioMode === 'joint_portfolio')
+      return '多资产组合 · 2–10只联合决策，共享资金 · 实验模型'
+    if (strategy.modelContext?.symbols?.length === 1)
+      return `旧单资产模型 · 仅支持 ${strategy.modelContext.symbols[0]}；多资产请选择“多资产组合”`
+  }
   if (strategy.status !== 'available') return strategy.status === 'experimental' && strategy.backtestEnabled
     ? `实验性回测 · 已部署 ${strategy.name}模型` : '暂未开放'
   return ({ ma_cross: '短长均线交叉，观察趋势变化。',
@@ -41,6 +47,10 @@ export function modelAssetError(model, symbols, assets = []) {
 export function modelScopeLines(model) {
   if (!model) return []
   if (model.portfolioMode === 'joint_portfolio') return [
+    ...(model.representationLearning ? [
+      '机制：共享注意力与掩码特征重建，训练时随机切换资产池；借鉴 EarnMore，并非完整复刻。',
+      '当前请求使用你选择的固定资产组合；训练中的换池能力不代表网页自动更换资产。尚未证明收益提升。'
+    ] : []),
     model.assetScope === 'published_universe'
       ? '适用范围：当前发布目录中的股票和 ETF，任选 2–10 只联合输入、输出资产与现金权重，共享同一资金账户。'
       : `适用范围：此版本仅支持训练池内 2–10 只资产（${(model.symbols || []).join('、')}）。`,

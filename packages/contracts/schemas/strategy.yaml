@@ -148,6 +148,15 @@ ModelContext:
     performanceStatus: {const: unproven}
     requiredTradingCosts: {$ref: './backtest.yaml#/TradingCosts'}
     trainingTradingCosts: {$ref: './backtest.yaml#/TradingCosts'}
+    representationLearning:
+      type: object
+      additionalProperties: false
+      required: [architecture, method, poolChanges, performanceImprovement]
+      properties:
+        architecture: {type: string, const: masked-set-sac-research-v1}
+        method: {type: string, const: earnmore_inspired_masked_features}
+        poolChanges: {type: string, const: training_in_episode}
+        performanceImprovement: {type: string, const: unproven}
     valFolds:
       type: array
       items:

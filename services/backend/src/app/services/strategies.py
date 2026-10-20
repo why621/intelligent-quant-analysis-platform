@@ -39,7 +39,7 @@ class StrategyCatalogService:
 
             path = Path(portfolio_release)
             config = json.loads(path.read_text(encoding="utf-8"))
-            if config.get("schemaVersion") != 1 or not 1 <= len(config["models"]) <= 3:
+            if config.get("schemaVersion") != 1 or not 1 <= len(config["models"]) <= 4:
                 raise ValueError("invalid portfolio release")
             seen = set()
             for entry in config["models"]:

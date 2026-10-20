@@ -1,4 +1,14 @@
-## CR069 / OpenAPI 0.13.0（2026-10-15，本地验收完成，待发布）
+## CR070 / OpenAPI 0.14.0（2026-10-20，云端已部署，Pages待合并验证）
+
+用户已授权正式候选训练、生产接入及发布。新增`portfolio_masked_sac`实验组合策略，复用共享账户回测、POST当前配置排行榜及模拟配置接口，参数仍为明确的`modelRef`。服务目录允许四个互不重复的组合模型，保留CR069三模型及旧四单资产模型。
+
+`modelContext.representationLearning`可选字段披露architecture、method、poolChanges和performanceImprovement：当前为掩码特征重建/共享注意力、训练内换池、收益改进未证明。网页请求仍是固定的用户所选2–10资产，不接受未经定义的池切换时间表。换池Python返回信息不是HTTP接口。
+
+新权重必须走独立架构白名单、安全Tensor加载、正式训练至少65536步、bundle/evaluation哈希匹配、全目录跨资产执行证据的原有发布门禁。小试训研究包仍拒绝注册生产；新模型未通过发布验收前不视为已上线。接口声明与生产实际发布状态以部署记录为准。
+
+本地机制完成记录见[实用交付](cr070-practical-delivery-2026-10-20.md)，后续发布见[CR070部署记录](cr070-deployment-2026-10-20.md)。
+
+## CR069 / OpenAPI 0.13.0（2026-10-15，云端已部署）
 
 - 新增POST /api/strategies/ranking，复用BacktestRequest。资产、起止、策略参数、资金、成本、复权、现金、组合模式与基准均参与计算与配置快照。当前策略使用用户参数，其他候选使用明确的目录默认参数；不把不同策略的参数名称强行复用。
 - ResearchRankingResponse返回request/configHash/dataContext/asOfDate、实际评价起止及观察点、资产和费用；每行含parameters/metrics/costSummary/benchmarkContext等适用字段。所有参与行必须覆盖同一完整交易日历，不截短日期、不换成510300、不覆盖用户费用；当前策略不可计算时请求报错，其他候选排除并在unavailableStrategies解释。
@@ -7,7 +17,7 @@
 - 前端主动提交计算，配置变化立即标旧且禁载入，校验版本并丢弃迟到响应。GET旧代表资产排行保留兼容；POST不沿用GET的period/historyStartDate语义，前端不再启动固定510300榜。
 - 新组合发布范围assetScope=published_universe绑定完整327资产目录/类型、目录版本、冻结数据版本与独立跨资产证据；支持当前目录任意2–10只股票/ETF、请求成本和额外现金预留。训练成本与执行成本分别披露。缺少匹配证据拒绝加载；旧CR066 bundle仍按训练池、固定费用及零额外现金限制。
 - 每只资产仍须足够真实预热，研究起点在训练/验证之后；已确认停牌仅延续最近真实特征和估值并禁止成交，未知缺口与上市前无价格拒绝，历史不足以422 RL_INSUFFICIENT_HISTORY给出原因。基准首日停牌可在已核实连续停牌范围追溯此前真实收盘，不生成OHLCV。
-- 本节说明本地候选，尚未推送/部署；模型保持experimental，执行覆盖不代表全部组合穷举或长期超额收益。详见[CR069验收](cr069-universe-ranking-2026-10-15.md)。以下旧版本段落保留对应历史语义。
+- 本节接口已部署云端；正式服务与日更镜像独立，发布证据见[CR069部署](cr069-deployment-2026-10-15.md)。模型保持experimental，执行覆盖不代表全部组合穷举或长期超额收益。详见[CR069验收](cr069-universe-ranking-2026-10-15.md)。以下旧版本段落保留对应历史语义。
 
 ## CR066 / OpenAPI 0.12.0（2026-10-12，开发）
 新增独立portfolio_ppo/sac/td3目录，modelContext.portfolioMode=joint_portfolio、minAssets/maxAssets与冻结evaluation；allocationEnabled显式开放实验模拟。请求仍使用shared_account，同一训练池内2–10资产，成本按manifest，现金由模型输出，额外cashPct=0。服务读取请求起点之前历史预热，曲线从请求样本外起点开始；联合模型暂不支持共同交易日缺口，不静默填充或跨日补单。旧四模型及固定510300排行不变。新QUANT_PORTFOLIO_RELEASE独立白名单，验证正式候选/评估/权重哈希，拒绝smoke权重。
