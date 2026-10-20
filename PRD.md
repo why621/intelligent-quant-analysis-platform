@@ -882,3 +882,10 @@ CR070云验收首轮失败与r2登记：首轮隔离镜像完成传统/旧模型
 r2源码2dd6cd6、镜像sha256:b62a4203f202cee229a8fcb44a30bc1fa6a571bbb050dca9b1c32b56b0c8647d已切换云站。独立掩码注意力SAC正式模型与旧七AI模型共存，目录10策略，当前配置排行榜6项；回测/模拟/可配费用和现金复用原共享账户链路。隔离25正常回测、8模拟、32负向检查、日更依赖隔离通过；包括四个601059未知缺口异步失败，不宣称当前全部327区间均可计算。
 真实云站Edge83项检查、40个API成功响应、0页面错误，1440/390/320布局和动态效果通过。只读终验12公网文件哈希匹配，原149任务逐行不变，仅新增两条成功验收任务，总151。行情发布指针、旧模型、日更脚本/镜像/账本与07:30定时器保持；dry-run waiting_new_day，不等于下一次自动日更成功。回滚保护未触发，首轮失败候选保留。详见CR070部署文档及2026-10-20交接。
 代码和全部相关文档已准备同步GitHub功能分支codex/cr070-maskable-portfolio；main受保护且当前无GitHub API合并授权，需要用户创建/合并PR。Pages独立验收仍待合并触发，不能以云站完成替代。当前新增能力属于实验模型，保留历史测试亏损及未证明超额收益结论。
+
+### CR070 GitHub Pages 验收回写（2026-10-20）
+PR #54已合并，main提交500f8ada8ed78e2f88ba9a908683b26bd187aba5；Pages工作流39382070892 completed/success。真实Pages Edge验收81项通过、37个API响应成功、0页面运行错误；增强模型十资产结果恢复、同配置六项排行及费用/现金/日期/资产变化失效重算、排行载入与模拟表单联动、1440/390/320布局及动态偏好通过。复用云端两条验收任务和已有模拟证据，不新建回测、不重复模拟计算；模拟实际计算证据来自云站验收，不能冒称本次Pages重新执行。
+命令：`node tools/verify_masked_browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/ artifacts/cr070-production-01/browser`。原始证据ignored artifacts/cr070-production-01/browser/online-pages-browser.json；入口assets/index-DtqmY0dM.js。无代码/契约变更、不重复训练或云切换。最终验收文档推送codex/cr070-pages-evidence，该文档分支是否合并不影响已上线功能。收益未证明改善、601059未知行情缺口限制保持。
+
+最终Pages文件及保留审计完成：12个公网静态文件SHA256全部匹配本地dist-pages；原149任务逐行保持，总151条，仅原云站两条验收任务，无本次新增。服务healthy，旧模型、行情指针及日更脚本/镜像/账本与07:30 timer保持。
+原`python tools/verify_masked_deployment.py --output artifacts/cr070-production-01 --pages`在Python公网直连下载阶段长时间等待，未冒称该完整命令通过；改为单独执行原脚本全部服务器保留断言，并用真实Edge页面fetch（cache=reload）及Web Crypto SHA256逐一校验原12文件，标准不变。证据为ignored artifacts/cr070-production-01/pages-preservation-audit.json、pages-browser-file-hashes.json；复现文件核查为`node artifacts/cr070-production-01/verify-pages-hashes.cjs`。原等待进程已结束。无生产故障证据，不能把本机Python网络等待认作网站故障。云站与Pages均完成本轮上线验收，长期超额收益仍未证明。

@@ -1,4 +1,4 @@
-# CR070交接：云端已验收，Pages待合并
+# CR070交接：云端与Pages已验收
 
 用户已授权正式候选训练、生产接入、推送和部署。范围仅借鉴EarnMore可利用机制，不完整复刻、不以证明超额收益为交付门槛。
 
@@ -8,7 +8,7 @@
 - 共享注意力、掩码特征重建、随机子池和回合内换池训练完成；网页每次请求仍为用户选定的固定2–10资产组合。
 - 正式候选cr070-masked-sac-s42，65536策略步/65505优化，80659市场步/15123换池，327资产40组执行覆盖；收益未证明改善，历史测试平均收益-2.5521%。
 - 新OpenAPI0.14.0已部署API；模型机制与旧单资产/组合入口说明已在云站显示。
-- GitHub分支codex/cr070-maskable-portfolio；main受保护，需要用户PR合并后完成Pages独立验收。
+- PR #54已合并至main 500f8ad，Pages工作流39382070892成功；Pages真实浏览器81项通过、37个API响应成功、0运行错误。
 
 ## 验收与不能混淆的边界
 
@@ -20,4 +20,7 @@
 
 ## 下一步
 
-用户合并PR后，读取GitHub Actions部署结果；用`tools/verify_masked_browser.cjs`访问Pages并复用同一个browser证据目录，恢复已有两条任务、不重复提交或模拟；运行`tools/verify_masked_deployment.py --pages`匹配12个公网文件。回写Pages结果并推送文档，不能在实际验证前标为完成。
+Pages浏览器已完成，复用原两条任务、不重复提交回测或计算模拟；最终文档分支codex/cr070-pages-evidence。无须重新训练或重复部署。文件哈希与保留审计结果见发布记录追加。
+
+最终Pages文件及保留审计完成：12个公网静态文件SHA256全部匹配本地dist-pages；原149任务逐行保持，总151条，仅原云站两条验收任务，无本次新增。服务healthy，旧模型、行情指针及日更脚本/镜像/账本与07:30 timer保持。
+原`python tools/verify_masked_deployment.py --output artifacts/cr070-production-01 --pages`在Python公网直连下载阶段长时间等待，未冒称该完整命令通过；改为单独执行原脚本全部服务器保留断言，并用真实Edge页面fetch（cache=reload）及Web Crypto SHA256逐一校验原12文件，标准不变。证据为ignored artifacts/cr070-production-01/pages-preservation-audit.json、pages-browser-file-hashes.json；复现文件核查为`node artifacts/cr070-production-01/verify-pages-hashes.cjs`。原等待进程已结束。无生产故障证据，不能把本机Python网络等待认作网站故障。云站与Pages均完成本轮上线验收，长期超额收益仍未证明。
