@@ -1,4 +1,4 @@
-## CR071 / OpenAPI 0.15.0（云端已发布，Pages合并待验）
+## CR071 / OpenAPI 0.15.0（云端与Pages均已发布并验收）
 
 新增portfolio_masked_ppo、portfolio_masked_td3，继续复用联合回测、当前配置排行榜与模拟配置请求。representationLearning.architecture增量允许masked-set-ppo-v1及masked-set-td3-v1；旧masked-set-sac-research-v1仍有效。原四个单资产、三个普通组合及掩码SAC均保留。训练/权重/评估证据须独立通过原发布门禁，不能仅更改ID注册模型。详见[CR071记录](cr071-masked-ppo-td3-2026-10-20.md)。
 

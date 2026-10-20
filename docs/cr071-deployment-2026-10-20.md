@@ -1,6 +1,6 @@
 # CR071 发布记录（2026-10-20）
 
-用户当次授权“推送部署线上”。保留全部旧模型，发布独立训练的增强PPO和增强TD3；没有重新训练、购买算力或修改行情。云端已完成切换，公网浏览器验收已完成，Pages合并与独立验收待完成。
+用户当次授权“推送部署线上”。保留全部旧模型，发布独立训练的增强PPO和增强TD3；没有重新训练、购买算力或修改行情。云端已完成切换，公网浏览器验收已完成，PR #56已合并，Pages独立验收完成；最新证据见文末。
 
 ## 发布身份
 
@@ -42,3 +42,10 @@ Ignored目录`artifacts/cr071-deploy-01`保存打包哈希、cloud-before.json�
 复现：`node tools/verify_cr071_browser.cjs https://43.161.223.91/ artifacts/cr071-deploy-01/browser`（复用任务与模拟证据）；`python tools/verify_cr071_deployment.py --output artifacts/cr071-deploy-01`。正式Pages需要main合并触发，再用同一浏览器工具对Pages网址单独验收；此刻尚未宣称Pages新版静态文件已发布。
 
 最终只读发布审计通过：12个公网文件SHA256与最终dist-cloud全部匹配，服务healthy；原152任务逐行保持，总154，仅两条已记录验收任务。旧模型、行情指针、日更脚本/镜像/账本及07:30定时器保持。原始证据：artifacts/cr071-deploy-01/cloud-final-audit.json。
+
+### CR071 GitHub Pages最终验收完成（2026-10-20）
+PR #56已合并，main提交71d4a9fe3f6c533e76373eb26a539b8c533fc7c8；Pages工作流39398887382 completed/success。真实Pages Edge检查84项通过、37个API响应成功、0页面运行错误；12个公网文件SHA256均与最终dist-pages一致，入口index-CeR_RXab.js。增强PPO/TD3可选择并恢复真实十资产结果，八项当前配置排行与回测指标/费用一致，费用/现金/日期/资产变化失效重算、排行加载、模拟表单联动和1440/390/320布局、动态偏好检查通过。
+本次复用云站两条任务及已记录模拟结果，没有新增任务或重复模拟计算。模拟结果实际渲染后的窄屏修复证据来自上一轮云站最终完整验收，不能说本次Pages重新计算/渲染了模拟结果。原152任务逐行保持，总154；镜像healthy，旧模型、行情指针、日更脚本/镜像/账本及07:30定时器保持。
+命令：`node tools/verify_cr071_browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/ artifacts/cr071-deploy-01/browser`。Python整合终验在公网文件下载阶段等待，未声称该完整命令成功；改为单独执行原脚本全部服务器保留断言，并用真实Edge fetch及Web Crypto SHA256核对同一12文件，标准不变；原等待进程已停止。这是本机下载链路等待，不是网站故障证据。
+证据（ignored）：artifacts/cr071-deploy-01/browser/online-pages-browser.json、pages-preservation-audit.json、pages-browser-file-hashes.json；文件检查复现：`node artifacts/cr071-deploy-01/verify-pages-hashes.cjs`。
+T-CR071-8功能代码推送、main合并、Pages发布及独立验收完成。最终证据文档同步codex/cr071-pages-evidence，该文档分支是否合并不影响已上线功能。无重训/云镜像重部署/行情改写。收益有效性仍未证明，601059未知缺口限制保持。

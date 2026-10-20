@@ -1,8 +1,8 @@
-# CR071交接：增强PPO/TD3云端已发布，Pages合并待验
+# CR071交接：增强PPO/TD3云端与Pages均已发布并验收
 
 用户最新指令：保留可用的原三个联合组合模型，新增增强PPO后再新增增强TD3，分别训练并验收。早先下架要求撤销；未下架任何模型。旧组合本来就共享账户，不是早期独立账户拼接。
 
-当前开发分支`codex/cr071-masked-ppo-td3`，基于CR070 Pages验收文档提交8f8fe6e；代码已提交，最终文档推送状态见下方发布回写。活动工作树为根目录`artifacts/cr065-worktree`，原根工作区已有用户改动未触碰。用户随后明确授权“推送部署线上”，已完成CR071云端隔离验收及切换。
+当前开发分支`codex/cr071-masked-ppo-td3`，基于CR070 Pages验收文档提交8f8fe6e；功能代码已合并PR #56，最终文档同步独立证据分支，见下方发布回写。活动工作树为根目录`artifacts/cr065-worktree`，原根工作区已有用户改动未触碰。用户随后明确授权“推送部署线上”，已完成CR071云端隔离验收及切换。
 
 已完成：
 
@@ -33,3 +33,10 @@
 云端CR071已上线：增强PPO/TD3独立权重加入，全部旧模型保留；12策略、六组合、8项当前配置排行。云隔离33回测/12模拟/40负向、日更隔离通过；真实云站84项浏览器检查、36个API成功响应、0运行错误。修复模拟持仓长浮点比例的320px溢出，前端118测试与两套构建通过。T-CR071-6/7完成，T-CR071-8推送及Pages合并验收待后续。训练历史亏损与未证明收益改善继续披露。详见docs/cr071-deployment-2026-10-20.md。
 
 最终只读发布审计通过：12个公网文件SHA256与最终dist-cloud全部匹配，服务healthy；原152任务逐行保持，总154，仅两条已记录验收任务。旧模型、行情指针、日更脚本/镜像/账本及07:30定时器保持。原始证据：artifacts/cr071-deploy-01/cloud-final-audit.json。
+
+### CR071 GitHub Pages最终验收完成（2026-10-20）
+PR #56已合并，main提交71d4a9fe3f6c533e76373eb26a539b8c533fc7c8；Pages工作流39398887382 completed/success。真实Pages Edge检查84项通过、37个API响应成功、0页面运行错误；12个公网文件SHA256均与最终dist-pages一致，入口index-CeR_RXab.js。增强PPO/TD3可选择并恢复真实十资产结果，八项当前配置排行与回测指标/费用一致，费用/现金/日期/资产变化失效重算、排行加载、模拟表单联动和1440/390/320布局、动态偏好检查通过。
+本次复用云站两条任务及已记录模拟结果，没有新增任务或重复模拟计算。模拟结果实际渲染后的窄屏修复证据来自上一轮云站最终完整验收，不能说本次Pages重新计算/渲染了模拟结果。原152任务逐行保持，总154；镜像healthy，旧模型、行情指针、日更脚本/镜像/账本及07:30定时器保持。
+命令：`node tools/verify_cr071_browser.cjs https://why621.github.io/intelligent-quant-analysis-platform/ artifacts/cr071-deploy-01/browser`。Python整合终验在公网文件下载阶段等待，未声称该完整命令成功；改为单独执行原脚本全部服务器保留断言，并用真实Edge fetch及Web Crypto SHA256核对同一12文件，标准不变；原等待进程已停止。这是本机下载链路等待，不是网站故障证据。
+证据（ignored）：artifacts/cr071-deploy-01/browser/online-pages-browser.json、pages-preservation-audit.json、pages-browser-file-hashes.json；文件检查复现：`node artifacts/cr071-deploy-01/verify-pages-hashes.cjs`。
+T-CR071-8功能代码推送、main合并、Pages发布及独立验收完成。最终证据文档同步codex/cr071-pages-evidence，该文档分支是否合并不影响已上线功能。无重训/云镜像重部署/行情改写。收益有效性仍未证明，601059未知缺口限制保持。
