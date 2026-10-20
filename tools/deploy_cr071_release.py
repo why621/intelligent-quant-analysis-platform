@@ -63,7 +63,7 @@ def package(output):
     assert "apps/frontend/dist/index.html" in files
     directory = Path("artifacts/cr071-local-03/models")
     release = json.loads((directory / "release.json").read_bytes())
-    assert {json.loads((directory / x["modelRef"] / "manifest.json").read_bytes())["algorithm"] for x in release["models"]} == {"ppo", "sac", "td3", "masked_sac", "masked_ppo", "masked_td3"}
+    assert {json.loads((directory / x["modelRef"] / "manifest.json").read_bytes())["algo"] for x in release["models"]} == {"ppo", "sac", "td3", "masked_sac", "masked_ppo", "masked_td3"}
     assert len(release["models"]) == 6
     for entry in release["models"]:
         for name in ("model.zip", "manifest.json", "evaluation.json", "cross-asset-evaluation.json"):
