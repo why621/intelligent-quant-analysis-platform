@@ -153,7 +153,9 @@ ModelContext:
       additionalProperties: false
       required: [architecture, method, poolChanges, performanceImprovement]
       properties:
-        architecture: {type: string, const: masked-set-sac-research-v1}
+        architecture:
+          type: string
+          enum: [masked-set-sac-research-v1, masked-set-ppo-v1, masked-set-td3-v1]
         method: {type: string, const: earnmore_inspired_masked_features}
         poolChanges: {type: string, const: training_in_episode}
         performanceImprovement: {type: string, const: unproven}

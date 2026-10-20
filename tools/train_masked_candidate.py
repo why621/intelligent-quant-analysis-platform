@@ -13,7 +13,7 @@ from evaluate_universe_candidates import write_json
 from quant_platform.models import TradingCosts
 from quant_platform.portfolio.execution import PORTFOLIO_EXECUTION_VERSION
 from quant_platform.rl.masked_serving import MaskedServingPolicy
-from quant_platform.rl.masked_train import train_masked
+from quant_platform.rl.masked_train import load_research, train_masked
 from quant_platform.rl.portfolio_evaluation import evaluate_portfolio
 from quant_platform.rl.portfolio_features import (
     ENVIRONMENT_VERSION,
@@ -29,12 +29,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--algorithm", choices=["masked_sac", "masked_ppo", "masked_td3"],
+                        default="masked_sac")
+    parser.add_argument("--export-only", action="store_true",
+                        help="Resume packaging a completed, hash-verified training run; never train.")
     args = parser.parse_args()
-    if args.output.exists():
+    if args.output.exists() and not args.export_only:
         parser.error("new output directory required")
     original = json.loads((args.source / "plan.json").read_text(encoding="utf-8"))
     plan = {
         **original,
+        "algorithm": args.algorithm,
         "seeds": [42],
         "stepsPerCandidate": 65536,
         "maxSecondsPerCandidate": 3600,
@@ -49,9 +54,15 @@ def main():
             "Runtime pool is fixed per web request; intra-episode switching is a training mechanism.",
         ],
     }
-    args.output.mkdir(parents=True)
-    write_json(args.output / "plan.json", plan)
-    shutil.copytree(args.source / "data", args.output / "data")
+    if args.export_only:
+        if json.loads((args.output / "plan.json").read_bytes()) != plan:
+            raise ValueError("resume requires the exact predeclared plan")
+        if (args.output / "models").exists():
+            raise ValueError("model export already exists; preserve it")
+    else:
+        args.output.mkdir(parents=True)
+        write_json(args.output / "plan.json", plan)
+        shutil.copytree(args.source / "data", args.output / "data")
     frames = {}
     for symbol in plan["trainingSymbols"]:
         path = args.output / "data" / f"{symbol}.csv"
@@ -61,26 +72,42 @@ def main():
         frames[symbol] = data.loc[
             pd.to_datetime(data["date"]) <= pd.Timestamp(plan["splits"]["valEndDate"])
         ].copy()
-    network, training = train_masked(
-        frames,
-        asset_types=plan["assetTypes"],
-        splits=plan["splits"],
-        destination=args.output / "training",
-        steps=65536,
-        max_seconds=3600,
-        seed=42,
-        pool_switch_interval=4,
-        mae_encoder_learning_rate=3e-5,
-        formal_candidate=True,
-        costs=TradingCosts(stamp_duty_mode="asset_date"),
-    )
-    if training["actualSteps"] != 65536 or training["optimizerUpdates"] != 65505:
+    trainer = train_masked
+    if args.algorithm == "masked_ppo":
+        from quant_platform.rl.masked_onpolicy_train import train_masked_ppo
+
+        trainer = train_masked_ppo
+    if args.export_only:
+        network, training = load_research(args.output / "training")
+        if (training.get("formalCandidateRun") is not True
+                or training["splits"] != plan["splits"]
+                or set(training["trainingUniverse"]) != set(plan["trainingSymbols"])
+                or training["seed"] != 42 or training["poolSwitchInterval"] != 4):
+            raise ValueError("resume metadata differs from approved formal candidate")
+    else:
+        network, training = trainer(
+            frames,
+            asset_types=plan["assetTypes"],
+            splits=plan["splits"],
+            destination=args.output / "training",
+            steps=65536,
+            max_seconds=3600,
+            seed=42,
+            pool_switch_interval=4,
+            mae_encoder_learning_rate=3e-5,
+            formal_candidate=True,
+            costs=TradingCosts(stamp_duty_mode="asset_date"),
+            **({"algorithm": args.algorithm} if args.algorithm != "masked_ppo" else {}),
+        )
+    expected_updates = 8192 if args.algorithm == "masked_ppo" else 65505
+    if training["actualSteps"] != 65536 or training["optimizerUpdates"] != expected_updates:
         raise RuntimeError("incomplete formal budget; candidate cannot be released")
     metadata = {
         "schemaVersion": 1,
-        "runId": "cr070-masked-sac-s42",
-        "algo": "masked_sac",
-        "architecture": "masked-set-sac-research-v1",
+        "runId": ("cr070-masked-sac-s42" if args.algorithm == "masked_sac"
+                  else "cr071-" + args.algorithm.replace("_", "-") + "-s42"),
+        "algo": args.algorithm,
+        "architecture": getattr(network, "architecture", "masked-set-sac-research-v1"),
         "encoderWidth": 32,
         "variant": "masked_attention",
         "portfolioMode": "joint_portfolio",
@@ -123,7 +150,7 @@ def main():
             end=plan["splits"]["valEndDate"],
         )["metrics"]
     selected = {
-        "masked_sac": {
+        args.algorithm: {
             "runId": metadata["runId"],
             "bundleHash": bundle.manifest["bundleHash"],
             "validation": validation,
