@@ -34,7 +34,12 @@ from quant_platform.rl.portfolio_features import (
 )
 
 PORTFOLIO_ALGORITHMS = ("ppo", "sac", "td3")
-SERVING_ALGORITHMS = (*PORTFOLIO_ALGORITHMS, "masked_sac")
+MASKED_ARCHITECTURES = {
+    "masked_sac": "masked-set-sac-research-v1",
+    "masked_ppo": "masked-set-ppo-v1",
+    "masked_td3": "masked-set-td3-v1",
+}
+SERVING_ALGORITHMS = (*PORTFOLIO_ALGORITHMS, *MASKED_ARCHITECTURES)
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 _HASH = re.compile(r"[a-f0-9]{64}\Z")
 
@@ -118,8 +123,8 @@ def validate_manifest(manifest: Mapping) -> None:
         raise ValueError("incompatible joint portfolio manifest; legacy bundles are not accepted")
     if manifest.get("algo") not in SERVING_ALGORITHMS:
         raise ValueError("unsupported joint portfolio algorithm")
-    if manifest["algo"] == "masked_sac" and (
-        manifest.get("architecture") != "masked-set-sac-research-v1"
+    if manifest["algo"] in MASKED_ARCHITECTURES and (
+        manifest.get("architecture") != MASKED_ARCHITECTURES[manifest["algo"]]
         or manifest.get("encoderWidth") != 32
         or manifest.get("variant") != "masked_attention"
     ):
@@ -200,7 +205,7 @@ def load_portfolio_bundle(
         or _bundle_digest(raw, manifest) != manifest["bundleHash"]
     ):
         raise ValueError("joint portfolio bundle integrity mismatch")
-    if model_loader is None and manifest["algo"] == "masked_sac":
+    if model_loader is None and manifest["algo"] in MASKED_ARCHITECTURES:
         from quant_platform.rl.masked_serving import MaskedServingPolicy
 
         model = MaskedServingPolicy.load(model_path, manifest)

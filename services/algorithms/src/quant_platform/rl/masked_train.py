@@ -45,7 +45,8 @@ def save_research(network, destination, metadata):
     weights = destination / "research.pt"
     torch.save(network.state_dict(), weights)
     metadata = {
-        **metadata, "architecture": ARCHITECTURE, "purpose": "local_smoke_only",
+        **metadata, "architecture": getattr(network, "architecture", ARCHITECTURE),
+        "purpose": "local_smoke_only",
         "releaseEligible": False, "trainingAssets": network.training_assets,
         "variant": network.variant,
         "width": network.width, "weightsSha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
@@ -60,11 +61,20 @@ def load_research(destination):
     destination = Path(destination)
     metadata = json.loads((destination / "research.json").read_text(encoding="utf-8"))
     weights = destination / "research.pt"
-    if (metadata["architecture"] != ARCHITECTURE
+    classes = {ARCHITECTURE: MaskedSACNetwork}
+    from quant_platform.rl.masked_ppo import ARCHITECTURE as PPO_ARCHITECTURE
+    from quant_platform.rl.masked_ppo import MaskedPPONetwork
+
+    classes[PPO_ARCHITECTURE] = MaskedPPONetwork
+    from quant_platform.rl.masked_td3 import ARCHITECTURE as TD3_ARCHITECTURE
+    from quant_platform.rl.masked_td3 import MaskedTD3Network
+
+    classes[TD3_ARCHITECTURE] = MaskedTD3Network
+    if (metadata["architecture"] not in classes
             or metadata["purpose"] != "local_smoke_only" or metadata["releaseEligible"] is not False
             or hashlib.sha256(weights.read_bytes()).hexdigest() != metadata["weightsSha256"]):
         raise ValueError("invalid or corrupted local research bundle")
-    network = MaskedSACNetwork(
+    network = classes[metadata["architecture"]](
         metadata["trainingAssets"], metadata["width"],
         variant=metadata.get("variant", "masked_attention"),
     )
@@ -79,7 +89,12 @@ def train_masked(
     reward_scale=1.0, diagnostic_interval=0, checkpoints=(), mae_encoder_learning_rate=None,
     pool_switch_interval=0,
     formal_candidate=False,
+    algorithm="masked_sac",
 ):
+    if algorithm not in ("masked_sac", "masked_td3"):
+        raise ValueError("this replay trainer accepts only SAC or TD3")
+    if algorithm == "masked_td3" and (diagnostic_interval or variant != "masked_attention"):
+        raise ValueError("TD3 requires masked attention and no SAC entropy diagnostics")
     lower, upper = (65536, 65536) if formal_candidate else (64, 10000)
     if isinstance(steps, bool) or not isinstance(steps, int) or not lower <= steps <= upper:
         raise ValueError(f"steps must be {lower}..{upper}")
@@ -115,8 +130,13 @@ def train_masked(
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     switch_rng = np.random.default_rng(seed + 20000)
-    network = MaskedSACNetwork(len(panel.symbols), variant=variant)
-    learner = MaskedSACLearner(
+    network_class, learner_class = MaskedSACNetwork, MaskedSACLearner
+    if algorithm == "masked_td3":
+        from quant_platform.rl.masked_td3 import MaskedTD3Learner, MaskedTD3Network
+
+        network_class, learner_class = MaskedTD3Network, MaskedTD3Learner
+    network = network_class(len(panel.symbols), variant=variant)
+    learner = learner_class(
         network, reward_scale=reward_scale, mae_encoder_learning_rate=mae_encoder_learning_rate
     )
     # Architecture initialization must not change subsequent action noise.
@@ -189,6 +209,7 @@ def train_masked(
     if not learner.updates or not all(np.isfinite(list(item.values())).all() for item in losses):
         raise RuntimeError("no finite optimizer evidence; refusing to save")
     metadata = {
+        "algorithm": algorithm,
         "seed": seed, "requestedSteps": steps, "actualSteps": completed,
         "formalCandidateRun": formal_candidate, "maxSeconds": max_seconds,
         "variant": variant,
@@ -206,7 +227,11 @@ def train_masked(
         "sampling": episode.sample_log, "lossesFirst": losses[0], "lossesLast": losses[-1],
         "reconstruction": ("masked_causal_features_training_only_id_queries"
                            if variant == "masked_attention" else "disabled_ablation"),
-        "actionDensity": "sigmoid_gaussian_scores_not_simplex",
+        "actionDensity": ("deterministic_scores_with_exploration_noise" if algorithm == "masked_td3"
+                          else "sigmoid_gaussian_scores_not_simplex"),
+        **({"actorUpdates": learner.actor_updates, "policyDelay": 2,
+            "targetNoiseStd": 0.2, "targetNoiseClip": 0.5}
+           if algorithm == "masked_td3" else {}),
         "poolChanges": ("in_episode_exogenous_transition" if pool_switch_interval
                         else "episode_reset_only"),
         "performanceStatus": "unproven",

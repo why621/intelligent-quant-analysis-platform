@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import date
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -95,6 +96,21 @@ def test_symbol_order_preserves_cash_equity_and_costs():
     assert first.cost_summary["feesCny"] == pytest.approx(sum(t.fee_cny for t in first.trades))
     assert first.cost_summary["totalTradingCostCny"] == pytest.approx(
         first.cost_summary["feesCny"] + first.cost_summary["slippageCny"])
+
+
+def test_buy_hold_benchmark_is_bitwise_stable_under_asset_permutations():
+    provider = Provider()
+    rng = np.random.default_rng(42)
+    provider.frames = {
+        str(symbol): pd.DataFrame({"date": provider.dates, "close": rng.uniform(1, 100, 4)})
+        for symbol in range(10)
+    }
+    engine = BacktestEngine(provider, {"rules": Rules()})
+    symbols = tuple(provider.frames)
+    expected = engine._benchmark_curve(request(symbols=symbols), provider.dates)
+    for permutation in [symbols[::-1], *[tuple(rng.permutation(symbols)) for _ in range(8)]]:
+        actual = engine._benchmark_curve(request(symbols=permutation), provider.dates)
+        pd.testing.assert_series_equal(expected, actual, check_exact=True)
 
 
 def test_buy_hold_is_initial_equal_hold_not_daily_rebalance():

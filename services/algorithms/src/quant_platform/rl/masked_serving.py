@@ -1,4 +1,4 @@
-"""Explicit safe tensor adapter for the reviewed masked SAC production bundle."""
+"""Explicit safe tensor adapters; the manifest's algorithm chooses the network."""
 
 from types import SimpleNamespace
 
@@ -23,7 +23,14 @@ class MaskedServingPolicy:
     @classmethod
     def load(cls, path, manifest):
         torch.set_num_threads(1)
-        network = MaskedSACNetwork(
+        from quant_platform.rl.masked_ppo import MaskedPPONetwork
+        from quant_platform.rl.masked_td3 import MaskedTD3Network
+
+        network_class = {"masked_sac": MaskedSACNetwork, "masked_ppo": MaskedPPONetwork,
+                         "masked_td3": MaskedTD3Network}[
+            manifest["algo"]
+        ]
+        network = network_class(
             len(manifest["trainingUniverse"]), width=manifest["encoderWidth"],
             variant=manifest["variant"],
         )

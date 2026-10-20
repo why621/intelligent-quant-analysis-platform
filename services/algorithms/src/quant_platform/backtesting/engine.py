@@ -457,7 +457,8 @@ class BacktestEngine:
             return None
         if mode == "buy_and_hold":
             normalized = []
-            for symbol in request.symbols:
+            # Equal weights are order-independent; use a stable floating-point reduction order.
+            for symbol in sorted(request.symbols):
                 nontrading = getattr(self._provider, "nontrading_sessions", None)
                 allowed = (set(pd.to_datetime(list(nontrading(symbol,
                     portfolio_dates[0].date(), portfolio_dates[-1].date()))))

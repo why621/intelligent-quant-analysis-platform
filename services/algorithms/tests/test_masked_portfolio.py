@@ -206,19 +206,28 @@ def test_two_session_target_uses_discounted_reward_and_bootstrap():
                        discounts=torch.ones(4))  # Broadcasting is explicitly forbidden.
 
 
-def test_masked_serving_bundle_roundtrip_and_smoke_release_rejection(tmp_path):
+@pytest.mark.parametrize("algorithm", ["masked_sac", "masked_ppo", "masked_td3"])
+def test_masked_serving_bundle_roundtrip_and_smoke_release_rejection(tmp_path, algorithm):
     import hashlib
     import json
 
+    from quant_platform.rl.masked_ppo import MaskedPPONetwork
     from quant_platform.rl.masked_serving import MaskedServingPolicy
-    from quant_platform.rl.portfolio_policy import load_portfolio_bundle, save_portfolio_bundle
+    from quant_platform.rl.masked_td3 import MaskedTD3Network
+    from quant_platform.rl.portfolio_policy import (
+        MASKED_ARCHITECTURES,
+        load_portfolio_bundle,
+        save_portfolio_bundle,
+    )
     from quant_platform.rl.portfolio_strategy import JointPortfolioStrategy
 
     metadata = manifest(frames(5))
-    metadata.update(algo="masked_sac", architecture="masked-set-sac-research-v1",
+    metadata.update(algo=algorithm, architecture=MASKED_ARCHITECTURES[algorithm],
                     encoderWidth=32, variant="masked_attention", purpose="local_smoke_only",
                     actualTimesteps=256, optimizerUpdates=225)
-    model = MaskedServingPolicy(MaskedSACNetwork(5))
+    cls = {"masked_sac": MaskedSACNetwork, "masked_ppo": MaskedPPONetwork,
+           "masked_td3": MaskedTD3Network}[algorithm]
+    model = MaskedServingPolicy(cls(5))
     path = save_portfolio_bundle(model, tmp_path, metadata)
     restored = load_portfolio_bundle(path)
     np.testing.assert_array_equal(

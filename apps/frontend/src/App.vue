@@ -377,11 +377,11 @@
             <div v-if="!allocationResult" class="empty-guide"><span>选择资产与策略</span><span>设置现金比例</span><span>生成模拟权重</span></div>
             <div v-if="allocationResult" class="position-list">
               <div>
-                <strong>现金</strong><span>{{ allocationResult.cashPct }}%</span>
+                <strong>现金</strong><span>{{ plainPct(allocationResult.cashPct) }}</span>
                 <small>实际现金权重（含策略退出后保留的现金）</small>
               </div>
               <div v-for="position in allocationResult.positions" :key="position.symbol">
-                <strong>{{ position.symbol }}</strong><span>{{ position.weightPct }}%</span>
+                <strong>{{ position.symbol }}</strong><span>{{ plainPct(position.weightPct) }}</span>
                 <small>{{ actionLabel(position.action) }} · {{ position.reason }}</small>
               </div>
             </div>
