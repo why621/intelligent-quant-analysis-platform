@@ -13,6 +13,11 @@ const mode = isolated ? 'online-isolated' : pages ? 'online-pages' : 'online-clo
 const ledgerPath = path.join(artifactRoot, isolated ? 'isolated-mutations.json' : 'online-mutations.json');
 const ledger = fs.existsSync(ledgerPath) ? JSON.parse(fs.readFileSync(ledgerPath, 'utf8')) : { jobs: {}, simulation: null };
 const persistLedger = () => fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+if (process.argv.includes('--recheck-simulation')) {
+  ledger.simulationHistory ||= ledger.priorSimulation ? [ledger.priorSimulation] : [];
+  assert.ok(ledger.simulation?.response && ledger.simulationHistory.length < 2, 'at most two explicit layout rechecks');
+  ledger.simulationHistory.push(ledger.simulation); ledger.simulation = null; persistLedger();
+}
 const report = { url, source: isolated ? 'real isolated deployment candidate' : 'real deployed site; no response substitution; bounded mutations', errors: [], requests: [], checks: [] };
 const save = (name, value) => fs.writeFileSync(path.join(artifactRoot, mode + '-' + name), JSON.stringify(value, null, 2));
 const ok = (label, value) => { assert.ok(value, label); report.checks.push(label); console.log('PASS ' + label); };
@@ -214,6 +219,7 @@ const oldTraining = ['000001','000002','000063','000100','000157','000166','0003
     await runRanking('final-current');
     for (const width of [1440,390,320]) {
       await p.setViewportSize({ width, height: 1000 }); await p.waitForTimeout(400);
+      save('layout-' + width + '.json', await p.evaluate(() => ({viewport:innerWidth, scrollWidth:document.documentElement.scrollWidth, elements:[...document.querySelectorAll('body *')].map(e=>({tag:e.tagName,cls:e.className,left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right,width:e.getBoundingClientRect().width})).filter(e=>e.right>innerWidth+1 || e.left < -1)})));
       ok('no page overflow at ' + width, await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       await ranking.screenshot({ path: path.join(artifactRoot, mode + '-ranking-' + width + '.png') });
       await backtest.locator('.backtest-workspace > article').nth(1).screenshot({ path: path.join(artifactRoot, mode + '-backtest-' + width + '.png') });
