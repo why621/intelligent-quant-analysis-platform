@@ -545,22 +545,24 @@ def main():
 
     suspension = None
     for event in provider.trading_events:
-        if event.reason == "suspension" and event.asset_id.split(":")[-1] in ten:
+        if event.reason == "suspension" and event.asset_id.split(":")[-1] in kinds:
             day = max(event.start, start)
+            verified_end = min(event.end, provider.end)
             if (
-                day <= min(event.end, provider.end)
-                and len(sessions(day, provider.end)) >= 2
+                day <= verified_end
+                and len(sessions(day, verified_end)) >= 2
             ):
-                suspension = event, day
+                suspension = event, day, verified_end
     assert suspension is not None, (
         "expected a verified suspension in the frozen publication"
     )
-    event, suspended_day = suspension
+    event, suspended_day, verified_end = suspension
     suspended_symbol = event.asset_id.split(":")[-1]
     suspended_payload = {
         **ranking_payload,
         "symbols": [suspended_symbol, "510300"],
         "startDate": suspended_day.isoformat(),
+        "endDate": verified_end.isoformat(),
     }
     suspended = run("verified_suspension_first_day_benchmark", suspended_payload)
     assert suspended["equityCurve"][0]["benchmarkEquity"] == 1
