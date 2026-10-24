@@ -97,7 +97,7 @@ const oldTraining = ['000001','000002','000063','000100','000157','000166','0003
       try { return ['succeeded', 'failed'].includes((await r.json()).status); } catch { return false; }
     }, { timeout: 120000 });
     accept.catch(() => {}); done.catch(() => {});
-    await backtest.getByRole('button', { name: '提交异步回测', exact: true }).click({ timeout: 45000 });
+    await backtest.getByRole('button', { name: /^(开始回测|提交异步回测)$/ }).click({ timeout: 45000 });
     const accepted = await accept;
     ok(label + ' accepted', accepted.status() >= 200 && accepted.status() < 300);
     const request = accepted.request().postDataJSON();
@@ -144,7 +144,7 @@ const oldTraining = ['000001','000002','000063','000100','000157','000166','0003
     const rolling = new Date(endDate + 'T00:00:00Z'); rolling.setUTCDate(rolling.getUTCDate() - 30);
     const startDate = prior?.startDate || [model.outOfSampleStartDate, rolling.toISOString().slice(0,10)].sort().at(-1);
     report.requestWindow = { startDate, endDate, latestTradeDate: status.latestTradeDate };
-    await backtest.locator('input[value="portfolio_masked_ppo"]').waitFor({ timeout: 60000 });
+    await backtest.locator('input[value="portfolio_masked_ppo"]').waitFor({ state: 'attached', timeout: 60000 });
     ok('published asset catalog is 327', await picker.locator('.asset-option').count() === 327);
     ok('startup does not call legacy 510300 ranking', !report.requests.some(r => r.method === 'GET' && new URL(r.url).pathname === '/api/strategies/ranking'));
     ok('startup does not implicitly calculate research ranking', !report.requests.some(r => r.method === 'POST' && new URL(r.url).pathname === '/api/strategies/ranking'));
@@ -155,6 +155,8 @@ const oldTraining = ['000001','000002','000063','000100','000157','000166','0003
     ok('filter expands with interactive content', await filter.getAttribute('aria-expanded') === 'true' && !await picker.locator('.filter-expansion').evaluate(e => e.inert));
     await filter.click(); await p.waitForTimeout(350);
     ok('collapsed filter contents are inert', await picker.locator('.filter-expansion').evaluate(e => e.inert));
+    const enhanced = backtest.locator('.strategy-group').filter({ hasText: '掩码注意力组合' });
+    if (await enhanced.count() && !await enhanced.evaluate(e => e.open)) await enhanced.locator('summary').click();
     await backtest.locator('input[value="portfolio_masked_ppo"]').check();
     await picker.getByRole('button', { name: '清空已选', exact: true }).click();
     for (const symbol of symbols) await choose(symbol);

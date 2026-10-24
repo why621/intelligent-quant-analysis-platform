@@ -63,7 +63,6 @@ export function useAllocation(strategies, client = api, dataStatus, assetCatalog
       return
     }
     error.value = ''
-    result.value = null
     busy.value = true
     const payload = JSON.parse(JSON.stringify(draft.value))
     try {

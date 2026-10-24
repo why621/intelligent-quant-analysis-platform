@@ -3,6 +3,18 @@ import test from 'node:test'
 import { useMarket } from '../src/dashboard/use-market.js'
 
 const snapshot = { tradeDate: '2026-09-04', advancing: 42, indices: [] }
+
+test('unloaded or failed strategy catalog never exposes placeholder strategies as available', async () => {
+  const client = makeClient()
+  client.getStrategies = async () => { throw Error('offline') }
+  const state = useMarket(client)
+  assert.deepEqual(state.strategies.value, [])
+  assert.equal(state.dataStatus.value.assetCount, null)
+  assert.equal(state.dataStatus.value.source, null)
+  await state.initialise()
+  assert.deepEqual(state.strategies.value, [])
+  assert.equal(state.connection.live, false)
+})
 const makeClient = () => ({
   getDataStatus: async () => ({ status: 'stale', components: {
     history: { status: 'ready', message: 'complete' },

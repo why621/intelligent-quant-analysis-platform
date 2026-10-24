@@ -1,6 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 
-import { fallbackAssets, fallbackMarket, fallbackStrategies } from '../data/application-fixtures.js'
+import { fallbackMarket } from '../data/application-fixtures.js'
 import { api } from '../services/api.js'
 import { loadAssetCatalog } from './asset-catalog.js'
 
@@ -16,8 +16,8 @@ export function useMarket(client = api) {
   const dataStatus = ref({
     status: 'stale',
     timezone: 'Asia/Shanghai',
-    source: 'AkShare',
-    assetCount: fallbackAssets.length,
+    source: null,
+    assetCount: null,
     latestTradeDate: null,
     updatedAt: null,
     message: '等待后端数据接口'
@@ -25,7 +25,7 @@ export function useMarket(client = api) {
   const assetCatalog = ref([])
   const assetCatalogError = ref('')
   const market = ref({ ...fallbackMarket })
-  const strategies = ref(fallbackStrategies)
+  const strategies = ref([])
   const historyStatusText = computed(() => dataStatus.value.availability
     ? `${dataStatus.value.availability.readyCount}/327 覆盖完整，其余见资产状态`
     : statusLabel(dataStatus.value.components?.history?.status))
@@ -59,7 +59,7 @@ export function useMarket(client = api) {
       availability: undefined, latestTradeDate: null, updatedAt: null, message: '等待后端数据接口' }
     assetCatalog.value = []
     assetCatalogError.value = ''
-    strategies.value = fallbackStrategies
+    strategies.value = []
     market.value = { ...fallbackMarket }
     marketError.value = ''
     let completed = 0
@@ -107,7 +107,7 @@ export function useMarket(client = api) {
       ? (dataStatus.value.status === 'ready' ? '接口数据' : '后端已连接，数据更新需关注')
       : fulfilledCount > 0
         ? `后端部分接口可用（${fulfilledCount}/${results.length}），请查看分项状态`
-        : '后端暂不可用，资产和策略目录为演示占位'
+        : '数据服务暂不可用，请稍后重新加载页面'
   }
 
   return {
