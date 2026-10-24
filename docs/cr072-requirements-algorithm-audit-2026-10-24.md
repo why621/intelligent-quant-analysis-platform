@@ -70,3 +70,9 @@ DDPG是最接近“已有后继、无需继续新增入口”的历史情况：�
 
 ### CR072 GitHub推送与Pages发布登记（2026-10-24）
 用户当次授权“推送部署到GitHub”。发布范围仅本轮需求审计/SDD文档及模拟配置错误提示修复；没有算法删除或模型变化。新增T-CR072-5：检查差异、Pages生产构建、推送codex/cr072-requirements-audit；main合并后核验对应Pages工作流及静态提示。沿用本轮688后端/算法与118前端测试及真实模型本地重放证据，不把它们当作本轮云端发布验收。云API/模型/行情/任务库和日更不作修改。main受保护且当前无GitHub API合并权限，推送后由用户创建合并PR；合并前不标Pages已部署。
+
+### CR072 合并与Pages静态验收完成（2026-10-24，接续实测）
+T-CR072-5完成。GitHub API确认PR #59已合并，main为10b31aeb599ea7374253f8539201ffecad6fba69，父提交包含f6db8a55ddae26fe029a9311f8837b3ecc34515b。对应Pages工作流40064032891、Frontend CI 40064032764、Regression stack CI 40064032817均completed/success。
+真实Edge打开Pages并用fetch(cache=reload)/Web Crypto逐文件SHA256核对，12个公网静态文件均与CR072 dist-pages一致；入口assets/index-DGsMOs9S.js。相同哈希的入口包含完整新提示，不含“现有AI模型仅支持实验回测”。本次为提示改动的公网静态验收，没有重跑全业务交互或创建线上回测/模拟，不声称重新验收云端日更、行情或模型收益。
+命令：WSL git status --short / branch --show-current / log -1 --oneline / diff --stat / ls-remote origin；PowerShell Invoke-RestMethod读取GitHub commits及actions/runs；在活动树执行node artifacts/cr072-audit-20261024/verify-pages-hashes.cjs。证据为ignored artifacts/cr072-audit-20261024/pages-browser-file-hashes.json，脚本同目录可复现。初次脚本从根工作区启动导致MODULE_NOT_FOUND，改为活动工作树后成功；Windows受限网络调用失败后经执行权限审查完成只读验证，不属于线上故障。
+本轮只追加本地文档，保留原交接与task修改，未提交、推送、训练或部署。REQ-11组合长窗、长期超额与池外泛化、601059未知缺口仍未完成；本轮未重查缺口现状。后续这些工作需分别登记范围、验收与预算，不能因发布完成而一并关闭。

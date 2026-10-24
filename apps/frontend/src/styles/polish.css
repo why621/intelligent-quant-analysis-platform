@@ -500,7 +500,7 @@
 }
 
 @media (max-width: 600px) {
-  .dashboard .strategy-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .dashboard .strategy-picker { display: block; }
   .dashboard .strategy-picker legend, .dashboard .strategy-picker > p { grid-column: 1 / -1; }
   .dashboard .strategy-choice { align-items: flex-start; gap: 6px; padding: 9px; margin: 0; }
   .dashboard .strategy-choice input { margin-top: 3px; width: 15px; height: 15px; }
@@ -517,4 +517,24 @@
 .dashboard .position-list small { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 680px) {
   .dashboard .position-list > div { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+/* CR073: group strategy choices without hiding the current selection. */
+.dashboard .strategy-group { margin: 8px 0; border: 1px solid #3b4b63; border-radius: 8px; min-width: 0; }
+.dashboard .strategy-group summary { cursor: pointer; padding: 12px; color: #e5eaf5; font-size: 13px; min-height: 44px; overflow-wrap: anywhere; }
+.dashboard .strategy-group summary small { display: block; color: #adbed3; margin-top: 4px; font-size: 12px; font-weight: 400; }
+.dashboard .strategy-options { padding: 0 8px 8px; }
+.dashboard .strategy-options .strategy-choice:last-child { margin-bottom: 0; }
+.dashboard .strategy-selection { padding: 9px 0; color: #d9c2f0; overflow-wrap: anywhere; }
+.dashboard .active-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: #b2c8dc; margin: 8px 0; }
+.dashboard .active-filters span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.dashboard .active-filters button { min-height: 44px; border: 1px solid #4c7283; color: #a6eddf; background: #112d35; border-radius: 5px; padding: 6px 10px; }
+.dashboard .skip-link { position: fixed; top: 8px; left: 8px; z-index: 1000; padding: 12px 18px; background: #153e46; color: #fff; border: 2px solid #8fffe7; border-radius: 6px; transform: translateY(-180%); }
+.dashboard .skip-link:focus { transform: translateY(0); }
+.dashboard .strategy-group summary:focus-visible { outline: 2px solid #d8b5ff; outline-offset: 2px; }
+@media (max-width: 600px) {
+  .dashboard .strategy-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
+  .dashboard .strategy-choice { min-height: 44px; }
+  .dashboard nav { flex-wrap: wrap; overflow: visible; gap: 4px; }
+  .dashboard nav a { min-height: 44px; display: flex; align-items: center; justify-content: center; flex: 1 0 auto; }
 }
