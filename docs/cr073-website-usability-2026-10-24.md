@@ -37,3 +37,10 @@
 T-CR073-1审阅登记、2优化实现、3离线前端与隔离浏览器验收、4回写完成。仅本地修改，未提交、推送或部署；根工作区和既有交接记录保留。下一步若发布，需当次授权后按既有Pages流程执行构建/发布及真实站点验证，不能拿本次夹具结果替代。
 
 REQ-11六组合长窗口、长期超额收益与池外泛化、601059未知缺口仍未完成；本轮没有重新查询生产数据、日更或线上任务。回滚仅撤销本批前端/验收工具及文档变更，不需要迁移数据或回滚模型。
+
+### CR073 云站上线与GitHub推送回写（2026-10-24）
+用户当次授权“推送上线”。功能提交2bb97c72e01f1eb790f10b3c67a88e2d85daaad3已推送codex/cr073-website-usability。云站已发布CR073静态前端，入口assets/index-r4Z4W0yq.js；独立暂存/备份目录/opt/intelligent-quant-cr073-20261024及backup。后端不重启，镜像仍sha256:1813175e4d3ed0def468192a8a0f8deaa709471273d76fcbf01cd1773951dcb8。
+实测发布前158条任务，发布后仍158条且逻辑SHA256一致；容器ID/启动时间/镜像、行情指针、日更文件哈希一致，timer为active。本次无新建任务或模拟计算；不能使用CR071历史154条作为今天基线，也不把timer active视为完整日更流程重验。回滚未触发。
+真实云站Edge只读验收11项通过：十二策略/四组、模拟八入口、增强模型选择及联动、完整机制披露、327目录筛选恢复、恢复既有真实任务、1440/390/320布局、12公网静态文件SHA256一致、0页面运行错误及意外请求。既有任务仅GET读取，能力预检仅只读POST；没有夹具替换。失败保留结果的网络注入测试仍仅来自离线验收，不冒称本次公网故障测试。
+命令：两套VITE_API_BASE_URL构建；python tools/deploy_cr073_static.py --revision 2bb97c72e01f1eb790f10b3c67a88e2d85daaad3 --output artifacts/cr073-release；node tools/verify_cr073_live.cjs https://43.161.223.91/ artifacts/cr073-release/dist-cloud artifacts/cr073-release/cloud-browser；git push -u origin codex/cr073-website-usability。发布脚本Ruff和git diff --check通过。证据：ignored artifacts/cr073-release/cloud-deployment.json、cloud-browser/report.json及截图，两套build日志；未入库真实缓存/模型/数据库。
+T-CR073-5提交构建与推送、6云站上线验收完成；T-CR073-7中GitHub分支推送完成，main合并及Pages独立验收待完成。main受保护，会话无GitHub API合并凭据，需用户通过PR合并：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr073-website-usability 。未绕过保护、未声称Pages新版上线。合并后以对应工作流及dist-pages逐文件哈希/真实只读浏览器完成验收。长窗、收益与未知行情缺口仍未解决。
