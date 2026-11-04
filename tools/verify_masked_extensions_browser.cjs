@@ -28,6 +28,8 @@ fs.mkdirSync(output, {recursive:true});
       check('existing selectable '+id, await backtest.locator(`input[value="${id}"]`).count()===1);
     }
     for(const id of ['portfolio_masked_ppo','portfolio_masked_td3']) {
+      const enhanced = backtest.locator('.strategy-group').filter({ hasText: '掩码注意力组合' });
+      if (await enhanced.count() && !await enhanced.evaluate(e => e.open)) await enhanced.locator('summary').click();
       await backtest.locator(`input[value="${id}"]`).check();
       check(id+' mechanism disclosure', (await backtest.locator('.ppo-notice').innerText()).includes('共享注意力'));
       const picker = backtest.locator('.asset-picker');
@@ -43,7 +45,7 @@ fs.mkdirSync(output, {recursive:true});
         if(!r.url().includes('/api/backtests/'))return false;
         return ['succeeded','failed'].includes((await r.json()).status);
       },{timeout:120000});
-      await backtest.getByRole('button',{name:'提交异步回测',exact:true}).click();
+      await backtest.getByRole('button',{name:/^(开始回测|提交异步回测)$/}).click();
       const job = await (await done).json();
       check(id+' actual ten-asset shared account',job.status==='succeeded' && job.result.accountCurve.at(-1).positions.length===10);
       const ranked = page.waitForResponse(r=>r.url().endsWith('/api/strategies/ranking') && r.request().method()==='POST',{timeout:60000});

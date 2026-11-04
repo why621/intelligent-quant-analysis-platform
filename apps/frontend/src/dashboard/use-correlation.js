@@ -33,7 +33,6 @@ export function useCorrelation(dataStatus, client = api) {
     if (disposed || busy.value) return
     if (!canSubmit.value) { error.value = validationError.value; return }
     error.value = ''
-    result.value = null
     busy.value = true
     const payload = JSON.parse(JSON.stringify(draft.value))
     try {

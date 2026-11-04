@@ -1201,3 +1201,50 @@ T-CR072-1需求矩阵、2算法替代判定、3旧提示修复及验证、4回�
 
 ### CR072 GitHub推送与Pages发布登记（2026-10-24）
 用户当次授权“推送部署到GitHub”。发布范围仅本轮需求审计/SDD文档及模拟配置错误提示修复；没有算法删除或模型变化。新增T-CR072-5：检查差异、Pages生产构建、推送codex/cr072-requirements-audit；main合并后核验对应Pages工作流及静态提示。沿用本轮688后端/算法与118前端测试及真实模型本地重放证据，不把它们当作本轮云端发布验收。云API/模型/行情/任务库和日更不作修改。main受保护且当前无GitHub API合并权限，推送后由用户创建合并PR；合并前不标Pages已部署。
+
+### CR072 接续只读验收登记（2026-10-24）
+用户要求读取交接并接续。已以WSL Git确认活动树codex/cr072-requirements-audit、HEAD f6db8a5，既有task.md与交接文件保留。四份SDD的最新CR072记录、审计矩阵及OpenAPI 0.15.0已核对；代码提示与契约能力判断一致。本轮接续T-CR072-5，仅只读确认合并提交、对应工作流及公网静态资源与新提示，不训练、不创建线上任务、不修改生产或推送。验收以GitHub API与公网资源SHA256实测为准，不代替全业务浏览器回归。
+
+### CR072 合并与Pages静态验收完成（2026-10-24，接续实测）
+T-CR072-5完成。GitHub API确认PR #59已合并，main为10b31aeb599ea7374253f8539201ffecad6fba69，父提交包含f6db8a55ddae26fe029a9311f8837b3ecc34515b。对应Pages工作流40064032891、Frontend CI 40064032764、Regression stack CI 40064032817均completed/success。
+真实Edge打开Pages并用fetch(cache=reload)/Web Crypto逐文件SHA256核对，12个公网静态文件均与CR072 dist-pages一致；入口assets/index-DGsMOs9S.js。相同哈希的入口包含完整新提示，不含“现有AI模型仅支持实验回测”。本次为提示改动的公网静态验收，没有重跑全业务交互或创建线上回测/模拟，不声称重新验收云端日更、行情或模型收益。
+命令：WSL git status --short / branch --show-current / log -1 --oneline / diff --stat / ls-remote origin；PowerShell Invoke-RestMethod读取GitHub commits及actions/runs；在活动树执行node artifacts/cr072-audit-20261024/verify-pages-hashes.cjs。证据为ignored artifacts/cr072-audit-20261024/pages-browser-file-hashes.json，脚本同目录可复现。初次脚本从根工作区启动导致MODULE_NOT_FOUND，改为活动工作树后成功；Windows受限网络调用失败后经执行权限审查完成只读验证，不属于线上故障。
+本轮只追加本地文档，保留原交接与task修改，未提交、推送、训练或部署。REQ-11组合长窗、长期超额与池外泛化、601059未知缺口仍未完成；本轮未重查缺口现状。后续这些工作需分别登记范围、验收与预算，不能因发布完成而一并关闭。
+
+## CR073 网站研究体验优化（2026-10-24，登记）
+用户要求核对已完成部分及SDD并全面优化网站不合理处。基于CR072最新审计，五模块、十二策略、共享资金与研究配置已有实现；长窗与收益证据仍未闭环。范围为现有网站的前端可用性，不改变算法、数据口径或HTTP契约，不训练、不推送、不发布、不创建线上任务。
+核实问题：十二策略卡片平铺且普通/增强缺乏清晰分类；首页能力介绍滞后、网络状态含接口术语；资产筛选重置藏在折叠区；相关性/模拟重试先丢弃成功结果；任务英文状态与加载提示不直观。按小补丁优化分类与选中策略可见性、文案/无障碍、筛选恢复、旧结果保留及失败/加载标识。保留全部策略与完整模型披露，增强模型不标为最优。
+验收：原前端回归及构建通过；新增真实状态转换测试覆盖失败后旧结果与请求快照保留；本地浏览器隔离夹具验证四策略分组、键盘操作、筛选重置、加载/失败状态及1440/390/320布局。夹具仅用于离线UI测试，不能作为线上或真实行情验收。API 0.15.0不变。T-CR073-1审计/登记完成；T-CR073-2前端优化进行中；T-CR073-3回归/浏览器验收、T-CR073-4证据回写待执行。回滚仅撤销本批前端补丁。
+
+### CR073 本地优化与验收完成（2026-10-24）
+T-CR073-1至4完成：五模块审阅、四类策略折叠与选中联动、筛选清除、首页能力与数据占位纠正、重试保留相关性/模拟结果、回测草稿锁定与任务中文状态、排行榜载入定位、键盘入口及窄屏导航换行。全部十二策略与完整模型披露保留，OpenAPI 0.15.0不变。
+离线前端121通过/0失败/0跳过，生产构建成功；本地Edge隔离夹具24检查通过，1440/390/320均无页面横向溢出且五个导航入口完整可见，0页面运行错误。真实数据/模型、后端联调、云端回归和发布未在本轮执行；未提交、推送或部署。最初测试夹具遗漏schema和浏览器文本定位超时均修正，保留失败说明，无放宽有效检查。具体命令、日志、逐模块改动、边界与下一步见[CR073体验优化](docs/cr073-website-usability-2026-10-24.md)。REQ-11长窗、长期收益与未知数据缺口继续保持未完成。
+
+### CR073 推送上线登记（2026-10-24）
+用户当次明确授权“推送上线”。T-CR073-5：审阅并提交前端与相关文档/验收脚本，构建云站和Pages两套静态文件；T-CR073-6：独立备份云站静态资源、逐文件校验后原子切换入口、真实浏览器只读验收及服务/数据保留核查；T-CR073-7：推送功能分支，遵守main保护与PR流程，合并后单独核验Pages。均进行中；不重训、不重启后端、不改模型/行情/任务库、不新增线上回测。已有121项离线和24项夹具证据不能替代公网验收。失败恢复本批备份，云站与Pages分别记录。
+
+### CR073 云站上线与GitHub推送回写（2026-10-24）
+用户当次授权“推送上线”。功能提交2bb97c72e01f1eb790f10b3c67a88e2d85daaad3已推送codex/cr073-website-usability。云站已发布CR073静态前端，入口assets/index-r4Z4W0yq.js；独立暂存/备份目录/opt/intelligent-quant-cr073-20261024及backup。后端不重启，镜像仍sha256:1813175e4d3ed0def468192a8a0f8deaa709471273d76fcbf01cd1773951dcb8。
+实测发布前158条任务，发布后仍158条且逻辑SHA256一致；容器ID/启动时间/镜像、行情指针、日更文件哈希一致，timer为active。本次无新建任务或模拟计算；不能使用CR071历史154条作为今天基线，也不把timer active视为完整日更流程重验。回滚未触发。
+真实云站Edge只读验收11项通过：十二策略/四组、模拟八入口、增强模型选择及联动、完整机制披露、327目录筛选恢复、恢复既有真实任务、1440/390/320布局、12公网静态文件SHA256一致、0页面运行错误及意外请求。既有任务仅GET读取，能力预检仅只读POST；没有夹具替换。失败保留结果的网络注入测试仍仅来自离线验收，不冒称本次公网故障测试。
+命令：两套VITE_API_BASE_URL构建；python tools/deploy_cr073_static.py --revision 2bb97c72e01f1eb790f10b3c67a88e2d85daaad3 --output artifacts/cr073-release；node tools/verify_cr073_live.cjs https://43.161.223.91/ artifacts/cr073-release/dist-cloud artifacts/cr073-release/cloud-browser；git push -u origin codex/cr073-website-usability。发布脚本Ruff和git diff --check通过。证据：ignored artifacts/cr073-release/cloud-deployment.json、cloud-browser/report.json及截图，两套build日志；未入库真实缓存/模型/数据库。
+T-CR073-5提交构建与推送、6云站上线验收完成；T-CR073-7中GitHub分支推送完成，main合并及Pages独立验收待完成。main受保护，会话无GitHub API合并凭据，需用户通过PR合并：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr073-website-usability 。未绕过保护、未声称Pages新版上线。合并后以对应工作流及dist-pages逐文件哈希/真实只读浏览器完成验收。长窗、收益与未知行情缺口仍未解决。
+
+
+## CR074 页面顺序与排布（2026-11-04，登记）
+用户要求检查当前线上逻辑并完善排布、回写文档。保留概况→相关性→回测→排行→模拟的依赖顺序；新增可跳转的编号流程、压缩首页装饰区、将模拟资产/参数置于并列配置区且结果独占下一行。模型完整历史说明默认折叠，样本外门禁和操作入口保持显式。仅前端布局与文档，不改契约0.15.0、算法或数据，不推送发布。T-CR074-1线上只读审阅完成；2布局实施、3离线/浏览器验证、4回写进行中。验收为原121测试、构建、三视口与原交互检查通过，DOM顺序与视觉顺序一致，折叠不丢失信息。
+线上首次390px布局检查失败；只读诊断重试同一检查通过，存在图表resize与检查时序影响，不能据此认定稳定页面故障。两轮证据保留artifacts/cr074-layout。
+
+### CR074 本地验收回写（2026-11-04）
+T-CR074-2至4完成。实际修改：编号流程锚点、首页标题/留白压缩、完整训练记录可折叠、模拟区资产和策略并列且结果独占下一行；手机按DOM顺序单列。样本外限制和使用区间按钮仍显式可见，接口、计算和策略列表不变。
+验证：npm test --workspace @intelligent-quant/frontend，121通过；npm run build --workspace @intelligent-quant/frontend成功；node tools/verify_cr073_ui.cjs artifacts/cr074-layout/final-browser，27项隔离夹具浏览器检查通过，包含1440/390/320模拟结果在两个配置卡之后的几何断言，0运行错误。证据与截图在ignored artifacts/cr074-layout；不能代替真实后端计算验收。
+线上只读：verify_cr073_live对云站首次390px布局失败，诊断重试11项通过且12静态哈希仍匹配CR073；本次未确认Pages版本、未重查日更和任务总数。暂态resize影响尚未证明为稳定业务缺陷，失败报告保留。不新增线上任务、不推送、不部署。本轮只本地前端和文档；后续上线需当次授权及公网验收。REQ-11长窗及行情缺口未在本轮处理。
+
+### CR074 发布审查与授权（2026-11-04）
+用户明确要求审查无误后推送上线，包括文档。审查确认DOM顺序与视觉顺序一致、模型说明完整保留、计算和契约不变。独立CR074目录复用静态备份、原子入口切换、失败恢复及前后保留审计；不重启后端、不改行情或模型。公网验收展开模型说明，窄屏等待布局收敛后仍执行原宽度断言。T-CR074-5云站发布及公网验收、6Git推送及Pages合并后验收进行中。两套生产构建成功、发布脚本Ruff通过，沿用121测试和27项隔离浏览器证据。远端main仍10b31ae，CR073未合并；本分支包含CR073与CR074完整增量，不能声称Pages已上线。
+
+### CR074 云站发布完成（2026-11-04）
+功能提交48eb9bdeaca76a30ba0bd384194a72852af2777b。执行python tools/deploy_cr074_static.py --revision 48eb9bdeaca76a30ba0bd384194a72852af2777b --output artifacts/cr074-release成功；备份/候选目录/opt/intelligent-quant-cr074-20261104，入口assets/index-Bjn_Bkbg.js，回滚未触发。发布前后160条任务逻辑哈希一致、容器ID/镜像/启动时间、行情指针、日更文件一致，timer active；不等于完整日更回归。
+公网命令node tools/verify_cr073_live.cjs https://43.161.223.91/ artifacts/cr074-release/dist-cloud artifacts/cr074-release/cloud-browser，11项通过，包括展开模型说明、旧任务恢复、1440/390/320视口和12文件SHA256一致，0运行错误。未新增任务、未计算模拟、未改生产行情。证据在ignored artifacts/cr074-release/cloud-deployment.json、cloud-browser/report.json及两套build日志。
+T-CR074-5云站发布完成；6代码与相关文档通过codex/cr074-page-layout推送，Pages合并/发布验收待完成。main仍10b31ae且受保护，无GitHub API合并凭据；本分支包含未合并CR073完整内容，可直接合并到main。PR入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr074-page-layout 。合并后以dist-pages独立验收，不能用云站替代Pages。
+审批服务连接中断的命令未执行，重试成功；Windows默认GBK读取脚本失败后显式UTF-8修正，语法检查通过。未降低验收标准。长窗、收益和行情缺口不在本轮完成范围。

@@ -45,6 +45,10 @@ const name = symbol => props.assets.find(a => a.symbol === symbol)?.name || symb
     <button class="filter-disclosure" type="button" :aria-expanded="filtersOpen" :aria-controls="`${uid}-filters`" @click="filtersOpen = !filtersOpen">
       <span>分类筛选 <small>{{ categories.length ? `已启用 ${categories.length} 项` : '行业 / 主题' }}</small></span><span class="disclosure-icon" aria-hidden="true">＋</span>
     </button>
+    <div v-if="hasFilters" class="active-filters">
+      <span>当前筛选：{{ kind === 'stock' ? '股票' : kind === 'etf' ? 'ETF' : '全部类型' }}{{ query.trim() ? ` · ${query.trim()}` : '' }}{{ categories.length ? ` · ${categories.length} 项分类` : '' }}</span>
+      <button type="button" @click="resetFilters">清除筛选</button>
+    </div>
     <div :id="`${uid}-filters`" class="filter-expansion" :class="{'is-open': filtersOpen}" :inert="!filtersOpen">
     <div class="filter-expansion-inner">
     <div class="category-filter" role="group" aria-label="常用分类筛选（可多选）">
