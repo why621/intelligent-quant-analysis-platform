@@ -31,6 +31,7 @@ const check = (name, value) => { assert.ok(value, name); report.checks.push(name
     await backtest.locator('input[value="portfolio_masked_ppo"]').check();
     await allocation.locator('input[value="portfolio_masked_ppo"]').waitFor();
     check('enhanced selection and linked simulation visible', await allocation.locator('input[value="portfolio_masked_ppo"]').isChecked());
+    if (await backtest.locator('.model-reference').count()) await backtest.locator('.model-reference > summary').click();
     check('full model disclosure retained', (await backtest.locator('.ppo-notice').innerText()).includes('共享注意力'));
     const picker = backtest.locator('.asset-picker');
     await picker.locator('input[type=search]').fill('不存在的测试检索词');
@@ -43,6 +44,7 @@ const check = (name, value) => { assert.ok(value, name); report.checks.push(name
     for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+      await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth, null, { timeout: 5000 });
       check(`layout and navigation at ${width}`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth
         && [...document.querySelectorAll('.topbar nav a')].every(e => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })));
       await page.screenshot({ path: path.join(output, `home-${width}.png`) });

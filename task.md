@@ -1294,3 +1294,16 @@ T-CR073-1至4完成：五模块审阅、四类策略折叠与选中联动、筛�
 真实云站Edge只读验收11项通过：十二策略/四组、模拟八入口、增强模型选择及联动、完整机制披露、327目录筛选恢复、恢复既有真实任务、1440/390/320布局、12公网静态文件SHA256一致、0页面运行错误及意外请求。既有任务仅GET读取，能力预检仅只读POST；没有夹具替换。失败保留结果的网络注入测试仍仅来自离线验收，不冒称本次公网故障测试。
 命令：两套VITE_API_BASE_URL构建；python tools/deploy_cr073_static.py --revision 2bb97c72e01f1eb790f10b3c67a88e2d85daaad3 --output artifacts/cr073-release；node tools/verify_cr073_live.cjs https://43.161.223.91/ artifacts/cr073-release/dist-cloud artifacts/cr073-release/cloud-browser；git push -u origin codex/cr073-website-usability。发布脚本Ruff和git diff --check通过。证据：ignored artifacts/cr073-release/cloud-deployment.json、cloud-browser/report.json及截图，两套build日志；未入库真实缓存/模型/数据库。
 T-CR073-5提交构建与推送、6云站上线验收完成；T-CR073-7中GitHub分支推送完成，main合并及Pages独立验收待完成。main受保护，会话无GitHub API合并凭据，需用户通过PR合并：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr073-website-usability 。未绕过保护、未声称Pages新版上线。合并后以对应工作流及dist-pages逐文件哈希/真实只读浏览器完成验收。长窗、收益与未知行情缺口仍未解决。
+
+
+## CR074 页面顺序与排布（2026-11-04，登记）
+用户要求检查当前线上逻辑并完善排布、回写文档。保留概况→相关性→回测→排行→模拟的依赖顺序；新增可跳转的编号流程、压缩首页装饰区、将模拟资产/参数置于并列配置区且结果独占下一行。模型完整历史说明默认折叠，样本外门禁和操作入口保持显式。仅前端布局与文档，不改契约0.15.0、算法或数据，不推送发布。T-CR074-1线上只读审阅完成；2布局实施、3离线/浏览器验证、4回写进行中。验收为原121测试、构建、三视口与原交互检查通过，DOM顺序与视觉顺序一致，折叠不丢失信息。
+线上首次390px布局检查失败；只读诊断重试同一检查通过，存在图表resize与检查时序影响，不能据此认定稳定页面故障。两轮证据保留artifacts/cr074-layout。
+
+### CR074 本地验收回写（2026-11-04）
+T-CR074-2至4完成。实际修改：编号流程锚点、首页标题/留白压缩、完整训练记录可折叠、模拟区资产和策略并列且结果独占下一行；手机按DOM顺序单列。样本外限制和使用区间按钮仍显式可见，接口、计算和策略列表不变。
+验证：npm test --workspace @intelligent-quant/frontend，121通过；npm run build --workspace @intelligent-quant/frontend成功；node tools/verify_cr073_ui.cjs artifacts/cr074-layout/final-browser，27项隔离夹具浏览器检查通过，包含1440/390/320模拟结果在两个配置卡之后的几何断言，0运行错误。证据与截图在ignored artifacts/cr074-layout；不能代替真实后端计算验收。
+线上只读：verify_cr073_live对云站首次390px布局失败，诊断重试11项通过且12静态哈希仍匹配CR073；本次未确认Pages版本、未重查日更和任务总数。暂态resize影响尚未证明为稳定业务缺陷，失败报告保留。不新增线上任务、不推送、不部署。本轮只本地前端和文档；后续上线需当次授权及公网验收。REQ-11长窗及行情缺口未在本轮处理。
+
+### CR074 发布审查与授权（2026-11-04）
+用户明确要求审查无误后推送上线，包括文档。审查确认DOM顺序与视觉顺序一致、模型说明完整保留、计算和契约不变。独立CR074目录复用静态备份、原子入口切换、失败恢复及前后保留审计；不重启后端、不改行情或模型。公网验收展开模型说明，窄屏等待布局收敛后仍执行原宽度断言。T-CR074-5云站发布及公网验收、6Git推送及Pages合并后验收进行中。两套生产构建成功、发布脚本Ruff通过，沿用121测试和27项隔离浏览器证据。远端main仍10b31ae，CR073未合并；本分支包含CR073与CR074完整增量，不能声称Pages已上线。

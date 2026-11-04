@@ -129,6 +129,13 @@ const check = (name, value) => { assert.ok(value, name); report.checks.push(name
       check(`no document overflow at ${width}`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       check(`all five navigation links fully visible at ${width}`, await page.locator('.topbar nav a').evaluateAll(links => links.length === 5
         && links.every(link => { const r = link.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom < innerHeight; })));
+      check(`simulation result follows both configuration cards at ${width}`, await allocation.locator('.allocation-workspace').evaluate(e => {
+        const cards = [...e.children];
+        return cards.length === 3 && cards[2].classList.contains('allocation-result')
+          && cards[2].getBoundingClientRect().top >= Math.max(cards[0].getBoundingClientRect().bottom, cards[1].getBoundingClientRect().bottom);
+      }));
+      await allocation.screenshot({ path: path.join(output, `allocation-${width}.png`) });
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({ path: path.join(output, `home-${width}.png`) });
       await backtest.scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(output, `backtest-${width}.png`) });

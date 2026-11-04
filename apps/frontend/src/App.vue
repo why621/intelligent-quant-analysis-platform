@@ -55,7 +55,8 @@
       </div>
 
       <aside class="research-flow" aria-label="研究流程联动">
-        <strong>研究工作流</strong><span>市场日期 → 相关性选池 → 回测与组合排行 → 配置重放</span>
+        <strong>研究工作流</strong>
+        <ol class="workflow-steps"><li><a href="#market">01 查看市场与数据</a></li><li><a href="#correlation">02 选择资产与区间</a></li><li><a href="#backtest">03 配置策略并回测</a></li><li><a href="#ranking">04 同配置比较策略</a></li><li><a href="#allocation">05 生成模拟权重</a></li></ol>
         <p>相关性默认同步回测资产与区间，回测同步排行榜全部配置，并默认同步模拟参数和费用。下游手动改选后可恢复跟随；联动只更新草稿，计算需手动提交。</p>
         <p v-if="workflowNotice" role="status">{{ workflowNotice }}</p>
       </aside>
@@ -228,10 +229,11 @@
             </div>
             <aside v-if="backtest.modelContext.value" class="hint ppo-notice" role="note">
               <strong>{{ backtest.selectedStrategy.value?.name }} · 实验性回测</strong>
-              <details class="model-training-assets"><summary>查看训练资产（{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).length }} 只 · 前复权）</summary><p>{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}</p></details>
+              <details class="model-reference"><summary>训练记录与模型适用范围</summary><details class="model-training-assets"><summary>查看训练资产（{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).length }} 只 · 前复权）</summary><p>{{ (backtest.modelContext.value.trainingSymbols || backtest.modelContext.value.symbols).join('、') }}</p></details>
               <p v-for="line in modelWindowLines(backtest.modelContext.value)" :key="line">{{ line }}</p>
               <p v-if="backtest.modelContext.value.trainingTradingCosts">训练时成本：{{ costsLabel(backtest.modelContext.value.trainingTradingCosts) }}。</p>
               <p v-for="line in modelScopeLines(backtest.modelContext.value)" :key="line">{{ line }}</p>
+              </details>
               <p>回测须从 {{ backtest.modelContext.value.outOfSampleStartDate }} 起，含预热至少{{ backtest.modelContext.value.minimumBars }}根行情。训练链路可运行不代表长期绩效有效；存在过拟合与幸存者偏差，不代表未来收益。</p>
               <div v-if="backtest.modelContext.value.evaluation" class="joint-evaluation">
                 <p>冻结样本外对照（含成本，{{ backtest.modelContext.value.testStartDate }} 至 {{ backtest.modelContext.value.testEndDate }}）：</p>
@@ -342,7 +344,6 @@
           <article class="card form-card">
             <div class="form-section"><p class="group-kicker">研究标的</p><AssetPicker v-model="allocationSymbols" :assets="assetCatalog" label="配置资产" :disabled="allocationBusy" />
             </div></article>
-          <div class="result-stack">
           <article class="card form-card"><h3>策略与仓位</h3>
               <p class="hint">从 {{ allocation.startDate.value || '待设置' }} 重放至最新发布交易日，生成其下一交易日目标权重；回测结束日不作为“当前配置”的基准日。</p>
               <StrategyPicker v-model="allocationStrategyId" :strategies="allocation.availableStrategies.value" :disabled="allocationBusy" />
@@ -367,7 +368,7 @@
             <p v-if="allocationError || allocation.validationError.value" class="error" role="alert">{{ allocationError || allocation.validationError.value }}{{ allocationError && allocationResult ? '；已保留上一次成功结果，本次未更新。' : '' }}</p>
             <p class="disclaimer">仅用于教学研究，不构成投资建议，不会提交真实订单。</p>
           </article>
-          <article class="card" :aria-busy="allocationBusy">
+          <article class="card allocation-result" :aria-busy="allocationBusy">
             <p v-if="allocationBusy" class="notice" role="status">正在生成模拟配置…{{ allocationResult ? '下方保留上一次成功结果。' : '结果完成后将显示在这里。' }}</p>
             <div class="card-head"><h3>目标权重</h3><span>
               {{ allocationResult ? `${allocationResult.basisDate} → ${allocationResult.targetDate}` : '等待生成' }}
@@ -389,7 +390,7 @@
               </div>
             </div>
           </article>
-          </div>
+
         </div>
       </section>
     </main>
