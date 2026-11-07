@@ -1313,3 +1313,13 @@ T-CR074-2至4完成。实际修改：编号流程锚点、首页标题/留白压
 公网命令node tools/verify_cr073_live.cjs https://43.161.223.91/ artifacts/cr074-release/dist-cloud artifacts/cr074-release/cloud-browser，11项通过，包括展开模型说明、旧任务恢复、1440/390/320视口和12文件SHA256一致，0运行错误。未新增任务、未计算模拟、未改生产行情。证据在ignored artifacts/cr074-release/cloud-deployment.json、cloud-browser/report.json及两套build日志。
 T-CR074-5云站发布完成；6代码与相关文档通过codex/cr074-page-layout推送，Pages合并/发布验收待完成。main仍10b31ae且受保护，无GitHub API合并凭据；本分支包含未合并CR073完整内容，可直接合并到main。PR入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr074-page-layout 。合并后以dist-pages独立验收，不能用云站替代Pages。
 审批服务连接中断的命令未执行，重试成功；Windows默认GBK读取脚本失败后显式UTF-8修正，语法检查通过。未降低验收标准。长窗、收益和行情缺口不在本轮完成范围。
+
+### CR075 云站日志安全复核（2026-11-07）
+T-CR075-1近168小时网关/后端/日更日志只读聚合；2修复不受限静态目录与未知路径回退；3隔离回归及证据回写。验收：部署根目录意外出现的隐藏文件/备份不得被读取，未知路由404，首页、静态构建、API与ACME保持；不写生产业务数据、日志/IP不入库。
+
+CR075核查结果：近168小时docker logs取得网关86996行、后端35行，journalctl日更33行无Failed with result。敏感路径特征匹配960条（200:921、404:26、400:1、405:10、206:2），不等于成功入侵。整个窗口1条502；未查明与探测有关。后端所检异常关键词无命中。
+现场GET首页、/.env、/.git/config、/wp-login.php均为同一476字节HTML（SHA256前缀0072bdaaf5f7cde3）；未观察到秘密泄露。旧规则实际会返回误放在静态目录的文件。修复限制静态路由，保留API和ACME令牌。WSL本地Nginx验证：python3 artifacts/cr074-layout/check-nginx-local.py，修复前后各7项通过，合成.env/backup.sql由可下载变404，未知PHP路径不再返回首页；首页、资源、测试API、ACME保持。当前CR074发布包12/12路径匹配新规则。未审计主机登录与全部攻击类型；日志无法排除既往泄露。T-CR075-1/2及本地验证完成，尚未推送或更改生产网关。下一步备份、配置检查、平滑重载、线上复核与失败恢复。
+
+CR075 Pages 发布验收：仅上传首页、公共图标及带构建哈希的 JS、CSS、PNG；发现额外文件、目录或链接时阻止上传。分别记录本地验证、GitHub 同步和 Pages 部署状态。
+
+发布前复验：npm ci --offline 后，使用 Pages 仓库子路径及公开 HTTPS API 运行 npm run build --workspace @intelligent-quant/frontend，632 个模块构建成功。python3 tools/validate_pages_dist.py apps/frontend/dist 通过，12 个公开文件；python3 tools/test_validate_pages_dist.py 通过（合法包、隐藏文件和目录、备份、非构建脚本、源码映射、软硬链接及缺失首页）。在独立工作树使用原隔离 Nginx 脚本复测，修改前后各 7/7 通过。发布以 main 合并及对应 Pages 工作流成功为准；云网关单独部署。
