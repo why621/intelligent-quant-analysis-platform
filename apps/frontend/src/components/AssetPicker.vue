@@ -1,21 +1,18 @@
 <script setup>
 import { computed, ref, useId } from 'vue'
-import { ASSET_CATEGORIES, assetCategories, filterAssets } from '../dashboard/asset-filter.js'
-const props = defineProps({ modelValue: { type: Array, required: true }, assets: { type: Array, default: () => [] }, label: { type: String, default: '选择资产' }, disabled: Boolean, max: { type: Number, default: 10 } })
+import { assetCategories } from '../dashboard/asset-filter.js'
+import { useAssetDirectory } from '../dashboard/use-asset-directory.js'
+const props = defineProps({ modelValue: { type: Array, required: true }, assets: { type: Array, default: () => [] }, label: { type: String, default: '选择资产' }, disabled: Boolean, loading: Boolean, error: { type: String, default: '' }, max: { type: Number, default: 10 } })
 const emit = defineEmits(['update:modelValue'])
-const query = ref('')
-const kind = ref('all')
-const categories = ref([])
-const filtersOpen = ref(false)
-const hasFilters = computed(() => query.value.trim() || kind.value !== 'all' || categories.value.length)
-function resetFilters() {
-  query.value = ''
-  kind.value = 'all'
-  categories.value = []
-}
+
+const industryOpen = ref(false)
+const directory = useAssetDirectory(computed(() => props.assets))
+const { query, kind, categoryId, searchScope, notice, allSearch, kindOptions, categoryOptions, matches, inKind, currentPath, hasFilter, resetFilters } = directory
+function pickKind(id) { notice.value = ''; kind.value = id }
+function pickCategory(id) { notice.value = ''; categoryId.value = categoryId.value === id ? null : id }
+
 const uid = useId()
 const selected = computed(() => props.modelValue.filter(Boolean))
-const matches = computed(() => filterAssets(props.assets, { kind: kind.value, query: query.value, categories: categories.value }))
 function toggle(symbol) {
   if (props.disabled) return
   emit('update:modelValue', selected.value.includes(symbol) ? selected.value.filter(s => s !== symbol) : selected.value.length < props.max ? [...selected.value, symbol] : [...selected.value])
@@ -30,47 +27,71 @@ function availabilityLabel(asset) {
   const trading = a.tradingState === 'resumed' ? '复牌后已有成交' : label
   return `${trading} · 最后行情 ${a.lastTradeDate || '无'}${note}${a.state !== 'ready' ? '；仅完整历史区间可研究' : ''}`
 }
-const name = symbol => props.assets.find(a => a.symbol === symbol)?.name || symbol
+const namesBySymbol = computed(() => new Map(props.assets.map(asset => [asset.symbol, asset.name])))
+const selectedAssets = computed(() => selected.value.map(symbol => ({
+  symbol,
+  name: namesBySymbol.value.get(symbol) || symbol
+})))
 </script>
 <template>
   <fieldset class="asset-picker" :disabled="disabled">
     <legend>{{ label }} <span>{{ selected.length }}/{{ max }}</span></legend>
+
     <div class="selection-tray" aria-label="已选资产">
-      <button v-for="symbol in selected" :key="symbol" type="button" :aria-label="`移除 ${name(symbol)} ${symbol}`" @click="toggle(symbol)">{{ name(symbol) }} <small>{{ symbol }}</small> <span aria-hidden="true">×</span></button>
-      <span v-if="!selected.length" class="picker-hint">从下方列表选择资产</span>
+      <button v-for="{ symbol, name } in selectedAssets" :key="symbol" type="button" :aria-label="`移除 ${name === symbol ? symbol : `${name} ${symbol}`}`" @click="toggle(symbol)">
+        {{ name }} <small v-if="name !== symbol">{{ symbol }}</small> <span aria-hidden="true">×</span>
+      </button>
+      <button v-if="selected.length" class="link-btn" type="button" @click="emit('update:modelValue', [])">清空已选</button>
+      <span v-if="!selected.length && assets.length" class="picker-hint">从资产列表勾选</span>
     </div>
-    <label class="search-label" :for="uid">搜索名称、代码或分类</label>
-    <div class="search-row"><input :id="uid" v-model="query" type="search" placeholder="如：半导体 / 芯片 / 600519" autocomplete="off" /><button type="button" :disabled="!selected.length" @click="emit('update:modelValue', [])">清空已选</button></div>
-    <div class="filter-row" aria-label="资产类型筛选"><button v-for="item in [{id:'all',name:'全部'},{id:'stock',name:'股票'},{id:'etf',name:'ETF'}]" :key="item.id" type="button" :aria-pressed="kind === item.id" @click="kind = item.id">{{ item.name }}</button><span role="status">{{ matches.length }} 项</span></div>
-    <button class="filter-disclosure" type="button" :aria-expanded="filtersOpen" :aria-controls="`${uid}-filters`" @click="filtersOpen = !filtersOpen">
-      <span>分类筛选 <small>{{ categories.length ? `已启用 ${categories.length} 项` : '行业 / 主题' }}</small></span><span class="disclosure-icon" aria-hidden="true">＋</span>
-    </button>
-    <div v-if="hasFilters" class="active-filters">
-      <span>当前筛选：{{ kind === 'stock' ? '股票' : kind === 'etf' ? 'ETF' : '全部类型' }}{{ query.trim() ? ` · ${query.trim()}` : '' }}{{ categories.length ? ` · ${categories.length} 项分类` : '' }}</span>
-      <button type="button" @click="resetFilters">清除筛选</button>
+
+    <div v-show="assets.length" class="search-row">
+      <input :id="uid" v-model="query" type="search" placeholder="搜索资产名称或代码" :aria-label="`${label}搜索`" autocomplete="off" />
+      <select :id="`${uid}-scope`" v-model="searchScope" aria-label="搜索范围"><option value="filtered">当前筛选</option><option value="all">全部资产</option></select>
+      <button v-if="hasFilter" type="button" class="search-reset" @click="resetFilters">重置筛选</button>
     </div>
-    <div :id="`${uid}-filters`" class="filter-expansion" :class="{'is-open': filtersOpen}" :inert="!filtersOpen">
-    <div class="filter-expansion-inner">
-    <div class="category-filter" role="group" aria-label="常用分类筛选（可多选）">
-      <div class="category-heading"><span>常用分类 · 可多选</span><button v-if="hasFilters" type="button" @click="resetFilters">重置筛选</button></div>
-      <div class="category-options">
-        <label v-for="category in ASSET_CATEGORIES" :key="category.id" class="category-choice" :class="{checked: categories.includes(category.id)}">
-          <input v-model="categories" type="checkbox" :value="category.id" />{{ category.label }}
-        </label>
+    <p v-if="allSearch && assets.length" class="picker-hint">本次搜索暂不应用类型和行业筛选。</p>
+    <p v-if="notice" class="picker-hint" role="status">{{ notice }}</p>
+    <div class="picker-body">
+      <template v-if="assets.length">
+        <div class="picker-filters">
+          <div class="kind-filters" role="group" aria-label="资产类型">
+            <button v-for="item in kindOptions" :key="item.id" type="button" class="dir-item" :class="{ on: !allSearch && kind === item.id }" :aria-pressed="!allSearch && kind === item.id" @click="pickKind(item.id)">
+              <span>{{ item.label }}</span><small>{{ item.count }}</small>
+            </button>
+          </div>
+          <button class="dir-group-toggle" type="button" :aria-expanded="industryOpen" :aria-controls="`${uid}-industry`" @click="industryOpen = !industryOpen">
+            行业 / 主题 <span aria-hidden="true">{{ industryOpen ? '−' : '+' }}</span>
+          </button>
+        </div>
+        <div v-show="industryOpen" :id="`${uid}-industry`" class="industry-filters" role="group" aria-label="行业或主题">
+          <button type="button" class="dir-item" :class="{ on: !allSearch && !categoryId }" :aria-pressed="!allSearch && !categoryId" @click="pickCategory(null)">
+            <span>不限行业</span><small>{{ inKind.length }}</small>
+          </button>
+          <button v-for="item in categoryOptions" :key="item.id" type="button" class="dir-item" :class="{ on: !allSearch && categoryId === item.id }" :aria-pressed="!allSearch && categoryId === item.id" @click="pickCategory(item.id)">
+            <span>{{ item.label }}</span><small>{{ item.count }}</small>
+          </button>
+          <p v-if="!categoryOptions.length" class="dir-empty">该类型下暂无行业分类</p>
+        </div>
+      </template>
+
+      <div class="picker-results">
+        <p v-if="assets.length" class="results-head"><span>{{ currentPath }}</span><small>{{ matches.length }} 只</small></p>
+        <p v-if="selected.length >= max" class="picker-hint" role="status">已选满 {{ max }} 只，先取消一只再换。</p>
+        <div class="asset-results">
+          <label v-for="asset in matches" :key="asset.symbol" class="asset-option" :class="{selected: selected.includes(asset.symbol)}">
+            <input type="checkbox" :checked="selected.includes(asset.symbol)" :disabled="!asset.active || (!selected.includes(asset.symbol) && selected.length >= max)" @change="toggle(asset.symbol)" />
+            <span class="asset-name">
+              {{ asset.name }} <small class="asset-code">{{ asset.symbol }} · {{ asset.exchange }}</small>
+              <small v-if="asset.availability" class="asset-availability" :data-state="asset.availability.state">{{ availabilityLabel(asset) }}</small>
+              <small v-if="assetCategories(asset).length" class="asset-category">{{ assetCategories(asset).map(category => category.label).join(' · ') }}</small>
+            </span>
+            <span class="asset-type">{{ asset.assetType === 'etf' ? 'ETF' : '股票' }}</span>
+          </label>
+          <p v-if="!matches.length" class="picker-hint" :role="error ? 'alert' : 'status'">{{ loading ? '正在加载资产目录…' : error ? '资产目录加载失败，请使用页面上方的重新连接。' : assets.length ? '当前范围没有匹配资产，可调整筛选或切换为全部资产搜索。' : '暂无可用资产，请检查数据状态。' }}</p>
+        </div>
       </div>
-      <p class="picker-hint">股票按参考指数成分分类，ETF按名称匹配；仅筛选当前资产池，不覆盖全部同行公司。</p>
     </div>
-    </div>
-    </div>
-    <p v-if="selected.length >= max" class="picker-hint" role="status">已选满 {{ max }} 个，取消一项后可更换。</p>
-    <div class="asset-results">
-      <label v-for="asset in matches" :key="asset.symbol" class="asset-option" :class="{selected: selected.includes(asset.symbol)}">
-        <input type="checkbox" :checked="selected.includes(asset.symbol)" :disabled="!asset.active || (!selected.includes(asset.symbol) && selected.length >= max)" @change="toggle(asset.symbol)" />
-        <span class="asset-name">{{ asset.name }}<small>{{ asset.symbol }} · {{ asset.exchange }}</small><small v-if="assetCategories(asset).length" class="asset-category">{{ assetCategories(asset).map(category => category.label).join(' · ') }}</small><small v-if="asset.availability" class="asset-availability" :data-state="asset.availability.state">{{ availabilityLabel(asset) }}</small></span><span class="asset-type">{{ asset.assetType === 'etf' ? 'ETF' : '股票' }}</span>
-      </label>
-      <p v-if="!matches.length" class="picker-hint">{{ assets.length ? '没有匹配项，请调整分类、搜索词或重置筛选。' : '资产目录尚不可用，请等待加载或查看连接提示。' }}</p>
-    </div>
-    <p class="picker-hint">直接勾选，无需按住 Ctrl；筛选后仍保留已选资产。</p>
   </fieldset>
 </template>
 <style scoped src="../styles/pickers.css"></style>

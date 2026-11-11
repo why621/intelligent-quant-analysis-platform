@@ -963,3 +963,8 @@ T-CR074-2至4完成。实际修改：编号流程锚点、首页标题/留白压
 公网命令node tools/verify_cr073_live.cjs https://43.161.223.91/ artifacts/cr074-release/dist-cloud artifacts/cr074-release/cloud-browser，11项通过，包括展开模型说明、旧任务恢复、1440/390/320视口和12文件SHA256一致，0运行错误。未新增任务、未计算模拟、未改生产行情。证据在ignored artifacts/cr074-release/cloud-deployment.json、cloud-browser/report.json及两套build日志。
 T-CR074-5云站发布完成；6代码与相关文档通过codex/cr074-page-layout推送，Pages合并/发布验收待完成。main仍10b31ae且受保护，无GitHub API合并凭据；本分支包含未合并CR073完整内容，可直接合并到main。PR入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr074-page-layout 。合并后以dist-pages独立验收，不能用云站替代Pages。
 审批服务连接中断的命令未执行，重试成功；Windows默认GBK读取脚本失败后显式UTF-8修正，语法检查通过。未降低验收标准。长窗、收益和行情缺口不在本轮完成范围。
+
+
+## CR082 V4 前端同步至 GitHub（2026-11-11）
+
+首页首屏优先展示市场指标，研究页面按宽度重排配置与结果，窄屏只让宽表在容器内横向滚动。区分目录未加载、数据缺失、计算中和保留的历史结果。

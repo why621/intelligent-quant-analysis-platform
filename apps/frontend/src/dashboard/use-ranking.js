@@ -1,6 +1,6 @@
 import { computed, getCurrentScope, onScopeDispose, ref, watch } from 'vue'
 import { api } from '../services/api.js'
-import { displayError } from './common.js'
+import { displayError, SYMBOL_PATTERN } from './common.js'
 import { snapshotKey } from './use-research-context.js'
 
 // Rankings follow the draft, but computing is always an explicit user action.
@@ -13,13 +13,33 @@ export function useRanking(backtest, dataStatus, strategies, client = api) {
   const resultKey = ref('')
   let generation = 0
   let disposed = false
-  const draft = computed(() => backtest.draft.value)
+  // 排行资产默认跟随回测草稿（未干预时与原行为完全一致）；在排行卡内单独选择后
+  // 仅作用于排行，不写回 backtest.symbols，避免触碰 correlation→backtest→allocation 联动链。
+  const assetsLinked = ref(true)
+  const pickedSymbols = ref([])
+  const symbols = computed({
+    get: () => (assetsLinked.value ? backtest.draft.value.symbols : pickedSymbols.value),
+    set: value => {
+      assetsLinked.value = false
+      pickedSymbols.value = [...value]
+    },
+  })
+  const restoreFollow = () => {
+    assetsLinked.value = true
+    pickedSymbols.value = []
+  }
+  const draft = computed(() => ({ ...backtest.draft.value, symbols: [...symbols.value] }))
   const key = computed(() => snapshotKey({ request: draft.value,
     dataVersion: dataStatus.value.dataContext?.dataVersion || null,
     strategies: strategies.value }))
   const stale = computed(() => Boolean(result.value && resultKey.value !== key.value))
   const validationError = computed(() => {
-    if (backtest.validationError.value) return backtest.validationError.value
+    const list = symbols.value
+    if (!list.length || list.length > 10
+      || list.some(value => !SYMBOL_PATTERN.test(value))
+      || new Set(list).size !== list.length) return '请选择 1–10 个不同的六位资产代码。'
+    const requestError = backtest.validateSymbols(draft.value.symbols)
+    if (requestError) return requestError
     const days = (Date.parse(draft.value.endDate) - Date.parse(draft.value.startDate)) / 86400000
     return days > 366 ? '排行榜比较区间最多 366 天，请在回测配置中缩短日期区间。' : ''
   })
@@ -61,6 +81,7 @@ export function useRanking(backtest, dataStatus, strategies, client = api) {
   }
   if (getCurrentScope()) onScopeDispose(() => { disposed = true; generation += 1 })
   return { result, busy, error, notice, draft, stale, validationError, canSubmit, submit,
+    symbols, assetsLinked, restoreFollow,
     items: computed(() => result.value?.items || []),
     unavailable: computed(() => result.value?.unavailableStrategies || []) }
 }

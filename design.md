@@ -1016,3 +1016,8 @@ T-CR074-2至4完成。实际修改：编号流程锚点、首页标题/留白压
 公网命令node tools/verify_cr073_live.cjs https://43.161.223.91/ artifacts/cr074-release/dist-cloud artifacts/cr074-release/cloud-browser，11项通过，包括展开模型说明、旧任务恢复、1440/390/320视口和12文件SHA256一致，0运行错误。未新增任务、未计算模拟、未改生产行情。证据在ignored artifacts/cr074-release/cloud-deployment.json、cloud-browser/report.json及两套build日志。
 T-CR074-5云站发布完成；6代码与相关文档通过codex/cr074-page-layout推送，Pages合并/发布验收待完成。main仍10b31ae且受保护，无GitHub API合并凭据；本分支包含未合并CR073完整内容，可直接合并到main。PR入口：https://github.com/why621/intelligent-quant-analysis-platform/pull/new/codex/cr074-page-layout 。合并后以dist-pages独立验收，不能用云站替代Pages。
 审批服务连接中断的命令未执行，重试成功；Windows默认GBK读取脚本失败后显式UTF-8修正，语法检查通过。未降低验收标准。长窗、收益和行情缺口不在本轮完成范围。
+
+
+## CR082 V4 前端同步至 GitHub（2026-11-11）
+
+本次以 GitHub main 的 80bb274 为基线同步已发布的 V4 前端及只读 HTTPS API 检查工具。复用现有 Vite 构建、CI 和 GitHub Pages 工作流。站点托管绑定、后端网关配置、生产数据与模型文件均在本次 PR 范围之外。

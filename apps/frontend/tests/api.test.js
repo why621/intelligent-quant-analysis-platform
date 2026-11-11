@@ -1,12 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { api, request } from '../src/services/api.js'
+import { api, request, describeApiFailure } from '../src/services/api.js'
 
 function stub(t, fn) {
   const original = globalThis.fetch
   globalThis.fetch = fn
   t.after(() => { globalThis.fetch = original })
 }
+
+test('network failure is distinguished from server HTTP errors without inventing a TLS or CORS cause', async t => {
+  stub(t, async () => { throw new TypeError('Failed to fetch') })
+  await assert.rejects(api.getHealth(), error => {
+    assert.equal(error.code, 'NETWORK_ERROR');assert.equal(error.status, undefined)
+    assert.match(describeApiFailure(error), /可能/);return true
+  })
+  globalThis.fetch=async()=>Response.json({error:{message:'denied'}},{status:403})
+  await assert.rejects(api.getHealth(), error => {
+    assert.match(describeApiFailure(error), /访问被拒绝/);assert.notEqual(error.code,'NETWORK_ERROR');return true
+  })
+})
 
 test('GET avoids unnecessary preflight; POST keeps JSON content type', async t => {
   const calls = []

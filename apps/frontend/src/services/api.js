@@ -44,13 +44,25 @@ export async function request(path, options = {}) {
   })
   try {
     return await Promise.race([deadline, (async () => {
-      const response = await fetch(`${API_BASE_URL}${path}`, {
-        ...fetchOptions, signal: controller.signal,
-        headers: { Accept: 'application/json',
-          ...(fetchOptions.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-          ...(version ? { 'X-Research-Version': version } : {}),
-          ...headers }
-      })
+      let response
+      try {
+        response = await fetch(`${API_BASE_URL}${path}`, {
+          ...fetchOptions, signal: controller.signal,
+          headers: {
+            Accept: 'application/json',
+            ...(fetchOptions.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+            ...(version ? { 'X-Research-Version': version } : {}),
+            ...headers
+          }
+        })
+      } catch (error) {
+        if (error instanceof TypeError) {
+          throw new ApiError('无法连接数据服务，请检查网络、HTTPS 证书或跨域配置', {
+            code: 'NETWORK_ERROR'
+          })
+        }
+        throw error
+      }
       const contentType = response.headers.get('content-type') || ''
       let payload = null
       if (contentType.includes('application/json')) {
@@ -72,6 +84,17 @@ export async function request(path, options = {}) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+// Fetch deliberately does not distinguish TLS/CORS/DNS failures. Never guess.
+export function describeApiFailure(error) {
+  if (error?.code === 'NETWORK_ERROR') return '连接未建立：可能是网络、HTTPS 证书或跨域限制。'
+  if (error?.code === 'REQUEST_TIMEOUT') return '响应超时，请稍后重试。'
+  if (error?.status === 401 || error?.status === 403) return `访问被拒绝（HTTP ${error.status}），请检查接口权限。`
+  if (error?.code === 'INVALID_RESPONSE') return '接口返回的内容格式不符合要求，请检查 API 地址及前后端版本。'
+  if (error?.code === 'INVALID_CATALOG') return '资产目录不完整或版本不一致，请检查前后端版本。'
+  if (error?.status) return `接口返回 HTTP ${error.status}，请检查服务状态。`
+  return '数据加载失败，请检查服务响应或重试。'
 }
 
 function post(path, body) {
