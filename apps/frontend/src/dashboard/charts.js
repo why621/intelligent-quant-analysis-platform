@@ -1,12 +1,33 @@
-const colors = {
+// CR077：昼夜两套图表配色，与页面主题（html[data-theme]）同步；
+// 各 option 函数的 theme 参数缺省 'dark'，保持既有暗色输出不变。
+const darkColors = {
   blue: '#69d9c5',
   amber: '#b4a4ed',
   red: '#d785a7',
   grid: '#273951',
-  muted: '#a4b6cf'
+  muted: '#a4b6cf',
+  buy: '#69d9c5',
+  sell: '#ff8daa',
+  area: '#69d9c522',
+  heatmap: ['#926887', '#23394b', '#589f96'],
+  pie: ['#65b9ad', '#998acb', '#699ac0', '#c6a16c', '#8ba7ba']
 }
+const lightColors = {
+  blue: '#0f766e',
+  amber: '#7a5cc8',
+  red: '#be3a64',
+  grid: '#dfe6ef',
+  muted: '#64748b',
+  buy: '#0f766e',
+  sell: '#be3a64',
+  area: 'rgba(15, 118, 110, .16)',
+  heatmap: ['#c08cba', '#edf1f7', '#2f9e8f'],
+  pie: ['#2f9e8f', '#8067c4', '#5585bd', '#b9884e', '#7d95ad']
+}
+const colorsOf = theme => (theme === 'light' ? lightColors : darkColors)
 
-export function emptyChartOption(message) {
+export function emptyChartOption(message, theme = 'dark') {
+  const colors = colorsOf(theme)
   return {
     backgroundColor: 'transparent',
     animation: false,
@@ -19,9 +40,10 @@ export function emptyChartOption(message) {
   }
 }
 
-export function correlationOption(result) {
+export function correlationOption(result, theme = 'dark') {
+  const colors = colorsOf(theme)
   if (!result?.symbols?.length || !result?.matrix?.length) {
-    return emptyChartOption('提交 2–10 个资产后显示真实相关矩阵')
+    return emptyChartOption('提交 2–10 个资产后显示真实相关矩阵', theme)
   }
   const data = []
   result.matrix.forEach((row, y) => {
@@ -48,7 +70,7 @@ export function correlationOption(result) {
       orient: 'horizontal',
       left: 'center',
       bottom: 4,
-      inRange: { color: ['#926887', '#23394b', '#589f96'] }
+      inRange: { color: colors.heatmap }
     },
     series: [{
       type: 'heatmap',
@@ -58,9 +80,10 @@ export function correlationOption(result) {
   }
 }
 
-export function equityOption(result) {
+export function equityOption(result, theme = 'dark') {
+  const colors = colorsOf(theme)
   const points = result?.equityCurve || []
-  if (!points.length) return emptyChartOption('回测完成后显示净值曲线')
+  if (!points.length) return emptyChartOption('回测完成后显示净值曲线', theme)
   const normalised = field => {
     const baseline = points[0][field]
     return points.map(point => typeof point[field] === 'number' && Number.isFinite(point[field])
@@ -73,7 +96,7 @@ export function equityOption(result) {
   const markers = ['buy', 'sell'].map(side => ({
     name: side === 'buy' ? '买入成交' : '卖出成交', type: 'scatter', symbol: 'triangle',
     symbolRotate: side === 'buy' ? 0 : 180, symbolSize: 10, z: 6,
-    itemStyle: { color: side === 'buy' ? '#69d9c5' : '#ff8daa' },
+    itemStyle: { color: side === 'buy' ? colors.buy : colors.sell },
     data: (result.trades || []).filter(trade => trade.side === side && indexByDate.has(trade.date))
       .map(trade => [trade.date, equity[indexByDate.get(trade.date)]])
       .filter(point => point[1] !== null)
@@ -109,9 +132,10 @@ export function equityOption(result) {
   }
 }
 
-export function exposureOption(result) {
+export function exposureOption(result, theme = 'dark') {
+  const colors = colorsOf(theme)
   const points = result?.accountCurve || []
-  if (!points.length) return emptyChartOption(result ? '该历史任务未记录每日持仓比例' : '回测完成后显示每日持仓比例')
+  if (!points.length) return emptyChartOption(result ? '该历史任务未记录每日持仓比例' : '回测完成后显示每日持仓比例', theme)
   return { backgroundColor: 'transparent', animation: false,
     tooltip: { trigger: 'axis', valueFormatter: value => typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}%` : '未记录' },
     legend: { type: 'scroll', top: 0, textStyle: { color: colors.muted } },
@@ -120,23 +144,24 @@ export function exposureOption(result) {
     yAxis: { type: 'value', name: '持仓比例（%）', min: 0, max: 100, splitLine: { lineStyle: { color: colors.grid } } },
     series: [{ name: '资产持仓比例', type: 'line', step: 'end', showSymbol: false,
       data: points.map(point => Number.isFinite(point.exposurePct) ? point.exposurePct : null),
-      itemStyle: { color: colors.blue }, areaStyle: { color: '#69d9c522' } },
+      itemStyle: { color: colors.blue }, areaStyle: { color: colors.area } },
       ...(points[0].positions || []).map(position => ({ name: position.symbol, type: 'line',
         step: 'end', showSymbol: false,
         data: points.map(p => p.positions?.find(v => v.symbol === position.symbol)?.weightPct ?? null) }))] }
 }
 
-export function allocationOption(result) {
-  if (!result) return emptyChartOption('生成后显示下一交易日模拟权重')
+export function allocationOption(result, theme = 'dark') {
+  const colors = colorsOf(theme)
+  if (!result) return emptyChartOption('生成后显示下一交易日模拟权重', theme)
   const positions = result?.positions || []
   // Zero-weight exits remain in the textual details, not as empty pie slices.
   const data = positions.filter(item => item.weightPct > 0)
     .map((item) => ({ name: item.symbol, value: item.weightPct }))
   if (result.cashPct > 0) data.push({ name: '现金', value: result.cashPct })
-  if (!data.length) return emptyChartOption('没有可展示的持仓或现金权重')
+  if (!data.length) return emptyChartOption('没有可展示的持仓或现金权重', theme)
   return {
     backgroundColor: 'transparent',
-    color: ['#65b9ad', '#998acb', '#699ac0', '#c6a16c', '#8ba7ba'],
+    color: colors.pie,
     animation: false,
     tooltip: { trigger: 'item', formatter: '{b}: {c}%' },
     legend: { bottom: 0 },

@@ -72,10 +72,10 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     const asset = benchmarkOptions.value.find(item => item.symbol === code)
     return asset ? `${asset.name}（ETF · ${code}）` : `历史基准 ${code}（身份未验证）`
   })
-  const validationError = computed(() => {
-    if (!symbols.value.length || symbols.value.length > 10
-      || symbols.value.some(value => !SYMBOL_PATTERN.test(value))
-      || new Set(symbols.value).size !== symbols.value.length) return '请选择 1–10 个不同的六位资产代码。'
+  const validateSymbols = (candidateSymbols) => {
+    if (!candidateSymbols.length || candidateSymbols.length > 10
+      || candidateSymbols.some(value => !SYMBOL_PATTERN.test(value))
+      || new Set(candidateSymbols).size !== candidateSymbols.length) return '请选择 1–10 个不同的六位资产代码。'
     if (!selectedStrategy.value) return '请选择可用策略。'
     if (parameterForm.parameterError.value) return parameterForm.parameterError.value
     if (!['buy_and_hold', 'custom', 'none'].includes(benchmarkMode.value)) return '请选择有效基准模式。'
@@ -89,13 +89,14 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
     if (modelContext.value) {
       const model = modelContext.value
       if (model.portfolioMode === 'joint_portfolio') {
-        const scopeError = modelAssetError(model, symbols.value, assetCatalog?.value || [])
+        const scopeError = modelAssetError(model, candidateSymbols, assetCatalog?.value || [])
         if (scopeError) return scopeError
-      } else if (model.assetScope !== 'published_universe' && (symbols.value.length !== model.symbols.length || symbols.value.some((value, i) => value !== model.symbols[i]))) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
+      } else if (model.assetScope !== 'published_universe' && (candidateSymbols.length !== model.symbols.length || candidateSymbols.some((value, i) => value !== model.symbols[i]))) return `该模型仅支持 ${model.symbols.join('、')} 单资产回测。`
       if (dates.startDate.value < model.outOfSampleStartDate) return `${selectedStrategy.value.name}起始日须从 ${model.outOfSampleStartDate} 起，不能与训练区间或验证区间重叠。`
     }
     return ''
-  })
+  }
+  const validationError = computed(() => validateSymbols(symbols.value))
   const canSubmit = computed(() => !busy.value && !activeJob.value && !disposed && !validationError.value)
   const current = token => !disposed && token === generation
   const saveId = value => {
@@ -190,5 +191,5 @@ export function useBacktest(strategies, dataStatus, assetCatalog, client = api, 
   return { ...dates, ...parameterForm, symbols, strategyId, benchmark, benchmarkMode, benchmarkOptions,
     initialCapitalCny, cashPct, tradingCosts, effectiveTradingCosts, portfolioMode, resultStale, draft,
     benchmarkLabel, job, busy, error, recoveryId, activeJob, availableStrategies, strategyName,
-    modelContext, selectedStrategy, modelRangeStart, canApplyModelRange, applyModelRange, validationError, canSubmit, submit, resume }
+    modelContext, selectedStrategy, modelRangeStart, canApplyModelRange, applyModelRange, validateSymbols, validationError, canSubmit, submit, resume }
 }

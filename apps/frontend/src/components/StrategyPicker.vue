@@ -1,6 +1,6 @@
 <script setup>
 import { computed, useId } from 'vue'
-const props = defineProps({ modelValue: String, strategies: { type: Array, default: () => [] }, disabled: Boolean })
+const props = defineProps({ modelValue: String, strategies: { type: Array, default: () => [] }, disabled: Boolean, emptyMessage: { type: String, default: '策略目录尚未加载' } })
 const emit = defineEmits(['update:modelValue'])
 const name = useId()
 import { strategyDescription } from '../dashboard/model-disclosure.js'
@@ -19,7 +19,7 @@ const selected = computed(() => props.strategies.find(strategy => strategy.id ==
 <template>
   <fieldset class="strategy-picker" :disabled="disabled">
     <legend>选择策略</legend>
-    <p class="picker-hint strategy-selection" role="status">当前选择：{{ selected?.name || '尚未选择可用策略' }}</p>
+    <p v-if="strategies.length" class="picker-hint strategy-selection" role="status">当前选择：{{ selected?.name || '尚未选择可用策略' }}</p>
     <details v-for="group in groups" :key="group.id" class="strategy-group"
       :open="group.id === 'traditional' || (selected && category(selected) === group.id)">
       <summary><strong>{{ group.label }} · {{ group.items.length }}</strong><small>{{ group.description }}</small></summary>
@@ -33,7 +33,7 @@ const selected = computed(() => props.strategies.find(strategy => strategy.id ==
         </label>
       </div>
     </details>
-    <p v-if="!strategies.length">策略列表尚未加载</p>
+    <p v-if="!strategies.length" class="picker-hint">{{ emptyMessage }}</p>
   </fieldset>
 </template>
 <style scoped src="../styles/pickers.css"></style>

@@ -1323,3 +1323,13 @@ CR075核查结果：近168小时docker logs取得网关86996行、后端35行，
 CR075 Pages 发布验收：仅上传首页、公共图标及带构建哈希的 JS、CSS、PNG；发现额外文件、目录或链接时阻止上传。分别记录本地验证、GitHub 同步和 Pages 部署状态。
 
 发布前复验：npm ci --offline 后，使用 Pages 仓库子路径及公开 HTTPS API 运行 npm run build --workspace @intelligent-quant/frontend，632 个模块构建成功。python3 tools/validate_pages_dist.py apps/frontend/dist 通过，12 个公开文件；python3 tools/test_validate_pages_dist.py 通过（合法包、隐藏文件和目录、备份、非构建脚本、源码映射、软硬链接及缺失首页）。在独立工作树使用原隔离 Nginx 脚本复测，修改前后各 7/7 通过。发布以 main 合并及对应 Pages 工作流成功为准；云网关单独部署。
+
+
+## CR082 V4 前端同步至 GitHub（2026-11-11）
+
+- [x] 按 V4 整理前端源码、回归测试和 API 检查工具。
+- [x] 在提交分支上重新运行前端测试和 Pages 构建检查。
+- [ ] 将功能分支推送到 GitHub，提交 PR 供管理员审批。
+- [ ] 合并后由负责人核对 CI 和 Pages 发布记录。
+
+本地验收：141 项前端测试、4 项 API 检查工具测试通过。标准前端构建和 GitHub Pages 子路径构建通过，公开产物白名单检查通过。此前 V4 的五种屏宽与五个模块共 50 组断线及隔离数据浏览器检查均无整页横向溢出。线上默认 API 的证书与 IP 不匹配，真实数据恢复仍待确认。

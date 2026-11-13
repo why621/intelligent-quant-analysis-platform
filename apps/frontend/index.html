@@ -2,6 +2,15 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // 主题预置：在任何样式加载前同步 data-theme，浅色用户刷新不闪深色首帧。
+      // 只认 'light'，其余值（缺失 / 'dark' / 损坏）一律维持 CSS 默认深色、不加属性。
+      try {
+        if (localStorage.getItem('quant-theme') === 'light') {
+          document.documentElement.dataset.theme = 'light'
+        }
+      } catch { /* Storage is optional, including in private browsing. */ }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>智能量化分析平台</title>

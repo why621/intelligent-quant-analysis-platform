@@ -6,7 +6,7 @@ export async function loadAssetCatalog(client, isCurrent = () => true) {
   let version
   let matchedTotal
   let offset = 0
-  const invalid = () => new Error('资产目录不完整或版本不一致，请重新加载；旧后端需先升级')
+  const invalid = () => Object.assign(new Error('资产目录不完整或版本不一致，请重新加载；旧后端需先升级'), { code: 'INVALID_CATALOG' })
   for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
     if (!isCurrent()) throw new Error('目录加载已被新请求替代')
     const page = await client.listAssets({ limit: 100, offset })

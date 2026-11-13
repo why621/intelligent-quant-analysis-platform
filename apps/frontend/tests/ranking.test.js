@@ -204,3 +204,64 @@ test('over-budget date range is rejected before starting a ranking computation',
   await ranking.submit()
   assert.equal(calls.length, 0)
 })
+
+test('ranking symbols follow the backtest draft by default and never write back when detached', async t => {
+  const { ranking, backtest, calls } = setup(t)
+  assert.equal(ranking.assetsLinked.value, true)
+  assert.deepEqual(ranking.symbols.value, backtest.draft.value.symbols)
+  await ranking.submit()
+  assert.deepEqual(calls[0].symbols, backtest.draft.value.symbols)
+  // 默认跟随：回测标的变化时排行跟着变并标过期，与历史行为一致
+  backtest.symbols.value = ['510302']
+  assert.deepEqual(ranking.symbols.value, ['510302'])
+  assert.equal(ranking.stale.value, true)
+  // 单独选择：仅作用于排行，不回写回测草稿
+  ranking.symbols.value = ['510303', '510304']
+  assert.equal(ranking.assetsLinked.value, false)
+  assert.deepEqual(backtest.symbols.value, ['510302'])
+  assert.deepEqual(ranking.draft.value.symbols, ['510303', '510304'])
+  assert.equal(ranking.stale.value, true)
+  await ranking.submit()
+  assert.deepEqual(calls[1].symbols, ['510303', '510304'])
+  assert.deepEqual(calls[1].startDate, backtest.draft.value.startDate)
+  assert.deepEqual(calls[1].tradingCosts, backtest.draft.value.tradingCosts)
+  // 恢复跟随：回到回测草稿标的
+  ranking.restoreFollow()
+  assert.equal(ranking.assetsLinked.value, true)
+  assert.deepEqual(ranking.symbols.value, backtest.draft.value.symbols)
+})
+
+test('detached ranking symbols are validated locally before submitting', async t => {
+  const { ranking, calls } = setup(t)
+  ranking.symbols.value = ['510300', '510300']
+  assert.match(ranking.validationError.value, /不同/)
+  ranking.symbols.value = ['510300', 'abc123']
+  assert.match(ranking.validationError.value, /六位/)
+  ranking.symbols.value = []
+  assert.match(ranking.validationError.value, /1–10/)
+  await ranking.submit()
+  assert.equal(calls.length, 0)
+  ranking.symbols.value = ['510301', '510302']
+  assert.equal(ranking.validationError.value, '')
+  await ranking.submit()
+  assert.equal(calls.length, 1)
+})
+
+test('independent ranking remains valid when backtest assets are empty', async t => {
+  const {ranking,backtest,calls}=setup(t)
+  backtest.symbols.value=[]; ranking.symbols.value=['510301']
+  assert.match(backtest.validationError.value,/1–10/)
+  assert.equal(ranking.validationError.value,'');await ranking.submit()
+  assert.deepEqual(calls[0].symbols,['510301'])
+})
+
+test('independent ranking validates model restrictions against its own actual payload', async t => {
+  const {ranking,backtest,calls}=setup(t)
+  backtest.strategyId.value='portfolio_ppo'
+  assert.equal(backtest.validationError.value,'')
+  ranking.symbols.value=['510300','999999']
+  assert.match(ranking.validationError.value,/发布目录/);await ranking.submit();assert.equal(calls.length,0)
+  ranking.symbols.value=['510300']; assert.match(ranking.validationError.value,/2–10/)
+  ranking.symbols.value=['510302','510303'];assert.equal(ranking.validationError.value,'')
+  await ranking.submit();assert.deepEqual(calls[0].symbols,['510302','510303'])
+})

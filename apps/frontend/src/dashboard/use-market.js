@@ -1,11 +1,18 @@
 import { computed, reactive, ref } from 'vue'
 
 import { fallbackMarket } from '../data/application-fixtures.js'
-import { api } from '../services/api.js'
+import { api, API_BASE_URL, ApiError, describeApiFailure } from '../services/api.js'
 import { loadAssetCatalog } from './asset-catalog.js'
 
 export function useMarket(client = api) {
   const marketError = ref('')
+  const interfaceDefinitions = [
+    { id: 'status', label: '数据发布状态', path: '/data/status' },
+    { id: 'assets', label: '资产目录', path: '/assets' },
+    { id: 'overview', label: '市场概览', path: '/market/overview' },
+    { id: 'strategies', label: '策略目录', path: '/strategies' }
+  ]
+  const interfaceStatus = ref([])
   const statusLabel = (state) => ({ ready: '更新完成', updating: '更新中',
     stale: '更新不完整或已过期', failed: '暂不可用' }[state] || '待确认')
   const connection = reactive({
@@ -55,6 +62,7 @@ export function useMarket(client = api) {
     connection.loading = true
     connection.live = false
     connection.message = '正在连接后端接口'
+    interfaceStatus.value = interfaceDefinitions.map(item => ({ ...item, state: 'loading', message: '正在加载' }))
     dataStatus.value = { ...dataStatus.value, status: 'stale', components: {},
       availability: undefined, latestTradeDate: null, updatedAt: null, message: '等待后端数据接口' }
     assetCatalog.value = []
@@ -63,39 +71,48 @@ export function useMarket(client = api) {
     market.value = { ...fallbackMarket }
     marketError.value = ''
     let completed = 0
-    const statusRequest = client.getDataStatus()
+    const statusRequest = Promise.resolve().then(client.getDataStatus.bind(client))
     const jobs = [
       [() => statusRequest, value => {
-        if (!value || !['ready', 'stale', 'updating', 'failed'].includes(value.status)) throw Error()
+        if (!value || !['ready', 'stale', 'updating', 'failed'].includes(value.status)) throw new ApiError('发布状态格式无效', { code: 'INVALID_RESPONSE' })
         dataStatus.value = value
       }],
       [() => loadAssetCatalog(client, () => current === generation), value => {
-        if (!Array.isArray(value?.items) || !value.items.length) throw Error()
+        if (!Array.isArray(value?.items) || !value.items.length) throw new ApiError('资产目录为空或无效', { code: 'INVALID_CATALOG' })
         assetCatalog.value = value.items
       }],
       [() => client.getMarketOverview(), value => {
-        if (typeof value?.tradeDate !== 'string') throw Error()
+        if (typeof value?.tradeDate !== 'string') throw new ApiError('概览格式无效', { code: 'INVALID_RESPONSE' })
         market.value = value
       }],
       [() => client.getStrategies(), value => {
-        if (!Array.isArray(value?.items) || !value.items.length) throw Error()
+        if (!Array.isArray(value?.items) || !value.items.length) throw new ApiError('策略目录格式无效', { code: 'INVALID_RESPONSE' })
         strategies.value = value.items
       }]
     ]
     const results = await Promise.allSettled(jobs.map(async ([fetchValue, applyValue], index) => {
       try {
         const value = await fetchValue()
-        if (current === generation) applyValue(value)
-      } catch (error) {
-        if (current === generation && index === 1) {
-          assetCatalogError.value = '资产目录加载失败：未取得完整且一致的目录，请重新加载；若持续失败请核对前后端版本。'
+        if (current === generation) {
+          applyValue(value)
+          interfaceStatus.value[index] = {
+            ...interfaceDefinitions[index], state: 'ready', message: '读取成功'
+          }
         }
-        if (current === generation && index === 2) marketError.value = '市场概览读取失败'
+      } catch (error) {
+        if (current === generation) {
+          const message = describeApiFailure(error)
+          interfaceStatus.value[index] = {
+            ...interfaceDefinitions[index], state: 'failed', message, code: error?.code
+          }
+          if (index === 1) assetCatalogError.value = `资产目录加载失败。${message}`
+          if (index === 2) marketError.value = '市场概览读取失败'
+        }
         throw error
       } finally {
         if (current === generation) {
           completed += 1
-          connection.message = `已收到 ${completed}/${jobs.length} 个接口响应，可用数据已显示`
+          connection.message = `已完成 ${completed}/${jobs.length} 项连接检查`
         }
       }
     }))
@@ -107,10 +124,12 @@ export function useMarket(client = api) {
       ? (dataStatus.value.status === 'ready' ? '接口数据' : '后端已连接，数据更新需关注')
       : fulfilledCount > 0
         ? `后端部分接口可用（${fulfilledCount}/${results.length}），请查看分项状态`
-        : '数据服务暂不可用，请稍后重新加载页面'
+        : '未能读取数据服务'
   }
 
   return {
+    interfaceStatus,
+    apiBaseUrl: API_BASE_URL,
     connection,
     dataStatus,
     assetCatalog: computed(() => assetCatalog.value.map(asset => ({

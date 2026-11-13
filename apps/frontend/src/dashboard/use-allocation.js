@@ -28,6 +28,7 @@ export function useAllocation(strategies, client = api, dataStatus, assetCatalog
     if (!symbols.value.length || symbols.value.length > 10
       || symbols.value.some(value => !SYMBOL_PATTERN.test(value))
       || new Set(symbols.value).size !== symbols.value.length) return '请选择 1–10 个不同的六位资产代码。'
+    if (!strategies.value.length) return '策略目录尚未加载，暂无法判断是否支持模拟配置。'
     if (!availableStrategies.value.some(item => item.id === strategyId.value)) return '当前所选策略尚不支持模拟配置。请选择列表中支持模拟的传统策略或多资产组合模型。'
     if (parameterForm.parameterError.value) return parameterForm.parameterError.value
     if (typeof initialCapitalCny.value !== 'number' || !Number.isFinite(initialCapitalCny.value) || initialCapitalCny.value <= 0) return '初始资金必须为正数。'

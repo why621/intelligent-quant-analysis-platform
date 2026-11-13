@@ -3,6 +3,7 @@ import test from 'node:test'
 import { ref } from 'vue'
 import { useBacktest } from '../src/dashboard/use-backtest.js'
 import { useCorrelation } from '../src/dashboard/use-correlation.js'
+import { formatParameters } from '../src/dashboard/common.js'
 
 const published = () => ref({ status: 'stale', latestTradeDate: '2026-09-07',
   components: { history: { status: 'ready' }, overview: { status: 'failed' } } })
@@ -294,6 +295,19 @@ test('equity chart compares returns at the same base despite different source un
   ] })
   assert.equal(noBenchmark.series.length, 1)
   assert.deepEqual(noBenchmark.legend.data, ['策略净值'])
+})
+
+test('parameter text uses complete Chinese labels instead of raw JSON', () => {
+  assert.equal(formatParameters({ longWindow: 20, shortWindow: 5 }), '长期均线：20 · 短期均线：5')
+  assert.equal(formatParameters({ lookback: 10, overboughtThreshold: 5, oversoldThreshold: -5 }),
+    '回看周期：10 · 超买阈值：5 · 超卖阈值：-5')
+})
+
+test('parameter text handles empty, unknown and nested values without broken punctuation', () => {
+  assert.equal(formatParameters({}), '默认参数')
+  assert.equal(formatParameters(null), '未记录')
+  assert.equal(formatParameters({ customKey: 'value', flag: false, nested: { count: 2 } }),
+    'customKey：value · flag：否 · nested：count：2')
 })
 
 

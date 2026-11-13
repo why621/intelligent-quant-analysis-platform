@@ -1,8 +1,36 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { useMarket } from '../src/dashboard/use-market.js'
+import { ApiError } from '../src/services/api.js'
 
 const snapshot = { tradeDate: '2026-09-04', advancing: 42, indices: [] }
+
+test('connection details retain individual failures and clear after valid responses recover', async () => {
+  const client=makeClient()
+  client.getDataStatus=async()=>{throw new ApiError('offline',{code:'NETWORK_ERROR'})}
+  client.getStrategies=async()=>{throw new ApiError('denied',{status:403})}
+  const state=useMarket(client);await state.initialise()
+  assert.equal(state.interfaceStatus.value[0].code,'NETWORK_ERROR')
+  assert.equal(state.interfaceStatus.value[1].state,'ready')
+  assert.match(state.interfaceStatus.value[3].message,/访问被拒绝/)
+  assert.equal(state.assetCatalog.value[0].symbol,'510300')
+  client.getDataStatus=async()=>({status:'ready',assetCount:1,latestTradeDate:'2026-09-04'})
+  client.getStrategies=async()=>({items:[{id:'ma_cross'}]})
+  client.getMarketOverview=async()=>snapshot
+  await state.initialise()
+  assert.equal(state.connection.live,true)
+  assert.equal(state.market.value.advancing,42)
+  assert.equal(state.dataStatus.value.latestTradeDate,'2026-09-04')
+  assert.ok(state.interfaceStatus.value.every(item=>item.state==='ready'&&!item.code))
+})
+
+test('malformed publication is a response error, not a fabricated network failure', async () => {
+  const client=makeClient();client.getDataStatus=async()=>({status:'unknown'})
+  const state=useMarket(client);await state.initialise()
+  assert.equal(state.interfaceStatus.value[0].code,'INVALID_RESPONSE')
+  assert.match(state.interfaceStatus.value[0].message,/格式/)
+  assert.equal(state.connection.loading,false)
+})
 
 test('unloaded or failed strategy catalog never exposes placeholder strategies as available', async () => {
   const client = makeClient()
